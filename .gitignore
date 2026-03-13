@@ -1,0 +1,81 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+bin/
+olb
+olb-*
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+coverage.out
+coverage.html
+*.cover
+*.cov
+
+# Dependency directories
+vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Local config files that should not be committed
+*.local.yaml
+*.local.json
+*.local.toml
+
+# Log files
+*.log
+logs/
+/var/log/olb/
+
+# Runtime files
+/var/run/olb/
+/var/lib/olb/
+
+# Profiling output
+*.prof
+*.pprof
+cpu.out
+mem.out
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+dist/
+build/
+
+# TLS certificates (local dev only)
+*.pem
+*.key
+*.crt
+certs/local/
+
+# Database files
+*.db
+*.sqlite
+
+# OS specific
+Thumbs.db
+Desktop.ini

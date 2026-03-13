@@ -1,0 +1,119 @@
+# OpenLoadBalancer
+
+> A zero-dependency, production-grade load balancer written in Go using only the standard library.
+
+## What is OpenLoadBalancer?
+
+OpenLoadBalancer (OLB) is a high-performance Layer 4 (TCP/UDP) and Layer 7 (HTTP/HTTPS/gRPC/WebSocket) load balancer and reverse proxy. It's designed as a single static binary with zero external dependencies, making it ideal for environments where simplicity and reliability are paramount.
+
+## Key Characteristics
+
+- **Language**: Go 1.23+ (stdlib only, single external exception for x/net and x/crypto)
+- **Architecture**: Modular, event-driven, hot-reloadable
+- **Deployment**: Single binary, Docker, Kubernetes
+- **Configuration**: YAML/JSON/TOML with environment variable substitution
+- **Observability**: Built-in metrics, logs, and Web UI (no external dependencies)
+
+## For LLMs/AI Assistants
+
+When working with this codebase:
+
+1. **Zero Dependencies**: Do not add external packages. Use stdlib only.
+2. **Hot Reload**: Design for runtime configuration changes without restart
+3. **Observability**: Every component should expose metrics and structured logging
+4. **Error Handling**: Use wrapped errors with context, sentinel errors for well-known conditions
+5. **Testing**: Unit tests for all packages, benchmarks for hot paths
+6. **Documentation**: Comprehensive GoDoc for all public APIs
+
+## Project Structure
+
+```
+cmd/olb/              # Main entry point
+internal/             # Private implementation
+  engine/             # Core orchestration
+  listener/           # Network listeners
+  conn/               # Connection management
+  proxy/l7, l4/       # Protocol proxies
+  router/             # Request routing
+  balancer/           # LB algorithms (12 types)
+  backend/            # Backend management
+  health/             # Health checking
+  middleware/         # Middleware components
+  tls/                # TLS/ACME
+  config/             # Config parsing (YAML/JSON/TOML)
+  metrics/            # Metrics engine
+  logging/            # Structured logger
+  admin/              # Admin API
+  webui/              # Web UI (embedded)
+  cli/                # CLI commands
+  cluster/            # Raft/gossip clustering
+  mcp/                # MCP server for AI
+pkg/                  # Public libraries
+  version/            # Version info
+  utils/              # Utilities
+configs/              # Example configs
+docs/                 # Documentation
+test/                 # Integration tests
+```
+
+## Build Commands
+
+```bash
+# Build binary
+make build
+
+# Run tests
+make test
+
+# Run all checks
+make check
+
+# Build for all platforms
+make build-all
+
+# Docker build
+make docker
+```
+
+## Configuration Example
+
+```yaml
+listeners:
+  - name: http
+    address: ":80"
+    routes:
+      - path: /
+        pool: backend
+
+pools:
+  - name: backend
+    health_check:
+      path: /health
+      interval: 10s
+    backends:
+      - address: "10.0.1.10:8080"
+        weight: 100
+      - address: "10.0.1.11:8080"
+        weight: 100
+```
+
+## Development Status
+
+- Phase 1: Core L7 Proxy (MVP) - In Progress
+- Phase 2: Advanced Features (TLS, clustering)
+- Phase 3: Web UI and MCP
+
+## API Surface
+
+The admin API exposes endpoints for:
+- `/health` - Health status
+- `/metrics` - Prometheus-compatible metrics
+- `/config` - Configuration management
+- `/backends` - Backend management
+- `/stats` - Real-time statistics
+
+## Contact
+
+- Repository: https://github.com/openloadbalancer/olb
+- Issues: https://github.com/openloadbalancer/olb/issues
+- Author: Ersin Koç / ECOSTACK TECHNOLOGY OÜ
