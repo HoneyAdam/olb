@@ -3,6 +3,7 @@ package metrics
 import (
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 )
 
@@ -141,24 +142,29 @@ func escapeHelp(s string) string {
 	return s
 }
 
-// formatLabels formats labels as a Prometheus label string.
+// formatLabels formats labels as a Prometheus label string with sorted keys.
 func formatLabels(labels map[string]string) string {
 	if len(labels) == 0 {
 		return ""
 	}
 
+	// Sort keys for deterministic output
+	keys := make([]string, 0, len(labels))
+	for k := range labels {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
 	var b strings.Builder
 	b.WriteByte('{')
-	first := true
-	for k, v := range labels {
-		if !first {
+	for i, k := range keys {
+		if i > 0 {
 			b.WriteByte(',')
 		}
-		first = false
 		b.WriteString(k)
 		b.WriteByte('=')
 		b.WriteByte('"')
-		b.WriteString(escapeLabel(v))
+		b.WriteString(escapeLabel(labels[k]))
 		b.WriteByte('"')
 	}
 	b.WriteByte('}')
