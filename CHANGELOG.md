@@ -156,6 +156,55 @@ Total: 12 load balancing algorithms with 16 name aliases
 - **PEM Encoding** - Certificate and key encoding utilities
 - **Staging Detection** - Let's Encrypt staging environment support
 
+#### Phase 3.11: OCSP Stapling
+- **OCSP Response Caching** - In-memory cache with configurable TTL
+- **Background Refresh** - Automatic periodic refresh of OCSP responses
+- **POST and GET Support** - RFC 6960 compliant request methods
+- **Must-Staple Detection** - Check for OCSP Must-Staple extension
+- **Cache Statistics** - Total, valid, and expired response counts
+- **Fallback Support** - Return cached response even if expired
+- **PEM Encoding** - OCSP request/response PEM utilities
+
+#### Phase 3.12: mTLS Support
+- **Client Certificate Validation** - Full chain verification with intermediates
+- **CA Certificate Loading** - Load from files or directories
+- **Upstream mTLS** - OLB → backend mutual TLS authentication
+- **Per-Listener/Backend Config** - Flexible mTLS policies per endpoint
+- **Client Auth Policies** - 5 levels from optional to required+verified
+- **CRL and OCSP Support** - Certificate revocation checking
+- **Certificate Info Extraction** - Client cert details for logging
+
+#### Phase 3.13: `olb top` TUI Dashboard
+- **Terminal UI Engine** - Raw terminal mode with ANSI escape codes
+- **Box Drawing** - Unicode box characters for borders
+- **Progress Bars/Gauges** - Visual metrics with color support
+- **Table Component** - Backend and route listings
+- **Keyboard Input** - q/b/r/m/o shortcuts for navigation
+- **Live Metrics** - 1-second refresh from admin API
+- **Multiple Views** - Overview, backends, routes, metrics
+- **Double Buffering** - Efficient flicker-free screen updates
+- **Cross-Platform** - Unix (termios) and Windows support
+
+#### Phase 3.15: Advanced CLI Commands
+- **Backend Commands** - add, remove, drain, enable, disable, stats
+- **Route Commands** - add, remove, test
+- **Certificate Commands** - list, add, remove, renew, info
+- **Metrics Commands** - show, export
+- **Config Commands** - show, diff, validate
+- **Shell Completions** - bash, zsh, fish support
+
+#### Phase 3.1-3.9: Web UI
+- **SPA Framework** - Vanilla JS router, state management, components
+- **CSS Design System** - Dark/light theme, CSS variables, responsive grid
+- **Dashboard Page** - Live metrics, sparklines, gauges, backend health
+- **Backends Page** - Pool management, health checks, statistics
+- **Routes Page** - Route table, testing tool, metrics
+- **Metrics Page** - Time-series charts, explorer, export
+- **Logs Page** - Real-time stream, search, filters
+- **Config Page** - YAML viewer, diff, validation
+- **Certificates Page** - Inventory, expiry warnings, ACME status
+- **WebSocket** - Real-time updates for all pages
+
 ## [0.1.0] - 2026-03-14
 
 ### Added - Phase 1: Core L7 Proxy MVP

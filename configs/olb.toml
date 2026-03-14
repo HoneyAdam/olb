@@ -1,0 +1,252 @@
+# OpenLoadBalancer Full Configuration Example (TOML)
+# This is a comprehensive configuration demonstrating all features.
+# Functionally equivalent to olb.yaml.
+
+version = 1
+
+# ---------------------------------------------------------------------------
+# Global settings
+# ---------------------------------------------------------------------------
+[global]
+
+  # Worker settings
+  [global.workers]
+  count = "auto"  # "auto" = number of CPUs
+
+  # Connection limits
+  [global.limits]
+  max_connections            = 10000
+  max_connections_per_source = 100
+  max_connections_per_backend = 1000
+
+  # Timeouts (duration strings)
+  [global.timeouts]
+  read   = "30s"
+  write  = "30s"
+  idle   = "120s"
+  header = "10s"
+  drain  = "30s"
+
+# ---------------------------------------------------------------------------
+# Admin API configuration
+# ---------------------------------------------------------------------------
+[admin]
+enabled = true
+address = "127.0.0.1:8081"
+
+  [admin.auth]
+  type     = "basic"
+  username = "admin"
+  # Password is "admin123" hashed with bcrypt
+  password = "$2a$10$N9qo8uLOickgx2ZMRZoMy.Mqrq3L3eA9XTO7ZlJ9ZPxQN0LBW4sXK"
+
+# ---------------------------------------------------------------------------
+# Metrics configuration
+# ---------------------------------------------------------------------------
+[metrics]
+enabled = true
+path    = "/metrics"
+
+# ---------------------------------------------------------------------------
+# Listeners
+# ---------------------------------------------------------------------------
+
+# HTTP listener on port 8080
+[[listeners]]
+name     = "http"
+protocol = "http"
+address  = ":8080"
+
+  # API routes with specific backend
+  [[listeners.routes]]
+  name    = "api"
+  host    = "api.example.com"
+  path    = "/api/"
+  methods = ["GET", "POST", "PUT", "DELETE"]
+  pool    = "api-backend"
+
+  # Static file serving (direct backend)
+  [[listeners.routes]]
+  name = "static"
+  host = "static.example.com"
+  path = "/files/"
+  pool = "static-backend"
+
+  # Default route for everything else
+  [[listeners.routes]]
+  name = "default"
+  path = "/"
+  pool = "web-backend"
+
+    [[listeners.routes.middleware]]
+    name = "rate_limit"
+
+      [listeners.routes.middleware.config]
+      requests_per_second = 100
+      burst_size          = 200
+
+# HTTPS listener on port 8443
+[[listeners]]
+name     = "https"
+protocol = "https"
+address  = ":8443"
+
+  [listeners.tls]
+  cert_file = "/etc/olb/certs/server.crt"
+  key_file  = "/etc/olb/certs/server.key"
+
+  [[listeners.routes]]
+  name = "secure-api"
+  path = "/"
+  pool = "api-backend"
+
+# ---------------------------------------------------------------------------
+# Backend pools with different algorithms
+# ---------------------------------------------------------------------------
+
+# Web pool - round robin for general traffic
+[[pools]]
+name      = "web-backend"
+algorithm = "round_robin"
+
+  [pools.health_check]
+  type                = "http"
+  path                = "/health"
+  interval            = "10s"
+  timeout             = "5s"
+  healthy_threshold   = 2
+  unhealthy_threshold = 3
+
+  [[pools.backends]]
+  id      = "web-1"
+  address = "10.0.1.10:8080"
+  weight  = 1
+
+  [[pools.backends]]
+  id      = "web-2"
+  address = "10.0.1.11:8080"
+  weight  = 1
+
+  [[pools.backends]]
+  id      = "web-3"
+  address = "10.0.1.12:8080"
+  weight  = 1
+
+# API pool - weighted round robin for API servers
+[[pools]]
+name      = "api-backend"
+algorithm = "weighted_round_robin"
+
+  [pools.health_check]
+  type            = "http"
+  path            = "/api/health"
+  interval        = "5s"
+  timeout         = "3s"
+  expected_status = 200
+
+  [[pools.backends]]
+  id      = "api-1"
+  address = "10.0.2.10:8080"
+  weight  = 3  # More capacity
+
+  [[pools.backends]]
+  id      = "api-2"
+  address = "10.0.2.11:8080"
+  weight  = 2
+
+# Static files pool - least connections for large files
+[[pools]]
+name      = "static-backend"
+algorithm = "round_robin"
+
+  [pools.health_check]
+  type     = "tcp"
+  interval = "10s"
+  timeout  = "5s"
+
+  [[pools.backends]]
+  id      = "static-1"
+  address = "10.0.3.10:8080"
+
+# ---------------------------------------------------------------------------
+# Middleware configuration
+# ---------------------------------------------------------------------------
+
+# Request ID injection
+[[middleware]]
+name    = "request_id"
+enabled = true
+
+  [middleware.config]
+  header_name    = "X-Request-ID"
+  trust_incoming = false
+
+# Real IP extraction
+[[middleware]]
+name    = "real_ip"
+enabled = true
+
+  [middleware.config]
+  trusted_proxies = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+
+# CORS handling
+[[middleware]]
+name    = "cors"
+enabled = true
+
+  [middleware.config]
+  allowed_origins = ["*"]
+  allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  allowed_headers = ["Content-Type", "Authorization", "X-Request-ID"]
+  max_age         = 3600
+
+# Security headers
+[[middleware]]
+name    = "headers"
+enabled = true
+
+  [middleware.config]
+  security_preset = "strict"
+
+    [middleware.config.response_set]
+    X-Frame-Options        = "DENY"
+    X-Content-Type-Options = "nosniff"
+
+# Compression
+[[middleware]]
+name    = "compression"
+enabled = true
+
+  [middleware.config]
+  min_size = 1024
+  level    = "default"  # -1 = default compression
+
+# Access logging
+[[middleware]]
+name    = "access_log"
+enabled = true
+
+  [middleware.config]
+  format = "json"
+  output = "/var/log/olb/access.log"
+
+# Metrics collection
+[[middleware]]
+name    = "metrics"
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Logging configuration
+# ---------------------------------------------------------------------------
+[logging]
+level  = "info"
+output = "stdout"
+format = "json"
+
+# File output (optional)
+# [logging.file]
+# path        = "/var/log/olb/olb.log"
+# max_size    = "100MB"
+# max_backups = 5
+# max_age     = 30
+# compress    = true

@@ -29,6 +29,27 @@ var Commands = []Command{
 	&ConfigCommand{},
 	&BackendCommand{},
 	&HealthCommand{},
+	// Advanced CLI commands (Phase 3.15)
+	&BackendAddCommand{},
+	&BackendRemoveCommand{},
+	&BackendDrainCommand{},
+	&BackendEnableCommand{},
+	&BackendDisableCommand{},
+	&BackendStatsCommand{},
+	&RouteAddCommand{},
+	&RouteRemoveCommand{},
+	&RouteTestCommand{},
+	&CertListCommand{},
+	&CertAddCommand{},
+	&CertRemoveCommand{},
+	&CertRenewCommand{},
+	&CertInfoCommand{},
+	&MetricsShowCommand{},
+	&MetricsExportCommand{},
+	&ConfigShowCommand{},
+	&ConfigDiffCommand{},
+	&ConfigValidateCommand{},
+	&CompletionCommand{},
 }
 
 // FindCommand finds a command by name.

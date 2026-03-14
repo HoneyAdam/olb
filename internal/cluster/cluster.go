@@ -108,6 +108,10 @@ type Cluster struct {
 	// Callbacks
 	onStateChange func(State, State)
 	onLeaderElected func(string)
+
+	// Membership change tracking (joint consensus)
+	memberMu   sync.RWMutex
+	membership membershipConfig
 }
 
 // StateMachine is the interface for the replicated state machine.
