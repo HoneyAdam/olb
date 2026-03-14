@@ -7,10 +7,10 @@ import (
 
 func TestNewRingBuffer(t *testing.T) {
 	tests := []struct {
-		name        string
-		capacity    int
-		wantCap     int
-		wantErr     bool
+		name     string
+		capacity int
+		wantCap  int
+		wantErr  bool
 	}{
 		{"exact power of 2", 1024, 1024, false},
 		{"round up 1000", 1000, 1024, false},

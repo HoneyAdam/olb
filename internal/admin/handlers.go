@@ -48,12 +48,12 @@ type BackendInfo struct {
 
 // Helper type for extended pool info
 type PoolInfo struct {
-	Name        string            `json:"name"`
-	Algorithm   string            `json:"algorithm"`
-	Backends    []BackendInfo     `json:"backends"`
-	Total       int               `json:"total"`
-	Healthy     int               `json:"healthy"`
-	HealthCheck *HealthCheckInfo  `json:"health_check,omitempty"`
+	Name        string           `json:"name"`
+	Algorithm   string           `json:"algorithm"`
+	Backends    []BackendInfo    `json:"backends"`
+	Total       int              `json:"total"`
+	Healthy     int              `json:"healthy"`
+	HealthCheck *HealthCheckInfo `json:"health_check,omitempty"`
 }
 
 // HealthCheckInfo contains health check configuration.

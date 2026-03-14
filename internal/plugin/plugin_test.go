@@ -78,7 +78,7 @@ type mockBalancer struct {
 	name string
 }
 
-func (b *mockBalancer) Name() string           { return b.name }
+func (b *mockBalancer) Name() string        { return b.name }
 func (b *mockBalancer) Next(_ []string) int { return 0 }
 
 // --------------------------------------------------------------------------
@@ -100,10 +100,10 @@ type mockDiscoveryProvider struct {
 	name string
 }
 
-func (d *mockDiscoveryProvider) Name() string                          { return d.name }
-func (d *mockDiscoveryProvider) Discover(_ string) ([]string, error)  { return nil, nil }
+func (d *mockDiscoveryProvider) Name() string                            { return d.name }
+func (d *mockDiscoveryProvider) Discover(_ string) ([]string, error)     { return nil, nil }
 func (d *mockDiscoveryProvider) Watch(_ string) (<-chan []string, error) { return nil, nil }
-func (d *mockDiscoveryProvider) Stop() error                          { return nil }
+func (d *mockDiscoveryProvider) Stop() error                             { return nil }
 
 // --------------------------------------------------------------------------
 // Tests: PluginManager creation & config defaults

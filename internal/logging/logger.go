@@ -137,11 +137,11 @@ func Any(key string, value interface{}) Field {
 
 // Logger is a structured logger with high-performance output.
 type Logger struct {
-	level   atomic.Int32
-	output  Output
-	fields  []Field
-	mu      sync.RWMutex
-	name    string
+	level  atomic.Int32
+	output Output
+	fields []Field
+	mu     sync.RWMutex
+	name   string
 }
 
 // Output is the interface for log outputs.

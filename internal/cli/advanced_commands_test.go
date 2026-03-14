@@ -98,10 +98,10 @@ func newAdvancedTestServer() *httptest.Server {
 	mux.HandleFunc("/api/v1/routes/test", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			result := map[string]interface{}{
-				"path":        r.URL.Query().Get("path"),
-				"backend":     "api",
-				"matched":     true,
-				"priority":    100,
+				"path":     r.URL.Query().Get("path"),
+				"backend":  "api",
+				"matched":  true,
+				"priority": 100,
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(result)
@@ -871,11 +871,11 @@ func TestParseIntDefault(t *testing.T) {
 		default_ int
 		expected int
 	}{
-		{"", 10, 10},      // empty string returns default
-		{"5", 10, 5},      // valid number
-		{"abc", 10, 10},   // invalid number returns default
-		{"0", 10, 0},      // zero is valid
-		{"-5", 10, -5},    // negative number
+		{"", 10, 10},    // empty string returns default
+		{"5", 10, 5},    // valid number
+		{"abc", 10, 10}, // invalid number returns default
+		{"0", 10, 0},    // zero is valid
+		{"-5", 10, -5},  // negative number
 	}
 
 	for _, tt := range tests {
@@ -1812,9 +1812,9 @@ func TestParseIntDefault_EdgeCases(t *testing.T) {
 		default_ int
 		expected int
 	}{
-		{"9223372036854775807", 0, 0}, // max int64 (will fail to parse on 32-bit)
+		{"9223372036854775807", 0, 0},  // max int64 (will fail to parse on 32-bit)
 		{"-9223372036854775808", 0, 0}, // min int64 (will fail to parse on 32-bit)
-		{"  42  ", 0, 0},                // whitespace (will fail)
+		{"  42  ", 0, 0},               // whitespace (will fail)
 		{"42abc", 0, 0},                // trailing characters (will fail)
 		{"abc42", 0, 0},                // leading characters (will fail)
 	}

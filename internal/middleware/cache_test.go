@@ -687,8 +687,8 @@ func TestCacheMiddleware_RespectCacheControlDisabled(t *testing.T) {
 
 func TestCacheMiddleware_CachedResponseHeaders(t *testing.T) {
 	backend := testHandler(200, "with-headers", nil, map[string]string{
-		"Content-Type":   "application/json",
-		"X-Custom":       "value",
+		"Content-Type": "application/json",
+		"X-Custom":     "value",
 	})
 	cache := NewCacheMiddleware(DefaultCacheConfig())
 	handler := cache.Wrap(backend)

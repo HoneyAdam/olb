@@ -717,8 +717,8 @@ func TestParseGlobalFlags_Mixed(t *testing.T) {
 
 func TestNewFormatter(t *testing.T) {
 	tests := []struct {
-		name      string
-		wantErr   bool
+		name        string
+		wantErr     bool
 		errContains string
 	}{
 		{"json", false, ""},

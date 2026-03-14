@@ -93,21 +93,21 @@ type Result struct {
 
 // Checker performs health checks for backends.
 type Checker struct {
-	mu        sync.RWMutex
-	checks    map[string]*checkState // backend ID -> check state
-	stopCh    chan struct{}
-	wg        sync.WaitGroup
+	mu     sync.RWMutex
+	checks map[string]*checkState // backend ID -> check state
+	stopCh chan struct{}
+	wg     sync.WaitGroup
 }
 
 // checkState holds the state for a single backend's health check.
 type checkState struct {
-	backend    *backend.Backend
-	config     *Check
-	status     Status
-	consecutiveOK    int
-	consecutiveFail  int
-	lastResult       *Result
-	mu               sync.RWMutex
+	backend         *backend.Backend
+	config          *Check
+	status          Status
+	consecutiveOK   int
+	consecutiveFail int
+	lastResult      *Result
+	mu              sync.RWMutex
 }
 
 // NewChecker creates a new health checker.

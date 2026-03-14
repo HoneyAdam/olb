@@ -114,25 +114,25 @@ type Provider interface {
 
 // baseProvider provides common functionality for all providers.
 type baseProvider struct {
-	name     string
+	name         string
 	providerType ProviderType
-	config   *ProviderConfig
-	services map[string]*Service
-	events   chan *Event
-	mu       sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	wg       sync.WaitGroup
+	config       *ProviderConfig
+	services     map[string]*Service
+	events       chan *Event
+	mu           sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 // newBaseProvider creates a new base provider.
 func newBaseProvider(name string, providerType ProviderType, config *ProviderConfig) *baseProvider {
 	return &baseProvider{
-		name:     name,
+		name:         name,
 		providerType: providerType,
-		config:   config,
-		services: make(map[string]*Service),
-		events:   make(chan *Event, 100),
+		config:       config,
+		services:     make(map[string]*Service),
+		events:       make(chan *Event, 100),
 	}
 }
 

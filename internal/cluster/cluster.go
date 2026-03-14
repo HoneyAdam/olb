@@ -64,10 +64,10 @@ func (c *Config) Validate() error {
 
 // Node represents a node in the cluster.
 type Node struct {
-	ID        string `json:"id"`
-	Address   string `json:"address"`
-	LastSeen  time.Time `json:"last_seen"`
-	IsLeader  bool `json:"is_leader"`
+	ID       string    `json:"id"`
+	Address  string    `json:"address"`
+	LastSeen time.Time `json:"last_seen"`
+	IsLeader bool      `json:"is_leader"`
 }
 
 // LogEntry represents a log entry in the Raft log.
@@ -80,21 +80,21 @@ type LogEntry struct {
 
 // Cluster manages the cluster state and Raft consensus.
 type Cluster struct {
-	config     *Config
-	state      atomic.Value // State
+	config      *Config
+	state       atomic.Value // State
 	currentTerm atomic.Uint64
-	votedFor   atomic.Value // string
-	leaderID   atomic.Value // string
+	votedFor    atomic.Value // string
+	leaderID    atomic.Value // string
 
 	// Log management
-	log      []*LogEntry
-	logMu    sync.RWMutex
+	log         []*LogEntry
+	logMu       sync.RWMutex
 	commitIndex atomic.Uint64
 	lastApplied atomic.Uint64
 
 	// Cluster membership
-	nodes    map[string]*Node
-	nodesMu  sync.RWMutex
+	nodes   map[string]*Node
+	nodesMu sync.RWMutex
 
 	// Channels
 	electionTimer  *time.Timer
@@ -106,7 +106,7 @@ type Cluster struct {
 	stateMachine StateMachine
 
 	// Callbacks
-	onStateChange func(State, State)
+	onStateChange   func(State, State)
 	onLeaderElected func(string)
 
 	// Membership change tracking (joint consensus)

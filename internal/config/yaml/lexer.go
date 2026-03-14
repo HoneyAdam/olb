@@ -24,28 +24,28 @@ const (
 	TokenNull
 
 	// Punctuation
-	TokenColon      // :
-	TokenDash       // -
-	TokenComma      // ,
-	TokenLBrace     // {
-	TokenRBrace     // }
-	TokenLBracket   // [
-	TokenRBracket   // ]
-	TokenPipe       // |
-	TokenGreater    // >
-	TokenAmpersand  // & (anchor)
-	TokenAsterisk   // * (alias)
-	TokenExclaim    // ! (tag)
-	TokenHash       // # (comment start)
-	TokenQuestion   // ? (complex key)
-	TokenAt         // @ (reserved)
-	TokenBacktick   // ` (reserved)
+	TokenColon     // :
+	TokenDash      // -
+	TokenComma     // ,
+	TokenLBrace    // {
+	TokenRBrace    // }
+	TokenLBracket  // [
+	TokenRBracket  // ]
+	TokenPipe      // |
+	TokenGreater   // >
+	TokenAmpersand // & (anchor)
+	TokenAsterisk  // * (alias)
+	TokenExclaim   // ! (tag)
+	TokenHash      // # (comment start)
+	TokenQuestion  // ? (complex key)
+	TokenAt        // @ (reserved)
+	TokenBacktick  // ` (reserved)
 
 	// Special
-	TokenTag        // !tag
-	TokenAnchor     // &anchor
-	TokenAlias      // *alias
-	TokenComment    // # comment
+	TokenTag     // !tag
+	TokenAnchor  // &anchor
+	TokenAlias   // *alias
+	TokenComment // # comment
 )
 
 // String returns the token type name.
@@ -80,26 +80,26 @@ func (t Token) String() string {
 
 // Lexer tokenizes YAML input.
 type Lexer struct {
-	input  string
-	pos    int
+	input   string
+	pos     int
 	readPos int
-	ch     byte
-	line   int
-	col    int
+	ch      byte
+	line    int
+	col     int
 
 	// Indentation tracking
-	indentStack []int
-	lastIndent  int
+	indentStack    []int
+	lastIndent     int
 	pendingDedents int // Number of DEDENT tokens to emit
 }
 
 // NewLexer creates a new YAML lexer.
 func NewLexer(input string) *Lexer {
 	l := &Lexer{
-		input:       input,
-		line:        1,
-		col:         0,
-		indentStack: []int{0},
+		input:          input,
+		line:           1,
+		col:            0,
+		indentStack:    []int{0},
 		pendingDedents: 0,
 	}
 	l.readChar()

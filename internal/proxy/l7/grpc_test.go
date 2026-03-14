@@ -282,7 +282,7 @@ func TestCopyGRPCHeaders(t *testing.T) {
 	src := http.Header{
 		"Content-Type": []string{"application/grpc"},
 		"X-Custom":     []string{"value"},
-		"Connection":   []string{"keep-alive"}, // hop-by-hop, should be skipped
+		"Connection":   []string{"keep-alive"},  // hop-by-hop, should be skipped
 		"Trailer":      []string{"grpc-status"}, // trailer header, should be skipped
 	}
 

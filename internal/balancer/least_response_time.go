@@ -148,7 +148,7 @@ func (l *LeastResponseTime) Next(backends []*backend.Backend) *backend.Backend {
 			if minAvg == -1 || 0 < minAvg {
 				minAvg = 0
 				selected = be
-				}
+			}
 			continue
 		}
 

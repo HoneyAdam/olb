@@ -81,8 +81,8 @@ func IsH2CRequest(r *http.Request) bool {
 
 // HTTP2Handler handles HTTP/2 proxying.
 type HTTP2Handler struct {
-	config    *HTTP2Config
-	transport *http.Transport
+	config      *HTTP2Config
+	transport   *http.Transport
 	h2Transport *http2.Transport
 }
 
@@ -195,19 +195,19 @@ func (h2p *HTTP2Proxy) handleHTTP2(w http.ResponseWriter, r *http.Request) {
 
 // HTTP2Listener is an HTTP listener with HTTP/2 support.
 type HTTP2Listener struct {
-	name      string
-	address   string
-	handler   http.Handler
-	server    *http.Server
-	h2Server  *http2.Server
-	listener  net.Listener
-	running   atomic.Bool
-	mu        sync.RWMutex
+	name     string
+	address  string
+	handler  http.Handler
+	server   *http.Server
+	h2Server *http2.Server
+	listener net.Listener
+	running  atomic.Bool
+	mu       sync.RWMutex
 
 	// Configuration
-	config     *HTTP2Config
-	tlsConfig  *tls.Config
-	startErr   error
+	config    *HTTP2Config
+	tlsConfig *tls.Config
+	startErr  error
 }
 
 // HTTP2ListenerOptions configures the HTTP/2 listener.
@@ -404,7 +404,7 @@ func (a *ALPNNegotiator) IsHTTP2(state *tls.ConnectionState) bool {
 
 // HTTP2BackendTransport creates an HTTP/2 transport for backend connections.
 type HTTP2BackendTransport struct {
-	config *HTTP2Config
+	config    *HTTP2Config
 	transport *http2.Transport
 }
 

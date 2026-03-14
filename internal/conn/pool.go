@@ -32,9 +32,9 @@ type Pool struct {
 	dialTimeout time.Duration
 
 	// Connections
-	idle     []*PooledConn
-	active   int
-	closed   bool
+	idle   []*PooledConn
+	active int
+	closed bool
 
 	// Statistics
 	hits   int64
@@ -188,25 +188,25 @@ func (p *Pool) Stats() PoolStats {
 	defer p.mu.Unlock()
 
 	return PoolStats{
-		BackendID:   p.backendID,
-		Address:     p.address,
-		Idle:        len(p.idle),
-		Active:      p.active,
-		MaxSize:     p.maxSize,
-		Hits:        p.hits,
-		Misses:      p.misses,
+		BackendID: p.backendID,
+		Address:   p.address,
+		Idle:      len(p.idle),
+		Active:    p.active,
+		MaxSize:   p.maxSize,
+		Hits:      p.hits,
+		Misses:    p.misses,
 	}
 }
 
 // PoolStats contains pool statistics.
 type PoolStats struct {
-	BackendID   string
-	Address     string
-	Idle        int
-	Active      int
-	MaxSize     int
-	Hits        int64
-	Misses      int64
+	BackendID string
+	Address   string
+	Idle      int
+	Active    int
+	MaxSize   int
+	Hits      int64
+	Misses    int64
 }
 
 // PooledConn is a connection that can be returned to a pool.
@@ -239,8 +239,8 @@ func (c *PooledConn) Close() error {
 
 // PoolManager manages connection pools for multiple backends.
 type PoolManager struct {
-	mu    sync.RWMutex
-	pools map[string]*Pool
+	mu     sync.RWMutex
+	pools  map[string]*Pool
 	config *PoolConfig
 }
 

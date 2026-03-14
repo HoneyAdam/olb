@@ -324,7 +324,7 @@ func TestPoolManagerLifecycle(t *testing.T) {
 
 	// Create pools
 	for i := 0; i < 5; i++ {
-		p := NewPool(string(rune('a' + i)), "roundrobin")
+		p := NewPool(string(rune('a'+i)), "roundrobin")
 		for j := 0; j < 3; j++ {
 			b := NewBackend(string(rune('a'+i))+"-"+string(rune('0'+j)), "127.0.0.1:8080")
 			b.SetState(StateUp)
@@ -372,7 +372,7 @@ func TestPoolManagerConcurrentAccess(t *testing.T) {
 
 	// Add initial pools
 	for i := 0; i < 5; i++ {
-		p := NewPool(string(rune('a' + i)), "roundrobin")
+		p := NewPool(string(rune('a'+i)), "roundrobin")
 		p.AddBackend(NewBackend("b1", "127.0.0.1:8080"))
 		pm.AddPool(p)
 	}
@@ -400,7 +400,7 @@ func TestPoolManagerConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			p := NewPool(string(rune('p' + id)), "roundrobin")
+			p := NewPool(string(rune('p'+id)), "roundrobin")
 			pm.AddPool(p)
 		}(i)
 	}

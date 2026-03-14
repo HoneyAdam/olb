@@ -18,17 +18,17 @@ type ErrorCallback func(path string, err error)
 
 // Watcher watches a config file for changes.
 type Watcher struct {
-	path      string
-	interval  time.Duration
-	callback  ChangeCallback
-	errback   ErrorCallback
+	path     string
+	interval time.Duration
+	callback ChangeCallback
+	errback  ErrorCallback
 
 	// internal state
-	mu       sync.RWMutex
-	hash     string
-	data     []byte
-	stopCh   chan struct{}
-	stopped  bool
+	mu      sync.RWMutex
+	hash    string
+	data    []byte
+	stopCh  chan struct{}
+	stopped bool
 }
 
 // NewWatcher creates a new file watcher.
@@ -120,7 +120,7 @@ func (w *Watcher) check() {
 		}
 	} else {
 		w.mu.Unlock()
-}
+	}
 }
 
 // hashBytes returns SHA-256 hash of data as hex string.

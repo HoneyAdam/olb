@@ -9,16 +9,16 @@ import (
 // weightedBackend holds the state for a backend in the weighted round-robin algorithm.
 // This implements the Nginx smooth weighted round-robin algorithm.
 type weightedBackend struct {
-	backend     *backend.Backend
-	weight      int32
+	backend       *backend.Backend
+	weight        int32
 	currentWeight int32
 }
 
 // WeightedRoundRobin implements a smooth weighted round-robin load balancing algorithm.
 // Based on the Nginx implementation for even distribution across weighted backends.
 type WeightedRoundRobin struct {
-	mu        sync.RWMutex
-	backends  map[string]*weightedBackend
+	mu       sync.RWMutex
+	backends map[string]*weightedBackend
 }
 
 // NewWeightedRoundRobin creates a new WeightedRoundRobin balancer.
@@ -56,8 +56,8 @@ func (wrr *WeightedRoundRobin) Next(backends []*backend.Backend) *backend.Backen
 		} else {
 			// Backend not in our state, add it with default weight
 			wb = &weightedBackend{
-				backend:     b,
-				weight:      b.Weight,
+				backend:       b,
+				weight:        b.Weight,
 				currentWeight: 0,
 			}
 			wrr.backends[b.ID] = wb
@@ -98,8 +98,8 @@ func (wrr *WeightedRoundRobin) Add(b *backend.Backend) {
 
 	if _, exists := wrr.backends[b.ID]; !exists {
 		wrr.backends[b.ID] = &weightedBackend{
-			backend:     b,
-			weight:      b.Weight,
+			backend:       b,
+			weight:        b.Weight,
 			currentWeight: 0,
 		}
 	}

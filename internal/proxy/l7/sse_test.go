@@ -13,44 +13,44 @@ import (
 
 func TestIsSSERequest(t *testing.T) {
 	tests := []struct {
-		name       string
-		accept     string
-		wantIsSSE  bool
+		name      string
+		accept    string
+		wantIsSSE bool
 	}{
 		{
-			name:       "SSE request",
-			accept:     "text/event-stream",
-			wantIsSSE:  true,
+			name:      "SSE request",
+			accept:    "text/event-stream",
+			wantIsSSE: true,
 		},
 		{
-			name:       "SSE with quality value",
-			accept:     "text/event-stream;q=0.9",
-			wantIsSSE:  true,
+			name:      "SSE with quality value",
+			accept:    "text/event-stream;q=0.9",
+			wantIsSSE: true,
 		},
 		{
-			name:       "Multiple types with SSE",
-			accept:     "text/html, text/event-stream, */*",
-			wantIsSSE:  true,
+			name:      "Multiple types with SSE",
+			accept:    "text/html, text/event-stream, */*",
+			wantIsSSE: true,
 		},
 		{
-			name:       "Regular HTTP request",
-			accept:     "text/html",
-			wantIsSSE:  false,
+			name:      "Regular HTTP request",
+			accept:    "text/html",
+			wantIsSSE: false,
 		},
 		{
-			name:       "JSON request",
-			accept:     "application/json",
-			wantIsSSE:  false,
+			name:      "JSON request",
+			accept:    "application/json",
+			wantIsSSE: false,
 		},
 		{
-			name:       "Empty accept",
-			accept:     "",
-			wantIsSSE:  false,
+			name:      "Empty accept",
+			accept:    "",
+			wantIsSSE: false,
 		},
 		{
-			name:       "Wildcard accept",
-			accept:     "*/*",
-			wantIsSSE:  false,
+			name:      "Wildcard accept",
+			accept:    "*/*",
+			wantIsSSE: false,
 		},
 	}
 
@@ -199,19 +199,19 @@ func TestSSEHandler_BackendMaxConnections(t *testing.T) {
 
 func TestParseSSEEvent(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      string
-		wantEvent  *SSEEvent
+		name      string
+		input     string
+		wantEvent *SSEEvent
 	}{
 		{
-			name: "Simple message",
+			name:  "Simple message",
 			input: "data: Hello\n\n",
 			wantEvent: &SSEEvent{
 				Data: []byte("Hello"),
 			},
 		},
 		{
-			name: "Message with event type",
+			name:  "Message with event type",
 			input: "event: update\ndata: Hello\n\n",
 			wantEvent: &SSEEvent{
 				Event: "update",
@@ -219,7 +219,7 @@ func TestParseSSEEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "Message with ID",
+			name:  "Message with ID",
 			input: "id: 123\ndata: Hello\n\n",
 			wantEvent: &SSEEvent{
 				ID:   "123",
@@ -227,7 +227,7 @@ func TestParseSSEEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "Message with retry",
+			name:  "Message with retry",
 			input: "retry: 5000\ndata: Hello\n\n",
 			wantEvent: &SSEEvent{
 				Data:  []byte("Hello"),
@@ -235,14 +235,14 @@ func TestParseSSEEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "Multi-line data",
+			name:  "Multi-line data",
 			input: "data: Hello\ndata: World\n\n",
 			wantEvent: &SSEEvent{
 				Data: []byte("Hello\nWorld"),
 			},
 		},
 		{
-			name: "Complete event",
+			name:  "Complete event",
 			input: "id: 123\nevent: update\ndata: Hello World\nretry: 5000\n\n",
 			wantEvent: &SSEEvent{
 				ID:    "123",
@@ -252,15 +252,15 @@ func TestParseSSEEvent(t *testing.T) {
 			},
 		},
 		{
-			name: "With comment",
+			name:  "With comment",
 			input: ": This is a comment\ndata: Hello\n\n",
 			wantEvent: &SSEEvent{
 				Data: []byte("Hello"),
 			},
 		},
 		{
-			name: "Empty data",
-			input: "\n",
+			name:      "Empty data",
+			input:     "\n",
 			wantEvent: &SSEEvent{},
 		},
 	}

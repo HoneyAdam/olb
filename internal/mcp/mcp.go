@@ -54,10 +54,10 @@ type Request struct {
 
 // Response represents a JSON-RPC 2.0 response.
 type Response struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id,omitempty"`
-	Result  interface{}     `json:"result,omitempty"`
-	Error   *ResponseError  `json:"error,omitempty"`
+	JSONRPC string         `json:"jsonrpc"`
+	ID      interface{}    `json:"id,omitempty"`
+	Result  interface{}    `json:"result,omitempty"`
+	Error   *ResponseError `json:"error,omitempty"`
 }
 
 // ResponseError represents a JSON-RPC 2.0 error.
@@ -78,9 +78,9 @@ type Tool struct {
 
 // InputSchema represents the JSON Schema for a tool's input parameters.
 type InputSchema struct {
-	Type       string                 `json:"type"`
-	Properties map[string]Property    `json:"properties,omitempty"`
-	Required   []string               `json:"required,omitempty"`
+	Type       string              `json:"type"`
+	Properties map[string]Property `json:"properties,omitempty"`
+	Required   []string            `json:"required,omitempty"`
 }
 
 // Property represents a JSON Schema property.
@@ -121,8 +121,8 @@ type PromptArgument struct {
 
 // PromptMessage represents a message in a prompt result.
 type PromptMessage struct {
-	Role    string         `json:"role"`
-	Content PromptContent  `json:"content"`
+	Role    string        `json:"role"`
+	Content PromptContent `json:"content"`
 }
 
 // PromptContent represents the content of a prompt message.
@@ -163,9 +163,9 @@ type BackendInfo struct {
 
 // LogEntry represents a single log entry.
 type LogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Level     string `json:"level"`
-	Message   string `json:"message"`
+	Timestamp string                 `json:"timestamp"`
+	Level     string                 `json:"level"`
+	Message   string                 `json:"message"`
 	Fields    map[string]interface{} `json:"fields,omitempty"`
 }
 
@@ -1067,11 +1067,11 @@ func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, err
 					}
 				}
 				findings = append(findings, map[string]interface{}{
-					"type":         "capacity_analysis",
-					"pool":         pool.Name,
-					"total":        total,
-					"healthy":      healthy,
-					"utilization":  fmt.Sprintf("%.0f%%", float64(healthy)/float64(max(total, 1))*100),
+					"type":        "capacity_analysis",
+					"pool":        pool.Name,
+					"total":       total,
+					"healthy":     healthy,
+					"utilization": fmt.Sprintf("%.0f%%", float64(healthy)/float64(max(total, 1))*100),
 				})
 			}
 		}

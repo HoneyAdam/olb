@@ -13,6 +13,9 @@ import (
 // maxSpliceSize is the maximum number of bytes to splice at once.
 const maxSpliceSize = 1 << 20 // 1MB
 
+// spliceMove is the SPLICE_F_MOVE flag value (not exported in Go's syscall package).
+const spliceMove = 1
+
 // zeroCopyTransfer attempts to use splice for zero-copy transfer on Linux.
 // It returns the number of bytes transferred and whether splice was used.
 func zeroCopyTransfer(dst, src net.Conn) (int64, bool, error) {
@@ -59,7 +62,7 @@ func zeroCopyTransfer(dst, src net.Conn) (int64, bool, error) {
 
 	for {
 		// Splice from source to pipe
-		n, err := syscall.Splice(srcFd, nil, pwFd, nil, maxSpliceSize, syscall.SPLICE_F_MOVE)
+		n, err := syscall.Splice(srcFd, nil, pwFd, nil, maxSpliceSize, spliceMove)
 		if err != nil {
 			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
 				continue
@@ -72,7 +75,7 @@ func zeroCopyTransfer(dst, src net.Conn) (int64, bool, error) {
 
 		// Splice from pipe to destination
 		for n > 0 {
-			n2, err := syscall.Splice(prFd, nil, dstFd, nil, int(n), syscall.SPLICE_F_MOVE)
+			n2, err := syscall.Splice(prFd, nil, dstFd, nil, int(n), spliceMove)
 			if err != nil {
 				if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
 					continue

@@ -190,7 +190,7 @@ func (m *RateLimitMiddleware) checkAndConsume(bucket *tokenBucket, now time.Time
 
 	// Calculate retry-after (time until 1 token is available)
 	tokensNeeded := 1.0 - bucket.tokens
-	retryAfter := time.Duration(tokensNeeded/m.config.RequestsPerSecond*float64(time.Second))
+	retryAfter := time.Duration(tokensNeeded / m.config.RequestsPerSecond * float64(time.Second))
 
 	// Ensure retry-after is at least 1 second
 	if retryAfter < time.Second {

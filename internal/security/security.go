@@ -129,13 +129,13 @@ func (s *SlowLorisProtection) ApplyToServer(srv *http.Server) {
 
 // Request smuggling errors.
 var (
-	ErrConflictingHeaders   = errors.New("security: conflicting Content-Length and Transfer-Encoding headers")
-	ErrDuplicateContentLen  = errors.New("security: duplicate Content-Length headers with different values")
-	ErrMalformedContentLen  = errors.New("security: malformed Content-Length value")
-	ErrNegativeContentLen   = errors.New("security: negative Content-Length value")
-	ErrHTTP10TransferEnc    = errors.New("security: Transfer-Encoding is not allowed in HTTP/1.0")
-	ErrChunkedNotFinal      = errors.New("security: chunked is not the final Transfer-Encoding")
-	ErrInvalidTransferEnc   = errors.New("security: invalid Transfer-Encoding value")
+	ErrConflictingHeaders  = errors.New("security: conflicting Content-Length and Transfer-Encoding headers")
+	ErrDuplicateContentLen = errors.New("security: duplicate Content-Length headers with different values")
+	ErrMalformedContentLen = errors.New("security: malformed Content-Length value")
+	ErrNegativeContentLen  = errors.New("security: negative Content-Length value")
+	ErrHTTP10TransferEnc   = errors.New("security: Transfer-Encoding is not allowed in HTTP/1.0")
+	ErrChunkedNotFinal     = errors.New("security: chunked is not the final Transfer-Encoding")
+	ErrInvalidTransferEnc  = errors.New("security: invalid Transfer-Encoding value")
 )
 
 // ValidateRequest inspects an HTTP request for indicators of request

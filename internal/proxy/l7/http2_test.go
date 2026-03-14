@@ -40,10 +40,10 @@ func TestDefaultHTTP2Config(t *testing.T) {
 
 func TestIsHTTP2Request(t *testing.T) {
 	tests := []struct {
-		name    string
-		proto   string
-		major   int
-		wantH2  bool
+		name   string
+		proto  string
+		major  int
+		wantH2 bool
 	}{
 		{
 			name:   "HTTP/2 request",
@@ -94,7 +94,7 @@ func TestIsH2CRequest(t *testing.T) {
 		{
 			name:       "h2c with settings",
 			h2Settings: "AAMAAABkAARAAAAAAAIAAAAA",
-			wantH2C:   true,
+			wantH2C:    true,
 		},
 		{
 			name:    "websocket upgrade",
@@ -157,10 +157,10 @@ func TestNewHTTP2Handler_NilConfig(t *testing.T) {
 
 func TestHTTP2Handler_GetTransport(t *testing.T) {
 	tests := []struct {
-		name       string
-		enableH2   bool
-		scheme     string
-		wantType   string
+		name     string
+		enableH2 bool
+		scheme   string
+		wantType string
 	}{
 		{
 			name:     "HTTP with HTTP/2 enabled",
@@ -205,10 +205,10 @@ func TestHTTP2Handler_WrapHandler(t *testing.T) {
 	})
 
 	tests := []struct {
-		name       string
-		enableH2   bool
-		enableH2C  bool
-		isWrapped  bool
+		name      string
+		enableH2  bool
+		enableH2C bool
+		isWrapped bool
 	}{
 		{
 			name:      "HTTP/2 and h2c enabled",
@@ -397,9 +397,9 @@ func TestHTTP2Listener_DoubleStart(t *testing.T) {
 
 func TestALPNNegotiator(t *testing.T) {
 	tests := []struct {
-		name        string
-		supportH2   bool
-		wantProtos  []string
+		name       string
+		supportH2  bool
+		wantProtos []string
 	}{
 		{
 			name:       "HTTP/2 supported",
@@ -448,9 +448,9 @@ func TestALPNNegotiator_IsHTTP2(t *testing.T) {
 	n := NewALPNNegotiator(true)
 
 	tests := []struct {
-		name     string
-		state    *tls.ConnectionState
-		wantH2   bool
+		name   string
+		state  *tls.ConnectionState
+		wantH2 bool
 	}{
 		{
 			name:   "HTTP/2 negotiated",
@@ -501,31 +501,31 @@ func TestNewHTTP2BackendTransport(t *testing.T) {
 
 func TestGetProtocolInfo(t *testing.T) {
 	tests := []struct {
-		name       string
-		proto      string
-		hasTLS     bool
-		alpn       string
+		name        string
+		proto       string
+		hasTLS      bool
+		alpn        string
 		wantVersion string
-		wantTLS    bool
-		wantALPN   string
+		wantTLS     bool
+		wantALPN    string
 	}{
 		{
-			name:       "HTTP/2 with TLS",
-			proto:      "HTTP/2.0",
-			hasTLS:     true,
-			alpn:       "h2",
+			name:        "HTTP/2 with TLS",
+			proto:       "HTTP/2.0",
+			hasTLS:      true,
+			alpn:        "h2",
 			wantVersion: "HTTP/2.0",
-			wantTLS:    true,
-			wantALPN:   "h2",
+			wantTLS:     true,
+			wantALPN:    "h2",
 		},
 		{
-			name:       "HTTP/1.1 without TLS",
-			proto:      "HTTP/1.1",
-			hasTLS:     false,
-			alpn:       "",
+			name:        "HTTP/1.1 without TLS",
+			proto:       "HTTP/1.1",
+			hasTLS:      false,
+			alpn:        "",
 			wantVersion: "HTTP/1.1",
-			wantTLS:    false,
-			wantALPN:   "",
+			wantTLS:     false,
+			wantALPN:    "",
 		},
 	}
 
@@ -556,10 +556,10 @@ func TestGetProtocolInfo(t *testing.T) {
 
 func TestIsProtocolUpgrade(t *testing.T) {
 	tests := []struct {
-		name      string
-		conn      string
-		upgrade   string
-		h2Settings string
+		name        string
+		conn        string
+		upgrade     string
+		h2Settings  string
 		wantUpgrade bool
 	}{
 		{

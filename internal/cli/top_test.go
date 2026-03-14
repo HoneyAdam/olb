@@ -210,8 +210,8 @@ func TestScreenGauge(t *testing.T) {
 // TestTruncate tests the truncate function.
 func TestTruncate(t *testing.T) {
 	tests := []struct {
-		input   string
-		maxLen  int
+		input    string
+		maxLen   int
 		expected string
 	}{
 		{"hello", 10, "hello"},
@@ -289,16 +289,16 @@ func TestColorCodes(t *testing.T) {
 // TestBoxDrawingCharacters tests that box drawing characters are defined.
 func TestBoxDrawingCharacters(t *testing.T) {
 	chars := map[string]rune{
-		"Horizontal":     BoxDrawingsLightHorizontal,
-		"Vertical":       BoxDrawingsLightVertical,
-		"DownAndRight":   BoxDrawingsLightDownAndRight,
-		"DownAndLeft":    BoxDrawingsLightDownAndLeft,
-		"UpAndRight":     BoxDrawingsLightUpAndRight,
-		"UpAndLeft":      BoxDrawingsLightUpAndLeft,
-		"VerticalAndRight": BoxDrawingsLightVerticalAndRight,
-		"VerticalAndLeft":  BoxDrawingsLightVerticalAndLeft,
-		"DownAndHorizontal": BoxDrawingsLightDownAndHorizontal,
-		"UpAndHorizontal":   BoxDrawingsLightUpAndHorizontal,
+		"Horizontal":            BoxDrawingsLightHorizontal,
+		"Vertical":              BoxDrawingsLightVertical,
+		"DownAndRight":          BoxDrawingsLightDownAndRight,
+		"DownAndLeft":           BoxDrawingsLightDownAndLeft,
+		"UpAndRight":            BoxDrawingsLightUpAndRight,
+		"UpAndLeft":             BoxDrawingsLightUpAndLeft,
+		"VerticalAndRight":      BoxDrawingsLightVerticalAndRight,
+		"VerticalAndLeft":       BoxDrawingsLightVerticalAndLeft,
+		"DownAndHorizontal":     BoxDrawingsLightDownAndHorizontal,
+		"UpAndHorizontal":       BoxDrawingsLightUpAndHorizontal,
 		"VerticalAndHorizontal": BoxDrawingsLightVerticalAndHorizontal,
 	}
 

@@ -394,8 +394,8 @@ func TestBinarySearch(t *testing.T) {
 		hash     uint32
 		expected int // We can't predict exact index, but we can verify it's valid
 	}{
-		{0, 0},                    // Should wrap to first node
-		{math.MaxUint32, 0},       // Should wrap to first node
+		{0, 0},                     // Should wrap to first node
+		{math.MaxUint32, 0},        // Should wrap to first node
 		{ch.ring.nodes[0].hash, 0}, // Exact match
 	}
 

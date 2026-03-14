@@ -19,8 +19,8 @@ import (
 // mockHijacker is a ResponseWriter that supports hijacking for testing.
 type mockHijacker struct {
 	*httptest.ResponseRecorder
-	conn   net.Conn
-	buf    *bytes.Buffer
+	conn     net.Conn
+	buf      *bytes.Buffer
 	hijacked bool
 }
 

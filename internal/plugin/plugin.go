@@ -116,13 +116,13 @@ type PluginInfo struct {
 
 // Built-in event topic constants.
 const (
-	EventConfigReload     = "config.reload"
-	EventBackendAdded     = "backend.added"
-	EventBackendRemoved   = "backend.removed"
+	EventConfigReload       = "config.reload"
+	EventBackendAdded       = "backend.added"
+	EventBackendRemoved     = "backend.removed"
 	EventBackendStateChange = "backend.state_change"
-	EventRouteAdded       = "route.added"
-	EventRouteRemoved     = "route.removed"
-	EventHealthCheckResult = "health.check_result"
+	EventRouteAdded         = "route.added"
+	EventRouteRemoved       = "route.removed"
+	EventHealthCheckResult  = "health.check_result"
 )
 
 // Event represents a published event.
@@ -309,9 +309,9 @@ type pluginEntry struct {
 type PluginManager struct {
 	mu sync.RWMutex
 
-	config  *config.Config
-	logger  *logging.Logger
-	metrics *metrics.Registry
+	config   *config.Config
+	logger   *logging.Logger
+	metrics  *metrics.Registry
 	eventBus *EventBus
 
 	managerConfig PluginManagerConfig

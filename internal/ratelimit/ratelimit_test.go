@@ -505,4 +505,3 @@ func BenchmarkLimiter_Allow(b *testing.B) {
 		}
 	})
 }
-

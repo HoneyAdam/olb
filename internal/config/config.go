@@ -21,19 +21,19 @@ type Config struct {
 
 // Listener represents an L4/L7 listener.
 type Listener struct {
-	Name    string   `yaml:"name" json:"name"`
-	Address string   `yaml:"address" json:"address"`
-	Protocol string  `yaml:"protocol" json:"protocol"`
-	TLS     bool     `yaml:"tls" json:"tls"`
-	Routes  []*Route `yaml:"routes" json:"routes"`
+	Name     string   `yaml:"name" json:"name"`
+	Address  string   `yaml:"address" json:"address"`
+	Protocol string   `yaml:"protocol" json:"protocol"`
+	TLS      bool     `yaml:"tls" json:"tls"`
+	Routes   []*Route `yaml:"routes" json:"routes"`
 }
 
 // Route represents a routing rule.
 type Route struct {
-	Path    string `yaml:"path" json:"path"`
-	Host    string `yaml:"host" json:"host"`
+	Path    string   `yaml:"path" json:"path"`
+	Host    string   `yaml:"host" json:"host"`
 	Methods []string `yaml:"methods" json:"methods"`
-	Pool    string `yaml:"pool" json:"pool"`
+	Pool    string   `yaml:"pool" json:"pool"`
 }
 
 // Pool represents a backend pool.
@@ -61,16 +61,16 @@ type HealthCheck struct {
 
 // TLSConfig represents TLS configuration.
 type TLSConfig struct {
-	CertFile string   `yaml:"cert_file" json:"cert_file"`
-	KeyFile  string   `yaml:"key_file" json:"key_file"`
-	ACME     *ACME    `yaml:"acme" json:"acme"`
+	CertFile string `yaml:"cert_file" json:"cert_file"`
+	KeyFile  string `yaml:"key_file" json:"key_file"`
+	ACME     *ACME  `yaml:"acme" json:"acme"`
 }
 
 // ACME represents ACME/Let's Encrypt configuration.
 type ACME struct {
-	Enabled  bool     `yaml:"enabled" json:"enabled"`
-	Email    string   `yaml:"email" json:"email"`
-	Domains  []string `yaml:"domains" json:"domains"`
+	Enabled bool     `yaml:"enabled" json:"enabled"`
+	Email   string   `yaml:"email" json:"email"`
+	Domains []string `yaml:"domains" json:"domains"`
 }
 
 // Admin represents admin API configuration.

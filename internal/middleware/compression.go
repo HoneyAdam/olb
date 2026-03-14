@@ -24,10 +24,10 @@ var defaultCompressibleTypes = []string{
 
 // CompressionConfig configures the compression middleware.
 type CompressionConfig struct {
-	MinSize      int      // Minimum response size to compress (default: 1024 bytes)
-	Level        int      // gzip compression level (-2 to 9, default: -1 for default)
-	ContentTypes []string // Content types to compress (default: common text types)
-	ExcludePaths []string // Path prefixes to exclude
+	MinSize       int      // Minimum response size to compress (default: 1024 bytes)
+	Level         int      // gzip compression level (-2 to 9, default: -1 for default)
+	ContentTypes  []string // Content types to compress (default: common text types)
+	ExcludePaths  []string // Path prefixes to exclude
 	ExcludeAgents []string // User-Agent substrings to exclude
 }
 

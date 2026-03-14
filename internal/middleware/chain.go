@@ -9,16 +9,16 @@ import (
 // Priority constants for standard middleware ordering.
 // Lower numbers execute earlier in the chain.
 const (
-	PrioritySecurity   = 100  // Security headers, IP filtering, WAF
-	PriorityAuth       = 200  // Authentication, JWT validation
-	PriorityRealIP     = 300  // Real IP extraction from headers
-	PriorityRequestID  = 400  // Request ID generation
-	PriorityRateLimit  = 500  // Rate limiting
-	PriorityCORS       = 600  // CORS handling
-	PriorityHeaders    = 700  // Header manipulation
-	PriorityCompress   = 800  // Compression (gzip, brotli)
-	PriorityMetrics    = 900  // Metrics collection
-	PriorityAccessLog  = 1000 // Access logging
+	PrioritySecurity  = 100  // Security headers, IP filtering, WAF
+	PriorityAuth      = 200  // Authentication, JWT validation
+	PriorityRealIP    = 300  // Real IP extraction from headers
+	PriorityRequestID = 400  // Request ID generation
+	PriorityRateLimit = 500  // Rate limiting
+	PriorityCORS      = 600  // CORS handling
+	PriorityHeaders   = 700  // Header manipulation
+	PriorityCompress  = 800  // Compression (gzip, brotli)
+	PriorityMetrics   = 900  // Metrics collection
+	PriorityAccessLog = 1000 // Access logging
 )
 
 // Middleware is the interface for HTTP middleware components.

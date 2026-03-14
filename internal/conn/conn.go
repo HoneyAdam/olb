@@ -132,16 +132,16 @@ type Manager struct {
 	mu sync.RWMutex
 
 	// Configuration
-	maxConnections      int
-	maxPerSource        int
-	maxPerBackend       int
-	drainTimeout        time.Duration
+	maxConnections int
+	maxPerSource   int
+	maxPerBackend  int
+	drainTimeout   time.Duration
 
 	// Connection tracking
-	connections    map[string]*TrackedConn
-	sourceCounts   map[string]int
-	backendCounts  map[string]int
-	totalCount     atomic.Int64
+	connections   map[string]*TrackedConn
+	sourceCounts  map[string]int
+	backendCounts map[string]int
+	totalCount    atomic.Int64
 
 	// Connection ID generator
 	idCounter atomic.Uint64

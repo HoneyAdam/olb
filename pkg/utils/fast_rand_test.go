@@ -249,9 +249,9 @@ func TestIntnBoundary(t *testing.T) {
 	fr := NewFastRandWithSeed(12345)
 
 	tests := []struct {
-		n        int
-		minVal   int
-		maxVal   int
+		n      int
+		minVal int
+		maxVal int
 	}{
 		{1, 0, 0},
 		{2, 0, 1},

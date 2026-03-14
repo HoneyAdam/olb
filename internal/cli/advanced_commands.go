@@ -315,8 +315,8 @@ func (c *BackendStatsCommand) Run(args []string) error {
 
 // RouteAddCommand adds a new route
 type RouteAddCommand struct {
-	apiAddr string
-	backend string
+	apiAddr  string
+	backend  string
 	priority int
 }
 
@@ -542,8 +542,8 @@ func (c *CertListCommand) Run(args []string) error {
 
 // CertAddCommand adds a certificate
 type CertAddCommand struct {
-	apiAddr string
-	auto    bool
+	apiAddr  string
+	auto     bool
 	certFile string
 	keyFile  string
 }

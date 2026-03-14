@@ -290,9 +290,9 @@ func parseCipherSuites(names []string) ([]uint16, error) {
 
 // CertConfig represents certificate configuration.
 type CertConfig struct {
-	CertFile   string
-	KeyFile    string
-	IsDefault  bool
+	CertFile  string
+	KeyFile   string
+	IsDefault bool
 }
 
 // LoadCertificatesFromDirectory loads all certificates from a directory.

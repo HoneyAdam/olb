@@ -8,8 +8,8 @@ import (
 // Histogram is a log-linear bucketed histogram.
 type Histogram struct {
 	buckets []atomic.Int64 // bucket counts
-	bounds  []float64     // bucket upper bounds
-	sum     atomic.Uint64 // bits of float64
+	bounds  []float64      // bucket upper bounds
+	sum     atomic.Uint64  // bits of float64
 	count   atomic.Int64
 	name    string
 	help    string

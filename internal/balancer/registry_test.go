@@ -31,7 +31,7 @@ func TestRegistry_AllBalancers(t *testing.T) {
 	if len(names) == 0 {
 		t.Error("No balancers registered")
 	}
-	
+
 	// Check that ip_hash is in the list
 	found := false
 	for _, name := range names {

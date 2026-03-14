@@ -15,19 +15,19 @@ const DefaultRingVirtualNodes = 150
 
 // ringHashNode represents a single node on the hash ring.
 type ringHashNode struct {
-	hash     uint32
+	hash      uint32
 	backendID string
 }
 
 // RingHash implements consistent hashing using a sorted slice of ring positions.
 // It is similar to ConsistentHash but uses FNV-1a and a different ring structure.
 type RingHash struct {
-	mu        sync.RWMutex
-	ring      []ringHashNode
-	backends  map[string]*backend.Backend
-	vnodes    int
-	hashFunc  func(data []byte) uint32
-	counter   uint64 // for distributing requests when no key provided
+	mu       sync.RWMutex
+	ring     []ringHashNode
+	backends map[string]*backend.Backend
+	vnodes   int
+	hashFunc func(data []byte) uint32
+	counter  uint64 // for distributing requests when no key provided
 }
 
 // NewRingHash creates a new RingHash balancer with default settings.

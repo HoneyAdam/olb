@@ -38,11 +38,11 @@ func DefaultOCSPConfig() *OCSPConfig {
 
 // OCSPResponse represents a cached OCSP response.
 type OCSPResponse struct {
-	Raw          []byte
-	Parsed       *ocsp.Response
-	CachedAt     time.Time
-	NextUpdate   time.Time
-	ThisUpdate   time.Time
+	Raw        []byte
+	Parsed     *ocsp.Response
+	CachedAt   time.Time
+	NextUpdate time.Time
+	ThisUpdate time.Time
 }
 
 // IsExpired returns true if the OCSP response has expired.

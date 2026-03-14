@@ -12,28 +12,28 @@ type Code int
 // Error codes organized by category.
 const (
 	// General errors (1-99)
-	CodeUnknown     Code = 0
-	CodeInternal    Code = 1
-	CodeInvalidArg  Code = 2
-	CodeNotFound    Code = 3
+	CodeUnknown      Code = 0
+	CodeInternal     Code = 1
+	CodeInvalidArg   Code = 2
+	CodeNotFound     Code = 3
 	CodeAlreadyExist Code = 4
-	CodeUnavailable Code = 5
-	CodeTimeout     Code = 6
-	CodeCanceled    Code = 7
+	CodeUnavailable  Code = 5
+	CodeTimeout      Code = 6
+	CodeCanceled     Code = 7
 
 	// Configuration errors (100-199)
-	CodeConfigInvalid     Code = 100
-	CodeConfigParseError  Code = 101
-	CodeConfigNotFound    Code = 102
-	CodeConfigValidation  Code = 103
+	CodeConfigInvalid    Code = 100
+	CodeConfigParseError Code = 101
+	CodeConfigNotFound   Code = 102
+	CodeConfigValidation Code = 103
 
 	// Backend/Pool errors (200-299)
-	CodeBackendNotFound   Code = 200
-	CodePoolNotFound      Code = 201
-	CodeRouteNotFound     Code = 202
+	CodeBackendNotFound    Code = 200
+	CodePoolNotFound       Code = 201
+	CodeRouteNotFound      Code = 202
 	CodeBackendUnavailable Code = 203
-	CodeBackendUnhealthy  Code = 204
-	CodePoolEmpty         Code = 205
+	CodeBackendUnhealthy   Code = 204
+	CodePoolEmpty          Code = 205
 
 	// Connection errors (300-399)
 	CodeConnectionRefused Code = 300
@@ -44,10 +44,10 @@ const (
 	CodeCertificate       Code = 305
 
 	// Protocol errors (400-499)
-	CodeProtocolError     Code = 400
-	CodeInvalidRequest    Code = 401
-	CodeInvalidResponse   Code = 402
-	CodeHTTPError         Code = 403
+	CodeProtocolError   Code = 400
+	CodeInvalidRequest  Code = 401
+	CodeInvalidResponse Code = 402
+	CodeHTTPError       Code = 403
 
 	// Middleware errors (500-599)
 	CodeRateLimitExceeded Code = 500
@@ -58,10 +58,10 @@ const (
 	CodeWAFBlocked        Code = 505
 
 	// Cluster errors (600-699)
-	CodeClusterNotReady   Code = 600
-	CodeNodeNotFound      Code = 601
-	CodeRaftError         Code = 602
-	CodeGossipError       Code = 603
+	CodeClusterNotReady Code = 600
+	CodeNodeNotFound    Code = 601
+	CodeRaftError       Code = 602
+	CodeGossipError     Code = 603
 )
 
 // String returns the string representation of the error code.
@@ -152,28 +152,28 @@ func (c Code) String() string {
 // Use errors.Is() to check for these errors.
 var (
 	// General errors
-	ErrUnknown     = New(CodeUnknown, "unknown error")
-	ErrInternal    = New(CodeInternal, "internal error")
-	ErrInvalidArg  = New(CodeInvalidArg, "invalid argument")
-	ErrNotFound    = New(CodeNotFound, "not found")
+	ErrUnknown      = New(CodeUnknown, "unknown error")
+	ErrInternal     = New(CodeInternal, "internal error")
+	ErrInvalidArg   = New(CodeInvalidArg, "invalid argument")
+	ErrNotFound     = New(CodeNotFound, "not found")
 	ErrAlreadyExist = New(CodeAlreadyExist, "already exists")
-	ErrUnavailable = New(CodeUnavailable, "unavailable")
-	ErrTimeout     = New(CodeTimeout, "timeout")
-	ErrCanceled    = New(CodeCanceled, "canceled")
+	ErrUnavailable  = New(CodeUnavailable, "unavailable")
+	ErrTimeout      = New(CodeTimeout, "timeout")
+	ErrCanceled     = New(CodeCanceled, "canceled")
 
 	// Configuration errors
-	ErrConfigInvalid     = New(CodeConfigInvalid, "invalid configuration")
-	ErrConfigParseError  = New(CodeConfigParseError, "configuration parse error")
-	ErrConfigNotFound    = New(CodeConfigNotFound, "configuration not found")
-	ErrConfigValidation  = New(CodeConfigValidation, "configuration validation failed")
+	ErrConfigInvalid    = New(CodeConfigInvalid, "invalid configuration")
+	ErrConfigParseError = New(CodeConfigParseError, "configuration parse error")
+	ErrConfigNotFound   = New(CodeConfigNotFound, "configuration not found")
+	ErrConfigValidation = New(CodeConfigValidation, "configuration validation failed")
 
 	// Backend/Pool errors
-	ErrBackendNotFound   = New(CodeBackendNotFound, "backend not found")
-	ErrPoolNotFound      = New(CodePoolNotFound, "pool not found")
-	ErrRouteNotFound     = New(CodeRouteNotFound, "route not found")
+	ErrBackendNotFound    = New(CodeBackendNotFound, "backend not found")
+	ErrPoolNotFound       = New(CodePoolNotFound, "pool not found")
+	ErrRouteNotFound      = New(CodeRouteNotFound, "route not found")
 	ErrBackendUnavailable = New(CodeBackendUnavailable, "backend unavailable")
-	ErrBackendUnhealthy  = New(CodeBackendUnhealthy, "backend unhealthy")
-	ErrPoolEmpty         = New(CodePoolEmpty, "pool is empty")
+	ErrBackendUnhealthy   = New(CodeBackendUnhealthy, "backend unhealthy")
+	ErrPoolEmpty          = New(CodePoolEmpty, "pool is empty")
 
 	// Connection errors
 	ErrConnectionRefused = New(CodeConnectionRefused, "connection refused")
@@ -184,10 +184,10 @@ var (
 	ErrCertificate       = New(CodeCertificate, "certificate error")
 
 	// Protocol errors
-	ErrProtocolError     = New(CodeProtocolError, "protocol error")
-	ErrInvalidRequest    = New(CodeInvalidRequest, "invalid request")
-	ErrInvalidResponse   = New(CodeInvalidResponse, "invalid response")
-	ErrHTTPError         = New(CodeHTTPError, "HTTP error")
+	ErrProtocolError   = New(CodeProtocolError, "protocol error")
+	ErrInvalidRequest  = New(CodeInvalidRequest, "invalid request")
+	ErrInvalidResponse = New(CodeInvalidResponse, "invalid response")
+	ErrHTTPError       = New(CodeHTTPError, "HTTP error")
 
 	// Middleware errors
 	ErrRateLimitExceeded = New(CodeRateLimitExceeded, "rate limit exceeded")
@@ -198,10 +198,10 @@ var (
 	ErrWAFBlocked        = New(CodeWAFBlocked, "blocked by WAF")
 
 	// Cluster errors
-	ErrClusterNotReady   = New(CodeClusterNotReady, "cluster not ready")
-	ErrNodeNotFound      = New(CodeNodeNotFound, "node not found")
-	ErrRaftError         = New(CodeRaftError, "raft error")
-	ErrGossipError       = New(CodeGossipError, "gossip error")
+	ErrClusterNotReady = New(CodeClusterNotReady, "cluster not ready")
+	ErrNodeNotFound    = New(CodeNodeNotFound, "node not found")
+	ErrRaftError       = New(CodeRaftError, "raft error")
+	ErrGossipError     = New(CodeGossipError, "gossip error")
 )
 
 // Error is a structured error with code, message, and context.

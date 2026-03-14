@@ -75,9 +75,9 @@ func TestOCSPResponse_IsExpired(t *testing.T) {
 	now := time.Now()
 
 	tests := []struct {
-		name     string
+		name       string
 		nextUpdate time.Time
-		expected bool
+		expected   bool
 	}{
 		{
 			name:       "not expired",

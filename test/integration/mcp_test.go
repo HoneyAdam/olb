@@ -186,10 +186,10 @@ func rpcRequest(id interface{}, method string, params interface{}) []byte {
 
 // rpcResponse is the generic JSON-RPC 2.0 response envelope.
 type rpcResponse struct {
-	JSONRPC string           `json:"jsonrpc"`
-	ID      interface{}      `json:"id"`
-	Result  json.RawMessage  `json:"result,omitempty"`
-	Error   *rpcResponseErr  `json:"error,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      interface{}     `json:"id"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcResponseErr `json:"error,omitempty"`
 }
 
 type rpcResponseErr struct {
@@ -357,9 +357,9 @@ func TestMCPToolExecution(t *testing.T) {
 	srv := newTestServer()
 
 	tests := []struct {
-		name   string
-		tool   string
-		args   map[string]interface{}
+		name string
+		tool string
+		args map[string]interface{}
 	}{
 		{
 			name: "query_metrics",

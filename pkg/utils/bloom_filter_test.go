@@ -281,10 +281,10 @@ func TestBloomFilter_FalsePositiveRateDetailed(t *testing.T) {
 // TestBloomFilter_EstimateParameters tests parameter estimation functions
 func TestBloomFilter_EstimateParameters(t *testing.T) {
 	tests := []struct {
-		n         uint32
-		p         float64
-		wantMMin  uint32
-		wantKMin  uint32
+		n        uint32
+		p        float64
+		wantMMin uint32
+		wantKMin uint32
 	}{
 		{1000, 0.01, 9000, 5},
 		{10000, 0.001, 140000, 8},

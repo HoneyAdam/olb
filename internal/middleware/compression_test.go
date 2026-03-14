@@ -388,7 +388,7 @@ func TestCompressionMiddleware_DefaultContentTypes(t *testing.T) {
 	})
 
 	tests := []struct {
-		contentType string
+		contentType    string
 		shouldCompress bool
 	}{
 		{"text/html", true},

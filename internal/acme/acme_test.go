@@ -416,8 +416,8 @@ func (m *mockACMEServer) handleNewOrder(w http.ResponseWriter, r *http.Request) 
 
 func (m *mockACMEServer) handleAuthorization(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(Authorization{
-		Status:    "pending",
-		Expires:   time.Now().Add(time.Hour).Format(time.RFC3339),
+		Status:     "pending",
+		Expires:    time.Now().Add(time.Hour).Format(time.RFC3339),
 		Identifier: Identifier{Type: "dns", Value: "example.com"},
 		Challenges: []Challenge{
 			{

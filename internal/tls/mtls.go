@@ -176,10 +176,10 @@ func (c *MTLSConfig) Validate() error {
 
 // CAPool represents a CA certificate pool with metadata.
 type CAPool struct {
-	pool       *x509.CertPool
-	subjects   []string
-	certCount  int
-	mu         sync.RWMutex
+	pool      *x509.CertPool
+	subjects  []string
+	certCount int
+	mu        sync.RWMutex
 }
 
 // NewCAPool creates a new empty CA pool.
@@ -272,7 +272,7 @@ func loadCADirectory(pool *CAPool, dir string) error {
 		}
 
 		name := entry.Name()
-	ext := strings.ToLower(filepath.Ext(name))
+		ext := strings.ToLower(filepath.Ext(name))
 
 		// Look for certificate files
 		if ext == ".crt" || ext == ".cert" || ext == ".pem" {

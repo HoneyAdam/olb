@@ -19,9 +19,9 @@ import (
 
 // Server provides the Admin API HTTP server.
 type Server struct {
-	addr    string
-	server  *http.Server
-	config  *AuthConfig
+	addr      string
+	server    *http.Server
+	config    *AuthConfig
 	startTime time.Time
 
 	// Component references (interfaces)
@@ -34,8 +34,8 @@ type Server struct {
 	onReload func() error
 
 	// State
-	mu     sync.RWMutex
-	state  string
+	mu    sync.RWMutex
+	state string
 }
 
 // Config holds the server configuration.

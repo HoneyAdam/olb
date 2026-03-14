@@ -18,9 +18,9 @@ const jsonBufferSize = 1024
 
 // JSONOutput writes log entries as JSON.
 type JSONOutput struct {
-	w      io.Writer
-	mu     sync.Mutex
-	buf    []byte
+	w   io.Writer
+	mu  sync.Mutex
+	buf []byte
 }
 
 // NewJSONOutput creates a new JSON output.
@@ -268,16 +268,16 @@ type RotatingFileOutput struct {
 	maxBackups int
 	compress   bool
 
-	mu       sync.Mutex
-	file     *os.File
-	writer   *bufio.Writer
-	size     int64
+	mu     sync.Mutex
+	file   *os.File
+	writer *bufio.Writer
+	size   int64
 }
 
 // RotatingFileOptions configures the rotating file output.
 type RotatingFileOptions struct {
 	Filename   string
-	MaxSize    int64  // bytes
+	MaxSize    int64 // bytes
 	MaxBackups int
 	Compress   bool
 }

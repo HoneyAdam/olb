@@ -196,18 +196,18 @@ const (
 
 // TUI is the terminal user interface for the top command.
 type TUI struct {
-	fetcher    *MetricsFetcher
-	screen     *Screen
-	input      *InputHandler
-	layout     *Layout
-	eventCh    chan Event
-	stopCh     chan struct{}
-	refreshCh  chan struct{}
+	fetcher     *MetricsFetcher
+	screen      *Screen
+	input       *InputHandler
+	layout      *Layout
+	eventCh     chan Event
+	stopCh      chan struct{}
+	refreshCh   chan struct{}
 	currentView View
-	data       *DashboardData
-	dataMu     sync.RWMutex
-	running    atomic.Bool
-	lastError  string
+	data        *DashboardData
+	dataMu      sync.RWMutex
+	running     atomic.Bool
+	lastError   string
 }
 
 // DashboardData holds all the data displayed in the dashboard.
@@ -689,23 +689,23 @@ const (
 
 // ANSI color codes
 var colorCodes = map[Color]string{
-	ColorDefault:      "\x1b[0m",
-	ColorBlack:        "\x1b[30m",
-	ColorRed:          "\x1b[31m",
-	ColorGreen:        "\x1b[32m",
-	ColorYellow:       "\x1b[33m",
-	ColorBlue:         "\x1b[34m",
-	ColorMagenta:      "\x1b[35m",
-	ColorCyan:         "\x1b[36m",
-	ColorWhite:        "\x1b[37m",
-	ColorBrightBlack:  "\x1b[90m",
-	ColorBrightRed:    "\x1b[91m",
-	ColorBrightGreen:  "\x1b[92m",
-	ColorBrightYellow: "\x1b[93m",
-	ColorBrightBlue:   "\x1b[94m",
-	ColorBrightMagenta:"\x1b[95m",
-	ColorBrightCyan:   "\x1b[96m",
-	ColorBrightWhite:  "\x1b[97m",
+	ColorDefault:       "\x1b[0m",
+	ColorBlack:         "\x1b[30m",
+	ColorRed:           "\x1b[31m",
+	ColorGreen:         "\x1b[32m",
+	ColorYellow:        "\x1b[33m",
+	ColorBlue:          "\x1b[34m",
+	ColorMagenta:       "\x1b[35m",
+	ColorCyan:          "\x1b[36m",
+	ColorWhite:         "\x1b[37m",
+	ColorBrightBlack:   "\x1b[90m",
+	ColorBrightRed:     "\x1b[91m",
+	ColorBrightGreen:   "\x1b[92m",
+	ColorBrightYellow:  "\x1b[93m",
+	ColorBrightBlue:    "\x1b[94m",
+	ColorBrightMagenta: "\x1b[95m",
+	ColorBrightCyan:    "\x1b[96m",
+	ColorBrightWhite:   "\x1b[97m",
 }
 
 // ResetCode is the ANSI reset code.
@@ -713,11 +713,11 @@ const ResetCode = "\x1b[0m"
 
 // Screen represents the terminal screen buffer with double buffering.
 type Screen struct {
-	front    []Cell
-	back     []Cell
-	width    int
-	height   int
-	writer   *bufio.Writer
+	front  []Cell
+	back   []Cell
+	width  int
+	height int
+	writer *bufio.Writer
 }
 
 // Cell represents a single character cell on the screen.
@@ -913,16 +913,16 @@ func (s *Screen) Flush() {
 
 // Box drawing characters
 const (
-	BoxDrawingsLightHorizontal     = '\u2500'
-	BoxDrawingsLightVertical       = '\u2502'
-	BoxDrawingsLightDownAndRight   = '\u250c'
-	BoxDrawingsLightDownAndLeft    = '\u2510'
-	BoxDrawingsLightUpAndRight     = '\u2514'
-	BoxDrawingsLightUpAndLeft      = '\u2518'
-	BoxDrawingsLightVerticalAndRight = '\u251c'
-	BoxDrawingsLightVerticalAndLeft  = '\u2524'
-	BoxDrawingsLightDownAndHorizontal = '\u252c'
-	BoxDrawingsLightUpAndHorizontal   = '\u2534'
+	BoxDrawingsLightHorizontal            = '\u2500'
+	BoxDrawingsLightVertical              = '\u2502'
+	BoxDrawingsLightDownAndRight          = '\u250c'
+	BoxDrawingsLightDownAndLeft           = '\u2510'
+	BoxDrawingsLightUpAndRight            = '\u2514'
+	BoxDrawingsLightUpAndLeft             = '\u2518'
+	BoxDrawingsLightVerticalAndRight      = '\u251c'
+	BoxDrawingsLightVerticalAndLeft       = '\u2524'
+	BoxDrawingsLightDownAndHorizontal     = '\u252c'
+	BoxDrawingsLightUpAndHorizontal       = '\u2534'
 	BoxDrawingsLightVerticalAndHorizontal = '\u253c'
 )
 

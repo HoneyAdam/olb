@@ -244,8 +244,8 @@ func TestResponseWriterImplementsInterfaces(t *testing.T) {
 
 type mockHijackableResponseWriter struct {
 	*httptest.ResponseRecorder
-	conn   net.Conn
-	bufrw  *bufio.ReadWriter
+	conn     net.Conn
+	bufrw    *bufio.ReadWriter
 	hijacked bool
 }
 

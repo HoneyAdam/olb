@@ -143,8 +143,8 @@ func TestAccessLogMiddleware_CLFFormat(t *testing.T) {
 func TestAccessLogMiddleware_SkipPaths(t *testing.T) {
 	var buf bytes.Buffer
 	config := AccessLogConfig{
-		Format:   AccessLogFormatCLF,
-		Output:   &buf,
+		Format:    AccessLogFormatCLF,
+		Output:    &buf,
 		SkipPaths: []string{"/health", "/metrics"},
 	}
 	m := NewAccessLogMiddleware(config)

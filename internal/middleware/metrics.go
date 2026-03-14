@@ -15,11 +15,11 @@ type MetricsMiddleware struct {
 	prefix   string
 
 	// Pre-created metric vectors
-	requestsTotal       *metrics.CounterVec
-	durationSeconds     *metrics.HistogramVec
-	requestSizeBytes    *metrics.HistogramVec
-	responseSizeBytes   *metrics.HistogramVec
-	activeRequests      *metrics.GaugeVec
+	requestsTotal     *metrics.CounterVec
+	durationSeconds   *metrics.HistogramVec
+	requestSizeBytes  *metrics.HistogramVec
+	responseSizeBytes *metrics.HistogramVec
+	activeRequests    *metrics.GaugeVec
 }
 
 // NewMetricsMiddleware creates a new Metrics middleware.

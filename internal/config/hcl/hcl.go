@@ -527,7 +527,7 @@ func Tokenize(input string) ([]Token, error) {
 	return tokens, nil
 }
 
-func isDigit(ch byte) bool   { return ch >= '0' && ch <= '9' }
+func isDigit(ch byte) bool { return ch >= '0' && ch <= '9' }
 func isHexDigit(ch byte) bool {
 	return isDigit(ch) || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')
 }

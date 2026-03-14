@@ -39,7 +39,7 @@ type Backend struct {
 	lastLatency *utils.AtomicDuration
 
 	// Health check tracking.
-	lastCheck   atomic.Value // time.Time
+	lastCheck      atomic.Value // time.Time
 	checkFailCount atomic.Int32
 
 	// Metadata for the backend.

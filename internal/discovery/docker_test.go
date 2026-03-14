@@ -1272,10 +1272,10 @@ func TestDockerProvider_UrlEncode(t *testing.T) {
 
 func TestDockerProvider_BaseURL(t *testing.T) {
 	tests := []struct {
-		name   string
-		host   string
-		tls    bool
-		want   string
+		name string
+		host string
+		tls  bool
+		want string
 	}{
 		{"unix socket", "", false, "http://localhost"},
 		{"tcp host", "tcp://192.168.1.10:2376", false, "http://192.168.1.10:2376"},

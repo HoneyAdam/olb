@@ -50,9 +50,9 @@ func DefaultTCPProxyConfig() *TCPProxyConfig {
 
 // TCPProxy implements a Layer 4 TCP proxy.
 type TCPProxy struct {
-	config     *TCPProxyConfig
-	balancer   Balancer
-	pool       *backend.Pool
+	config   *TCPProxyConfig
+	balancer Balancer
+	pool     *backend.Pool
 
 	// Connection tracking
 	activeConns atomic.Int64

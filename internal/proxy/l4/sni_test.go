@@ -292,8 +292,8 @@ func TestSNIProxy_GetBackend_Wildcard(t *testing.T) {
 	proxy.AddRoute("*.example.com", "127.0.0.1:8080")
 
 	tests := []struct {
-		sni     string
-		want    string
+		sni  string
+		want string
 	}{
 		{"sub.example.com", "127.0.0.1:8080"},
 		{"deep.sub.example.com", "127.0.0.1:8080"},
@@ -437,12 +437,12 @@ func buildClientHelloWithSNI(sni string) []byte {
 
 	// Handshake header will be added after we know the length
 	handshakeStart := buf.Len()
-	buf.WriteByte(0x01) // ClientHello
+	buf.WriteByte(0x01)                 // ClientHello
 	buf.Write([]byte{0x00, 0x00, 0x00}) // Placeholder for length
 
 	// ClientHello
 	binary.Write(buf, binary.BigEndian, uint16(0x0303)) // TLS 1.2
-	buf.Write(make([]byte, 32)) // Random
+	buf.Write(make([]byte, 32))                         // Random
 
 	// Session ID length
 	buf.WriteByte(0x00)
@@ -476,7 +476,7 @@ func buildClientHelloWithSNI(sni string) []byte {
 
 	// Add record header
 	record := make([]byte, 5+buf.Len())
-	record[0] = 0x16 // Handshake
+	record[0] = 0x16                                // Handshake
 	binary.BigEndian.PutUint16(record[1:3], 0x0301) // TLS 1.0
 	binary.BigEndian.PutUint16(record[3:5], uint16(buf.Len()))
 	copy(record[5:], buf.Bytes())

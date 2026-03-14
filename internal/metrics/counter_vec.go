@@ -8,9 +8,9 @@ import (
 
 // CounterVec is a vector of counters with labels.
 type CounterVec struct {
-	name    string
-	help    string
-	labels  []string
+	name     string
+	help     string
+	labels   []string
 	counters sync.Map // map[string]*Counter
 }
 

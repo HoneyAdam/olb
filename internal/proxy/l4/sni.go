@@ -43,10 +43,10 @@ func DefaultSNIRouterConfig() *SNIRouterConfig {
 
 // SNIRouter routes TCP connections based on TLS SNI.
 type SNIRouter struct {
-	config   *SNIRouterConfig
-	routes   map[string]*backend.Backend
-	mu       sync.RWMutex
-	running  atomic.Bool
+	config  *SNIRouterConfig
+	routes  map[string]*backend.Backend
+	mu      sync.RWMutex
+	running atomic.Bool
 }
 
 // NewSNIRouter creates a new SNI router.
@@ -547,10 +547,10 @@ func ExtractSNI(conn net.Conn, timeout time.Duration) (string, net.Conn, error) 
 
 // SNIProxy handles SNI-based routing with TLS passthrough.
 type SNIProxy struct {
-	routes   map[string]string // SNI -> backend address
-	mu       sync.RWMutex
-	config   *SNIRouterConfig
-	dialer   *net.Dialer
+	routes map[string]string // SNI -> backend address
+	mu     sync.RWMutex
+	config *SNIRouterConfig
+	dialer *net.Dialer
 }
 
 // NewSNIProxy creates a new SNI proxy.
@@ -641,7 +641,7 @@ func CreateTLSConfigForSNI(getCertificate func(string) (*tls.Certificate, error)
 
 // SNIMatcher matches SNI patterns including wildcards.
 type SNIMatcher struct {
-	exact    map[string]bool
+	exact     map[string]bool
 	wildcards []string
 }
 
@@ -703,9 +703,9 @@ func ParseTLSVersion(data []byte) (string, error) {
 
 // TLSRecordInfo contains information about a TLS record.
 type TLSRecordInfo struct {
-	ContentType string
-	Version     string
-	Length      int
+	ContentType   string
+	Version       string
+	Length        int
 	IsClientHello bool
 }
 

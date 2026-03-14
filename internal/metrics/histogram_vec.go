@@ -8,10 +8,10 @@ import (
 
 // HistogramVec is a vector of histograms with labels.
 type HistogramVec struct {
-	name      string
-	help      string
-	labels    []string
-	buckets   []float64
+	name       string
+	help       string
+	labels     []string
+	buckets    []float64
 	histograms sync.Map // map[string]*Histogram
 }
 

@@ -891,8 +891,8 @@ func BenchmarkMiddleware_Headers(b *testing.B) {
 			"X-Custom-2": "val2",
 		},
 		ResponseSet: map[string]string{
-			"X-Powered-By":          "OLB",
-			"Server":                "OpenLoadBalancer",
+			"X-Powered-By":           "OLB",
+			"Server":                 "OpenLoadBalancer",
 			"X-Content-Type-Options": "nosniff",
 		},
 		SecurityPreset: middleware.SecurityPresetStrict,
@@ -1149,8 +1149,8 @@ func NewNoopMiddleware(name string, priority int) *NoopMiddleware {
 	return &NoopMiddleware{name: name, priority: priority}
 }
 
-func (m *NoopMiddleware) Name() string   { return m.name }
-func (m *NoopMiddleware) Priority() int  { return m.priority }
+func (m *NoopMiddleware) Name() string  { return m.name }
+func (m *NoopMiddleware) Priority() int { return m.priority }
 func (m *NoopMiddleware) Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)

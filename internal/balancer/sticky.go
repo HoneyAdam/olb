@@ -68,10 +68,10 @@ func DefaultStickyConfig() *StickyConfig {
 // Sticky wraps a base balancer with session affinity.
 // It ensures requests from the same session are routed to the same backend.
 type Sticky struct {
-	base    Balancer
-	config  *StickyConfig
+	base     Balancer
+	config   *StickyConfig
 	sessions map[string]string // sessionID -> backendID
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 }
 
 // NewSticky creates a new sticky session wrapper around a base balancer.

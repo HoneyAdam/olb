@@ -371,16 +371,16 @@ func TestParsePortEdgeCases(t *testing.T) {
 		{"8080", 8080},
 		{"65535", 65535},
 		// Invalid ports
-		{"0", 0},        // Port 0 is invalid
-		{"65536", 0},    // Out of range
-		{"-1", 0},       // Negative
-		{"abc", 0},      // Non-numeric
-		{"80abc", 0},    // Mixed
-		{"", 0},         // Empty
-		{" 80", 0},      // Leading space
-		{"80 ", 0},      // Trailing space
-		{"80 80", 0},    // Space in middle
-		{"0x50", 0},     // Hex notation
+		{"0", 0},     // Port 0 is invalid
+		{"65536", 0}, // Out of range
+		{"-1", 0},    // Negative
+		{"abc", 0},   // Non-numeric
+		{"80abc", 0}, // Mixed
+		{"", 0},      // Empty
+		{" 80", 0},   // Leading space
+		{"80 ", 0},   // Trailing space
+		{"80 80", 0}, // Space in middle
+		{"0x50", 0},  // Hex notation
 	}
 
 	for _, tt := range tests {
@@ -398,13 +398,13 @@ func TestCIDRMatcher_InvalidCIDRDetailed(t *testing.T) {
 	invalidCIDRs := []string{
 		"invalid",
 		"",
-		"192.168.1.1",         // Missing mask
-		"192.168.1.1/",        // Empty mask
-		"192.168.1.1/abc",     // Invalid mask
-		"192.168.1.1/33",      // Mask too large for IPv4
-		"256.1.1.1/24",        // Invalid IP
-		"192.168.1/24",        // Incomplete IP
-		"::1/129",             // Mask too large for IPv6
+		"192.168.1.1",     // Missing mask
+		"192.168.1.1/",    // Empty mask
+		"192.168.1.1/abc", // Invalid mask
+		"192.168.1.1/33",  // Mask too large for IPv4
+		"256.1.1.1/24",    // Invalid IP
+		"192.168.1/24",    // Incomplete IP
+		"::1/129",         // Mask too large for IPv6
 	}
 
 	for _, cidr := range invalidCIDRs {
@@ -441,10 +441,10 @@ func TestCIDRMatcher_IPv6Matching(t *testing.T) {
 
 	// Add IPv6 ranges
 	ranges := []string{
-		"2001:db8::/32",   // Documentation range
-		"fe80::/10",       // Link-local
-		"fc00::/7",        // ULA
-		"::1/128",         // Loopback
+		"2001:db8::/32", // Documentation range
+		"fe80::/10",     // Link-local
+		"fc00::/7",      // ULA
+		"::1/128",       // Loopback
 	}
 
 	for _, r := range ranges {

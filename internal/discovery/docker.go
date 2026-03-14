@@ -97,10 +97,10 @@ type dockerConfig struct {
 
 // dockerEvent represents a Docker daemon event from the events stream.
 type dockerEvent struct {
-	Type   string            `json:"Type"`
-	Action string            `json:"Action"`
-	Actor  dockerEventActor  `json:"Actor"`
-	Time   int64             `json:"time"`
+	Type   string           `json:"Type"`
+	Action string           `json:"Action"`
+	Actor  dockerEventActor `json:"Actor"`
+	Time   int64            `json:"time"`
 }
 
 // dockerEventActor holds actor details for a Docker event.

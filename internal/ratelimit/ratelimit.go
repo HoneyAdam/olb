@@ -33,12 +33,12 @@ const (
 
 // Config contains rate limiter configuration.
 type Config struct {
-	Algorithm   Algorithm       `json:"algorithm" yaml:"algorithm"`
-	Backend     Backend         `json:"backend" yaml:"backend"`
-	Rate        float64         `json:"rate" yaml:"rate"`               // Tokens per second (or requests per window)
-	Burst       int             `json:"burst" yaml:"burst"`             // Maximum burst size
-	Window      time.Duration   `json:"window" yaml:"window"`           // Window size for sliding/fixed window
-	KeyPrefix   string          `json:"key_prefix" yaml:"key_prefix"`   // Key prefix for storage
+	Algorithm   Algorithm         `json:"algorithm" yaml:"algorithm"`
+	Backend     Backend           `json:"backend" yaml:"backend"`
+	Rate        float64           `json:"rate" yaml:"rate"`                 // Tokens per second (or requests per window)
+	Burst       int               `json:"burst" yaml:"burst"`               // Maximum burst size
+	Window      time.Duration     `json:"window" yaml:"window"`             // Window size for sliding/fixed window
+	KeyPrefix   string            `json:"key_prefix" yaml:"key_prefix"`     // Key prefix for storage
 	BackendOpts map[string]string `json:"backend_opts" yaml:"backend_opts"` // Backend-specific options
 }
 
@@ -70,11 +70,11 @@ func (c *Config) Validate() error {
 
 // Result represents the result of a rate limit check.
 type Result struct {
-	Allowed       bool          `json:"allowed"`
-	Remaining     int           `json:"remaining"`
-	Limit         int           `json:"limit"`
-	ResetTime     time.Time     `json:"reset_time"`
-	RetryAfter    time.Duration `json:"retry_after"`
+	Allowed    bool          `json:"allowed"`
+	Remaining  int           `json:"remaining"`
+	Limit      int           `json:"limit"`
+	ResetTime  time.Time     `json:"reset_time"`
+	RetryAfter time.Duration `json:"retry_after"`
 }
 
 // Store is the interface for rate limit storage backends.
@@ -93,9 +93,9 @@ type Store interface {
 
 // State represents the current rate limit state.
 type State struct {
-	Tokens     float64   `json:"tokens"`
-	LastUpdate time.Time `json:"last_update"`
-	Requests   int       `json:"requests"`
+	Tokens      float64   `json:"tokens"`
+	LastUpdate  time.Time `json:"last_update"`
+	Requests    int       `json:"requests"`
 	WindowStart time.Time `json:"window_start"`
 }
 
@@ -338,12 +338,12 @@ var (
 
 // Zone represents a rate limit zone with specific rules.
 type Zone struct {
-	Name      string  `json:"name" yaml:"name"`
-	Key       string  `json:"key" yaml:"key"`             // Variable to key by: $ip, $header_X, $cookie_X
-	Rate      float64 `json:"rate" yaml:"rate"`           // Requests per second
-	Burst     int     `json:"burst" yaml:"burst"`         // Burst size
-	PerIP     bool    `json:"per_ip" yaml:"per_ip"`       // Apply per IP
-	PerUser   bool    `json:"per_user" yaml:"per_user"`   // Apply per authenticated user
+	Name    string  `json:"name" yaml:"name"`
+	Key     string  `json:"key" yaml:"key"`           // Variable to key by: $ip, $header_X, $cookie_X
+	Rate    float64 `json:"rate" yaml:"rate"`         // Requests per second
+	Burst   int     `json:"burst" yaml:"burst"`       // Burst size
+	PerIP   bool    `json:"per_ip" yaml:"per_ip"`     // Apply per IP
+	PerUser bool    `json:"per_user" yaml:"per_user"` // Apply per authenticated user
 }
 
 // MultiZoneLimiter manages multiple rate limit zones.

@@ -48,8 +48,8 @@ type Account struct {
 
 // Order represents a certificate order.
 type Order struct {
-	Status         string   `json:"status"`
-	Expires        string   `json:"expires"`
+	Status         string       `json:"status"`
+	Expires        string       `json:"expires"`
 	Identifiers    []Identifier `json:"identifiers"`
 	Authorizations []string     `json:"authorizations"`
 	Finalize       string       `json:"finalize"`
@@ -74,11 +74,11 @@ type Authorization struct {
 
 // Challenge represents an ACME challenge.
 type Challenge struct {
-	Type      string `json:"type"`
-	URL       string `json:"url"`
-	Status    string `json:"status"`
-	Validated string `json:"validated,omitempty"`
-	Token     string `json:"token"`
+	Type      string   `json:"type"`
+	URL       string   `json:"url"`
+	Status    string   `json:"status"`
+	Validated string   `json:"validated,omitempty"`
+	Token     string   `json:"token"`
 	Error     *Problem `json:"error,omitempty"`
 }
 

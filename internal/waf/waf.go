@@ -123,15 +123,15 @@ func (r *Rule) Match(req *http.Request, body []byte) *Match {
 		for i, re := range r.compiledPatterns {
 			if re.MatchString(value) {
 				return &Match{
-					RuleID:      r.ID,
-					RuleName:    r.Name,
-					Target:      target,
-					Pattern:     r.Patterns[i],
+					RuleID:       r.ID,
+					RuleName:     r.Name,
+					Target:       target,
+					Pattern:      r.Patterns[i],
 					MatchedValue: truncate(value, 100),
-					Action:      r.Action,
-					Severity:    r.Severity,
-					Score:       r.Score,
-					Timestamp:   time.Now(),
+					Action:       r.Action,
+					Severity:     r.Severity,
+					Score:        r.Score,
+					Timestamp:    time.Now(),
 				}
 			}
 		}

@@ -14,13 +14,13 @@ import (
 
 // HTTPListener implements an HTTP listener with graceful shutdown support.
 type HTTPListener struct {
-	name    string
-	address string
-	handler http.Handler
-	server  *http.Server
+	name     string
+	address  string
+	handler  http.Handler
+	server   *http.Server
 	listener net.Listener
-	running atomic.Bool
-	mu      sync.RWMutex
+	running  atomic.Bool
+	mu       sync.RWMutex
 
 	// Configuration
 	readTimeout    time.Duration

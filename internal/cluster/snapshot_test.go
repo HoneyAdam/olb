@@ -565,9 +565,9 @@ func TestCluster_ShouldSendSnapshot(t *testing.T) {
 
 // stubHandler is a minimal RPCHandler for transport tests.
 type stubHandler struct {
-	voteResp     *RequestVoteResponse
-	appendResp   *AppendEntriesResponse
-	installResp  *InstallSnapshotResponse
+	voteResp    *RequestVoteResponse
+	appendResp  *AppendEntriesResponse
+	installResp *InstallSnapshotResponse
 }
 
 func (s *stubHandler) HandleRequestVote(req *RequestVote) *RequestVoteResponse {

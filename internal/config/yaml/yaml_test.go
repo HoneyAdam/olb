@@ -174,7 +174,7 @@ func TestLexer_SpecialCharactersInStrings(t *testing.T) {
 		{
 			name:     "single quoted with escaped quote",
 			input:    `key: 'it''s working'`,
-			expected: "it",  // Parser limitation: only reads up to first quote
+			expected: "it", // Parser limitation: only reads up to first quote
 		},
 		{
 			name:     "path with slashes",
@@ -1102,22 +1102,30 @@ func TestDecoder_TypeErrors(t *testing.T) {
 		{
 			name:  "string to int",
 			input: `value: not_a_number`,
-			dest:  &struct{ Value int `yaml:"value"` }{},
+			dest: &struct {
+				Value int `yaml:"value"`
+			}{},
 		},
 		{
 			name:  "string to bool",
 			input: `value: not_a_bool`,
-			dest:  &struct{ Value bool `yaml:"value"` }{},
+			dest: &struct {
+				Value bool `yaml:"value"`
+			}{},
 		},
 		{
 			name:  "invalid float",
 			input: `value: not_a_float`,
-			dest:  &struct{ Value float64 `yaml:"value"` }{},
+			dest: &struct {
+				Value float64 `yaml:"value"`
+			}{},
 		},
 		{
 			name:  "invalid duration",
 			input: `value: not_a_duration`,
-			dest:  &struct{ Value time.Duration `yaml:"value"` }{},
+			dest: &struct {
+				Value time.Duration `yaml:"value"`
+			}{},
 		},
 	}
 
@@ -2066,12 +2074,16 @@ func TestDecoder_DecodeUintErrors(t *testing.T) {
 		{
 			name:  "negative to uint",
 			value: "-1",
-			dest:  &struct{ Value uint `yaml:"value"` }{},
+			dest: &struct {
+				Value uint `yaml:"value"`
+			}{},
 		},
 		{
 			name:  "invalid uint",
 			value: "not_a_number",
-			dest:  &struct{ Value uint `yaml:"value"` }{},
+			dest: &struct {
+				Value uint `yaml:"value"`
+			}{},
 		},
 	}
 
@@ -2088,7 +2100,9 @@ func TestDecoder_DecodeUintErrors(t *testing.T) {
 
 func TestDecoder_DecodeFloatErrors(t *testing.T) {
 	input := `value: not_a_float`
-	var dest struct{ Value float64 `yaml:"value"` }
+	var dest struct {
+		Value float64 `yaml:"value"`
+	}
 	err := UnmarshalString(input, &dest)
 	if err == nil {
 		t.Error("Expected error, got nil")
@@ -2566,15 +2580,15 @@ func TestLexer_TokenizeAllPunctuation(t *testing.T) {
 	}
 
 	expectedTypes := map[TokenType]bool{
-		TokenColon:     false,
-		TokenDash:      false,
-		TokenComma:     false,
-		TokenLBrace:    false,
-		TokenRBrace:    false,
-		TokenLBracket:  false,
-		TokenRBracket:  false,
-		TokenPipe:      false,
-		TokenGreater:   false,
+		TokenColon:    false,
+		TokenDash:     false,
+		TokenComma:    false,
+		TokenLBrace:   false,
+		TokenRBrace:   false,
+		TokenLBracket: false,
+		TokenRBracket: false,
+		TokenPipe:     false,
+		TokenGreater:  false,
 	}
 
 	for _, tok := range tokens {
@@ -2664,49 +2678,65 @@ func TestDecoder_ReflectKindCases(t *testing.T) {
 			var result reflect.Value
 			switch tt.expected.(type) {
 			case int8:
-				var cfg struct{ Value int8 `yaml:"value"` }
+				var cfg struct {
+					Value int8 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case int16:
-				var cfg struct{ Value int16 `yaml:"value"` }
+				var cfg struct {
+					Value int16 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case int32:
-				var cfg struct{ Value int32 `yaml:"value"` }
+				var cfg struct {
+					Value int32 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case uint8:
-				var cfg struct{ Value uint8 `yaml:"value"` }
+				var cfg struct {
+					Value uint8 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case uint16:
-				var cfg struct{ Value uint16 `yaml:"value"` }
+				var cfg struct {
+					Value uint16 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case uint32:
-				var cfg struct{ Value uint32 `yaml:"value"` }
+				var cfg struct {
+					Value uint32 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case uint64:
-				var cfg struct{ Value uint64 `yaml:"value"` }
+				var cfg struct {
+					Value uint64 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}
 				result = reflect.ValueOf(cfg.Value)
 			case float32:
-				var cfg struct{ Value float32 `yaml:"value"` }
+				var cfg struct {
+					Value float32 `yaml:"value"`
+				}
 				if err := UnmarshalString(tt.input, &cfg); err != nil {
 					t.Fatalf("Unmarshal failed: %v", err)
 				}

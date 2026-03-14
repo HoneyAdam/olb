@@ -60,19 +60,19 @@ const (
 
 // PROXYHeader represents a PROXY protocol header.
 type PROXYHeader struct {
-	Version     PROXYProtocolVersion
-	Command     PROXYProtocolCommand
-	Family      PROXYProtocolFamily
-	Transport   PROXYProtocolTransport
-	SourceAddr  net.Addr
-	DestAddr    net.Addr
-	TLVs        []PROXYTLV
+	Version    PROXYProtocolVersion
+	Command    PROXYProtocolCommand
+	Family     PROXYProtocolFamily
+	Transport  PROXYProtocolTransport
+	SourceAddr net.Addr
+	DestAddr   net.Addr
+	TLVs       []PROXYTLV
 }
 
 // PROXYTLV represents a Type-Length-Value entry.
 type PROXYTLV struct {
-	Type   byte
-	Value  []byte
+	Type  byte
+	Value []byte
 }
 
 // PROXYProtocolConfig configures PROXY protocol handling.
@@ -551,11 +551,11 @@ func FormatPROXYHeaderV1(srcIP, dstIP string, srcPort, dstPort int) string {
 
 // PROXYProtocolInfo contains information about a PROXY protocol header.
 type PROXYProtocolInfo struct {
-	Version   string
-	Command   string
-	Protocol  string
-	Source    string
-	Dest      string
+	Version  string
+	Command  string
+	Protocol string
+	Source   string
+	Dest     string
 }
 
 // GetInfo returns information about the header.

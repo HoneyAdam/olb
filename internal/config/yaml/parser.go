@@ -28,11 +28,11 @@ func (t NodeType) String() string {
 // Node is an AST node.
 type Node struct {
 	Type     NodeType
-	Value    string      // For scalars
-	Tag      string      // Type tag (e.g., !!str)
-	Anchor   string      // Anchor name
-	Children []*Node     // For mappings and sequences
-	Key      string      // For mapping entries
+	Value    string  // For scalars
+	Tag      string  // Type tag (e.g., !!str)
+	Anchor   string  // Anchor name
+	Children []*Node // For mappings and sequences
+	Key      string  // For mapping entries
 }
 
 // Parser parses YAML tokens into an AST.

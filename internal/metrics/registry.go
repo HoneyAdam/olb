@@ -7,11 +7,11 @@ import (
 
 // Registry is a metrics registry for pre-registered metrics.
 type Registry struct {
-	counters   sync.Map // map[string]*Counter
-	gauges     sync.Map // map[string]*Gauge
-	histograms sync.Map // map[string]*Histogram
-	counterVecs sync.Map // map[string]*CounterVec
-	gaugeVecs   sync.Map // map[string]*GaugeVec
+	counters      sync.Map // map[string]*Counter
+	gauges        sync.Map // map[string]*Gauge
+	histograms    sync.Map // map[string]*Histogram
+	counterVecs   sync.Map // map[string]*CounterVec
+	gaugeVecs     sync.Map // map[string]*GaugeVec
 	histogramVecs sync.Map // map[string]*HistogramVec
 }
 

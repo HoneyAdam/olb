@@ -318,7 +318,7 @@ func (p *HTTPProxy) prepareOutboundRequest(r *http.Request, b *backend.Backend) 
 
 	outReq.URL.Scheme = backendURL.Scheme
 	outReq.URL.Host = backendURL.Host
-	outReq.Host = r.Host // Preserve original Host header
+	outReq.Host = r.Host   // Preserve original Host header
 	outReq.RequestURI = "" // Must be empty for client requests
 
 	// Set X-Forwarded-For

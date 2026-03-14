@@ -103,7 +103,7 @@ func newTestServer() *Server {
 			data: map[string]interface{}{
 				"requests_total":     int64(1000),
 				"active_connections": float64(42),
-				"latency_p99":       float64(0.125),
+				"latency_p99":        float64(0.125),
 			},
 		},
 		Backends: &mockBackendProvider{

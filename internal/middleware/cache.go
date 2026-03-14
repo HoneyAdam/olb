@@ -605,11 +605,11 @@ func (c *CacheMiddleware) Stats() (hits, misses int64) {
 
 // cacheDirectives holds parsed Cache-Control header values.
 type cacheDirectives struct {
-	noCache  bool
-	noStore  bool
-	private  bool
-	maxAge   time.Duration
-	sMaxAge  time.Duration
+	noCache bool
+	noStore bool
+	private bool
+	maxAge  time.Duration
+	sMaxAge time.Duration
 }
 
 // parseCacheControl parses a Cache-Control header value into directives.
@@ -697,4 +697,3 @@ var _ Middleware = (*CacheMiddleware)(nil)
 
 // Ensure discardResponseWriter implements http.ResponseWriter.
 var _ http.ResponseWriter = (*discardResponseWriter)(nil)
-

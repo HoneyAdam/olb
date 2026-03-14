@@ -365,7 +365,7 @@ func (l *Lexer) skipNewlinesAndWhitespace() {
 	}
 }
 
-// readLiteralString reads a '...' string or '''...''' multi-line literal string.
+// readLiteralString reads a '...' string or ”'...”' multi-line literal string.
 func (l *Lexer) readLiteralString() (Token, error) {
 	tok := Token{Line: l.line, Col: l.col}
 
@@ -397,7 +397,7 @@ func (l *Lexer) readLiteralString() (Token, error) {
 	return tok, nil
 }
 
-// readMultilineLiteralString reads a ''' ... ''' string.
+// readMultilineLiteralString reads a ”' ... ”' string.
 func (l *Lexer) readMultilineLiteralString() (Token, error) {
 	tok := Token{Type: tokenMultilineLiteralString, Line: l.line, Col: l.col}
 

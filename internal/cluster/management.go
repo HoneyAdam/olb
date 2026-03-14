@@ -112,10 +112,10 @@ type ClusterManager struct {
 	cluster *Cluster
 	state   *DistributedState
 
-	mu         sync.RWMutex
-	clusterSt  ClusterState
-	startTime  time.Time
-	seedAddrs  []string
+	mu        sync.RWMutex
+	clusterSt ClusterState
+	startTime time.Time
+	seedAddrs []string
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup

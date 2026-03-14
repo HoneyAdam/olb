@@ -250,8 +250,8 @@ func TestMTLSConfig_Validate(t *testing.T) {
 		{
 			name: "key without cert",
 			config: &MTLSConfig{
-				Enabled:  true,
-				KeyFile:  keyFile,
+				Enabled: true,
+				KeyFile: keyFile,
 			},
 			wantErr: true,
 		},

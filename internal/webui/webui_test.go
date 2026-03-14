@@ -48,52 +48,52 @@ func TestHandlerServeHTTP(t *testing.T) {
 	handler := NewHandlerWithFS(http.FS(testFS))
 
 	tests := []struct {
-		name           string
-		path           string
-		wantStatus     int
-		wantContent    string
+		name            string
+		path            string
+		wantStatus      int
+		wantContent     string
 		wantContentType string
 	}{
 		{
-			name:           "serve index.html at root",
-			path:           "/",
-			wantStatus:     http.StatusOK,
-			wantContent:    "<!DOCTYPE html>",
+			name:            "serve index.html at root",
+			path:            "/",
+			wantStatus:      http.StatusOK,
+			wantContent:     "<!DOCTYPE html>",
 			wantContentType: "text/html; charset=utf-8",
 		},
 		{
-			name:           "serve index.html",
-			path:           "/index.html",
-			wantStatus:     http.StatusOK,
-			wantContent:    "<!DOCTYPE html>",
+			name:            "serve index.html",
+			path:            "/index.html",
+			wantStatus:      http.StatusOK,
+			wantContent:     "<!DOCTYPE html>",
 			wantContentType: "text/html; charset=utf-8",
 		},
 		{
-			name:           "serve css file",
-			path:           "/css/test.css",
-			wantStatus:     http.StatusOK,
-			wantContent:    "body { color: red; }",
+			name:            "serve css file",
+			path:            "/css/test.css",
+			wantStatus:      http.StatusOK,
+			wantContent:     "body { color: red; }",
 			wantContentType: "text/css; charset=utf-8",
 		},
 		{
-			name:           "serve js file",
-			path:           "/js/test.js",
-			wantStatus:     http.StatusOK,
-			wantContent:    "console.log",
+			name:            "serve js file",
+			path:            "/js/test.js",
+			wantStatus:      http.StatusOK,
+			wantContent:     "console.log",
 			wantContentType: "application/javascript; charset=utf-8",
 		},
 		{
-			name:           "SPA fallback for unknown route",
-			path:           "/dashboard",
-			wantStatus:     http.StatusOK,
-			wantContent:    "<!DOCTYPE html>",
+			name:            "SPA fallback for unknown route",
+			path:            "/dashboard",
+			wantStatus:      http.StatusOK,
+			wantContent:     "<!DOCTYPE html>",
 			wantContentType: "text/html; charset=utf-8",
 		},
 		{
-			name:           "SPA fallback for nested route",
-			path:           "/backends/123",
-			wantStatus:     http.StatusOK,
-			wantContent:    "<!DOCTYPE html>",
+			name:            "SPA fallback for nested route",
+			path:            "/backends/123",
+			wantStatus:      http.StatusOK,
+			wantContent:     "<!DOCTYPE html>",
 			wantContentType: "text/html; charset=utf-8",
 		},
 	}
@@ -232,9 +232,9 @@ func TestHandlerCacheHeaders(t *testing.T) {
 	handler := NewHandlerWithFS(http.FS(testFS))
 
 	tests := []struct {
-		name         string
-		path         string
-		wantCache    string
+		name      string
+		path      string
+		wantCache string
 	}{
 		{
 			name:      "html no cache",

@@ -19,10 +19,10 @@ func createTestConfig() *config.Config {
 		Version: "1",
 		Listeners: []*config.Listener{
 			{
-				Name:    "test-http",
-				Address: "127.0.0.1:0", // Use port 0 for dynamic allocation
+				Name:     "test-http",
+				Address:  "127.0.0.1:0", // Use port 0 for dynamic allocation
 				Protocol: "http",
-				TLS:     false,
+				TLS:      false,
 				Routes: []*config.Route{
 					{
 						Path: "/",
