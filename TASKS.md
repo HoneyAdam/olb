@@ -633,11 +633,11 @@
 - [ ] Write integration test (3-node cluster, leader failure, re-election)
 
 ### 4.3 Config State Machine
-- [ ] Implement config store as Raft state machine
-- [ ] Implement config change proposal (leader only)
-- [ ] Implement follower → leader forwarding
-- [ ] Implement config apply on commit
-- [ ] Write unit tests
+- [x] Implement config store as Raft state machine
+- [x] Implement config change proposal (leader only)
+- [x] Implement follower → leader forwarding
+- [x] Implement config apply on commit
+- [x] Write unit tests
 
 ### 4.4 Distributed State
 - [x] Implement health status propagation via gossip
@@ -653,7 +653,7 @@
 ### 4.6 Cluster Management
 - [x] Implement cluster join flow
 - [x] Implement cluster leave flow (graceful)
-- [ ] Implement `olb cluster status/join/leave/members` CLI commands
+- [x] Implement `olb cluster status/join/leave/members` CLI commands
 - [x] Implement cluster admin API endpoints
 - [ ] Add cluster page to Web UI
 
@@ -669,39 +669,39 @@
 ## Phase 5: AI Integration + Polish (v1.0.0)
 
 ### 5.1 MCP Server
-- [ ] Implement MCP JSON-RPC protocol handler
-- [ ] Implement stdio transport (stdin/stdout)
-- [ ] Implement HTTP/SSE transport
-- [ ] Implement `olb_query_metrics` tool
-- [ ] Implement `olb_list_backends` tool
-- [ ] Implement `olb_modify_backend` tool
-- [ ] Implement `olb_modify_route` tool
-- [ ] Implement `olb_diagnose` tool (error analysis, latency analysis, capacity)
-- [ ] Implement `olb_get_logs` tool
-- [ ] Implement `olb_get_config` tool
-- [ ] Implement `olb_cluster_status` tool
-- [ ] Implement MCP resources (metrics, config, health, logs)
-- [ ] Implement MCP prompt templates (diagnose, capacity planning, canary deploy)
-- [ ] Write unit tests for each tool
+- [x] Implement MCP JSON-RPC protocol handler
+- [x] Implement stdio transport (stdin/stdout)
+- [x] Implement HTTP/SSE transport
+- [x] Implement `olb_query_metrics` tool
+- [x] Implement `olb_list_backends` tool
+- [x] Implement `olb_modify_backend` tool
+- [x] Implement `olb_modify_route` tool
+- [x] Implement `olb_diagnose` tool (error analysis, latency analysis, capacity)
+- [x] Implement `olb_get_logs` tool
+- [x] Implement `olb_get_config` tool
+- [x] Implement `olb_cluster_status` tool
+- [x] Implement MCP resources (metrics, config, health, logs)
+- [x] Implement MCP prompt templates (diagnose, capacity planning, canary deploy)
+- [x] Write unit tests for each tool
 - [ ] Write integration test (Claude Code ↔ MCP Server)
 
 ### 5.2 Plugin System
-- [ ] Implement Plugin interface
-- [ ] Implement PluginAPI (register middleware, balancer, health check, discovery)
-- [ ] Implement Go plugin loader (.so files)
-- [ ] Implement plugin directory scanning
-- [ ] Implement event system (subscribe/publish)
+- [x] Implement Plugin interface
+- [x] Implement PluginAPI (register middleware, balancer, health check, discovery)
+- [x] Implement Go plugin loader (.so files)
+- [x] Implement plugin directory scanning
+- [x] Implement event system (subscribe/publish)
 - [ ] Write example plugin (custom middleware)
-- [ ] Write unit tests
+- [x] Write unit tests
 
 ### 5.3 Documentation
 - [ ] Write comprehensive README.md
-- [ ] Write getting-started.md (5-minute quick start)
-- [ ] Write configuration.md (all options documented)
-- [ ] Write algorithms.md (explain each algorithm with diagrams)
-- [ ] Write clustering.md (setup, operation, troubleshooting)
-- [ ] Write mcp.md (AI integration guide)
-- [ ] Write api.md (REST API reference)
+- [x] Write getting-started.md (5-minute quick start)
+- [x] Write configuration.md (all options documented)
+- [x] Write algorithms.md (explain each algorithm with diagrams)
+- [x] Write clustering.md (setup, operation, troubleshooting)
+- [x] Write mcp.md (AI integration guide)
+- [x] Write api.md (REST API reference)
 - [ ] Write llms.txt (LLM-friendly project summary)
 - [ ] Write CHANGELOG.md
 
@@ -729,14 +729,14 @@
 - [ ] Review privilege dropping implementation
 
 ### 5.6 Packaging & Distribution
-- [ ] Docker image (multi-arch: amd64, arm64)
-- [ ] Docker Compose example
+- [x] Docker image (multi-arch: amd64, arm64)
+- [x] Docker Compose example
 - [ ] Homebrew formula
-- [ ] systemd service file
-- [ ] DEB package
-- [ ] RPM package
-- [ ] Install script (curl | sh)
-- [ ] GitHub Actions release workflow
+- [x] systemd service file
+- [x] DEB package
+- [x] RPM package
+- [x] Install script (curl | sh)
+- [x] GitHub Actions release workflow
 
 ### 5.7 v1.0.0 Release
 - [ ] All tests pass with -race
@@ -758,29 +758,9 @@
 | Phase 1 (MVP) | ~120 | ~119 | ~1 (polish) |
 | Phase 2 (Advanced) | ~60 | ~57 | ~3 (polish) |
 | Phase 3 (Web UI) | ~55 | ~53 | ~2 (Docker discovery, polish) |
-| Phase 4 (Cluster) | ~30 | ~24 | ~6 (config SM, CLI, UI, polish) |
-| Phase 5 (AI+Polish) | ~40 | 0 | ~40 |
-| **Total** | **~305** | **~253** | **~52** |
-
----
-
-## Worktree Status
-
-The following worktrees contain stale work already merged to main and can be pruned:
-- `agent-a37a6d77` — Maglev balancer (already on main)
-- `agent-a4d0cc81` — RingHash balancer (already on main)
-- `agent-ac6e2134` — LeastResponseTime balancer (already on main)
-
-## Uncommitted Work (on main working tree)
-
-The following files exist in the main working tree but are NOT yet committed:
-- `internal/cli/advanced_commands.go` + test (Phase 3.15)
-- `internal/cli/top.go` + test + platform files (Phase 3.13)
-- `internal/cli/commands.go` (modified for Phase 3.15)
-- `internal/tls/mtls.go` + test (Phase 3.12)
-- `internal/tls/ocsp.go` + test (Phase 3.11)
-- `internal/webui/` (Phase 3.1-3.9)
-- `CHANGELOG.md` (updated)
+| Phase 4 (Cluster) | ~30 | ~28 | ~2 (cluster UI, polish) |
+| Phase 5 (AI+Polish) | ~40 | ~30 | ~10 (perf, security, final release) |
+| **Total** | **~305** | **~287** | **~18** |
 
 ---
 
