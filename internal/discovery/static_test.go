@@ -314,18 +314,25 @@ func TestStaticFileProvider(t *testing.T) {
 		t.Fatalf("Expected 2 services, got %d", len(services))
 	}
 
-	// Check first service
-	if services[0].ID != "svc-1" {
-		t.Errorf("Service[0].ID = %q, want svc-1", services[0].ID)
+	// Find svc-1 (order is non-deterministic)
+	var svc1 *Service
+	for _, s := range services {
+		if s.ID == "svc-1" {
+			svc1 = s
+			break
+		}
 	}
-	if services[0].Weight != 10 {
-		t.Errorf("Service[0].Weight = %d, want 10", services[0].Weight)
+	if svc1 == nil {
+		t.Fatal("Service svc-1 not found")
 	}
-	if len(services[0].Tags) != 2 {
-		t.Errorf("Service[0].Tags = %v, want 2 tags", services[0].Tags)
+	if svc1.Weight != 10 {
+		t.Errorf("svc-1.Weight = %d, want 10", svc1.Weight)
 	}
-	if services[0].Meta["env"] != "prod" {
-		t.Errorf("Service[0].Meta[env] = %q, want prod", services[0].Meta["env"])
+	if len(svc1.Tags) != 2 {
+		t.Errorf("svc-1.Tags = %v, want 2 tags", svc1.Tags)
+	}
+	if svc1.Meta["env"] != "prod" {
+		t.Errorf("svc-1.Meta[env] = %q, want prod", svc1.Meta["env"])
 	}
 }
 
