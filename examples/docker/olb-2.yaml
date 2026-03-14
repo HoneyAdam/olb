@@ -1,0 +1,43 @@
+# OLB Node 2 Configuration (Docker Compose cluster demo)
+
+listeners:
+  - address: ":8080"
+    protocol: http
+
+admin:
+  address: ":9090"
+  enabled: true
+
+logging:
+  level: info
+  format: json
+  output: /var/log/olb/olb.log
+
+backends:
+  - name: echo-pool
+    algorithm: round-robin
+    health_check:
+      enabled: true
+      interval: 5s
+      timeout: 2s
+      path: /
+    servers:
+      - address: "backend-1:5678"
+        weight: 1
+      - address: "backend-2:5678"
+        weight: 1
+      - address: "backend-3:5678"
+        weight: 1
+
+routes:
+  - match:
+      path_prefix: /
+    backend: echo-pool
+
+cluster:
+  enabled: true
+  node_id: olb-2
+  bind_address: "172.28.0.11:7946"
+  peers:
+    - "172.28.0.10:7946"
+    - "172.28.0.12:7946"

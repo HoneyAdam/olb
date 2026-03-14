@@ -5,8 +5,8 @@
 *.so
 *.dylib
 bin/
-olb
-olb-*
+/olb
+/olb-*
 
 # Test binary, built with `go test -c`
 *.test
