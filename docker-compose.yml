@@ -1,0 +1,234 @@
+# OpenLoadBalancer - Docker Compose Cluster Demo
+#
+# This sets up a 3-node OLB cluster with 3 backend echo servers.
+#
+# Usage:
+#   docker compose up -d          # Start the cluster
+#   docker compose ps             # Check status
+#   docker compose logs -f olb-1  # Follow logs for node 1
+#   docker compose down           # Tear down
+#
+# Access:
+#   Proxy (node 1):  http://localhost:8080
+#   Proxy (node 2):  http://localhost:8081
+#   Proxy (node 3):  http://localhost:8082
+#   Admin (node 1):  http://localhost:9090
+#   Admin (node 2):  http://localhost:9091
+#   Admin (node 3):  http://localhost:9092
+
+services:
+  # ─── OLB Cluster Nodes ────────────────────────────────────────────────
+  olb-1:
+    image: openloadbalancer/olb:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: olb-1
+    hostname: olb-1
+    command:
+      - start
+      - --config
+      - /etc/olb/olb.yaml
+    volumes:
+      - ./examples/docker/olb-1.yaml:/etc/olb/olb.yaml:ro
+      - olb-1-data:/var/lib/olb
+      - olb-1-logs:/var/log/olb
+    ports:
+      - "8080:8080"   # HTTP proxy
+      - "9090:9090"   # Admin API
+    networks:
+      olb-cluster:
+        ipv4_address: 172.28.0.10
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/olb", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+    depends_on:
+      backend-1:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+      backend-3:
+        condition: service_healthy
+
+  olb-2:
+    image: openloadbalancer/olb:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: olb-2
+    hostname: olb-2
+    command:
+      - start
+      - --config
+      - /etc/olb/olb.yaml
+    volumes:
+      - ./examples/docker/olb-2.yaml:/etc/olb/olb.yaml:ro
+      - olb-2-data:/var/lib/olb
+      - olb-2-logs:/var/log/olb
+    ports:
+      - "8081:8080"
+      - "9091:9090"
+    networks:
+      olb-cluster:
+        ipv4_address: 172.28.0.11
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/olb", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+    depends_on:
+      backend-1:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+      backend-3:
+        condition: service_healthy
+
+  olb-3:
+    image: openloadbalancer/olb:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: olb-3
+    hostname: olb-3
+    command:
+      - start
+      - --config
+      - /etc/olb/olb.yaml
+    volumes:
+      - ./examples/docker/olb-3.yaml:/etc/olb/olb.yaml:ro
+      - olb-3-data:/var/lib/olb
+      - olb-3-logs:/var/log/olb
+    ports:
+      - "8082:8080"
+      - "9092:9090"
+    networks:
+      olb-cluster:
+        ipv4_address: 172.28.0.12
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/olb", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+        reservations:
+          cpus: "0.25"
+          memory: 64M
+    depends_on:
+      backend-1:
+        condition: service_healthy
+      backend-2:
+        condition: service_healthy
+      backend-3:
+        condition: service_healthy
+
+  # ─── Backend Echo Servers ─────────────────────────────────────────────
+  # Simple HTTP servers that echo request details for testing.
+  backend-1:
+    image: hashicorp/http-echo:latest
+    container_name: backend-1
+    hostname: backend-1
+    command: ["-text=backend-1", "-listen=:5678"]
+    networks:
+      olb-cluster:
+        ipv4_address: 172.28.0.20
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 32M
+
+  backend-2:
+    image: hashicorp/http-echo:latest
+    container_name: backend-2
+    hostname: backend-2
+    command: ["-text=backend-2", "-listen=:5678"]
+    networks:
+      olb-cluster:
+        ipv4_address: 172.28.0.21
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 32M
+
+  backend-3:
+    image: hashicorp/http-echo:latest
+    container_name: backend-3
+    hostname: backend-3
+    command: ["-text=backend-3", "-listen=:5678"]
+    networks:
+      olb-cluster:
+        ipv4_address: 172.28.0.22
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:5678/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 2s
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 32M
+
+# ─── Networks ─────────────────────────────────────────────────────────
+networks:
+  olb-cluster:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+          gateway: 172.28.0.1
+
+# ─── Volumes ──────────────────────────────────────────────────────────
+volumes:
+  olb-1-data:
+  olb-1-logs:
+  olb-2-data:
+  olb-2-logs:
+  olb-3-data:
+  olb-3-logs:

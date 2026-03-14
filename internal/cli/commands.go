@@ -50,6 +50,11 @@ var Commands = []Command{
 	&ConfigDiffCommand{},
 	&ConfigValidateCommand{},
 	&CompletionCommand{},
+	// Cluster CLI commands (Phase 4.6)
+	&ClusterStatusCommand{},
+	&ClusterJoinCommand{},
+	&ClusterLeaveCommand{},
+	&ClusterMembersCommand{},
 }
 
 // FindCommand finds a command by name.

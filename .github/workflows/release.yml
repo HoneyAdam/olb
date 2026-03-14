@@ -1,0 +1,313 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  GO_VERSION: '1.23'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: openloadbalancer/olb
+  DOCKERHUB_IMAGE: openloadbalancer/olb
+
+jobs:
+  # ─── Build release binaries ──────────────────────────────────────────
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            suffix: linux-amd64
+          - goos: linux
+            goarch: arm64
+            suffix: linux-arm64
+          - goos: darwin
+            goarch: amd64
+            suffix: darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            suffix: darwin-arm64
+          - goos: windows
+            goarch: amd64
+            suffix: windows-amd64
+            ext: .exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Get version metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="$(git rev-parse HEAD)"
+          SHORT_COMMIT="$(git rev-parse --short HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "commit=${COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "short_commit=${SHORT_COMMIT}" >> "$GITHUB_OUTPUT"
+          echo "date=${DATE}" >> "$GITHUB_OUTPUT"
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          BINARY_NAME="olb-${{ matrix.suffix }}${{ matrix.ext }}"
+          go build -trimpath \
+            -ldflags "-s -w \
+              -X github.com/openloadbalancer/olb/pkg/version.Version=${{ steps.meta.outputs.version }} \
+              -X github.com/openloadbalancer/olb/pkg/version.Commit=${{ steps.meta.outputs.commit }} \
+              -X github.com/openloadbalancer/olb/pkg/version.ShortCommit=${{ steps.meta.outputs.short_commit }} \
+              -X github.com/openloadbalancer/olb/pkg/version.Date=${{ steps.meta.outputs.date }}" \
+            -o "dist/${BINARY_NAME}" \
+            ./cmd/olb
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: olb-${{ matrix.suffix }}
+          path: dist/
+          retention-days: 1
+
+  # ─── Generate checksums and create release ───────────────────────────
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist/
+
+      - name: Generate SHA256 checksums
+        run: |
+          cd dist
+          sha256sum olb-* > "olb-${GITHUB_REF_NAME}-checksums.txt"
+          cat "olb-${GITHUB_REF_NAME}-checksums.txt"
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: spdx-json
+          output-file: dist/olb-${{ github.ref_name }}-sbom.spdx.json
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          # Get previous tag
+          PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1)
+          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${GITHUB_REF_NAME}" ]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+
+          cat > release_notes.md << 'HEADER'
+          ## What's Changed
+
+          HEADER
+
+          # Generate changelog from commits
+          git log "${PREV_TAG}..${GITHUB_REF_NAME}" --pretty=format:"- %s (%h)" --no-merges >> release_notes.md
+
+          cat >> release_notes.md << 'FOOTER'
+
+          ## Installation
+
+          ### Binary
+
+          Download the appropriate binary for your platform from the assets below.
+
+          **Quick install (Linux/macOS):**
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/openloadbalancer/olb/main/scripts/install.sh | sh
+          ```
+
+          **Install specific version:**
+          ```sh
+          curl -fsSL https://raw.githubusercontent.com/openloadbalancer/olb/main/scripts/install.sh | sh -s -- --version $GITHUB_REF_NAME
+          ```
+
+          ### Docker
+
+          ```sh
+          docker pull ghcr.io/openloadbalancer/olb:$GITHUB_REF_NAME
+          ```
+
+          ### Verify Checksums
+
+          ```sh
+          sha256sum --check olb-$GITHUB_REF_NAME-checksums.txt
+          ```
+          FOOTER
+
+          # Replace $GITHUB_REF_NAME with actual tag
+          sed -i "s/\$GITHUB_REF_NAME/${GITHUB_REF_NAME}/g" release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/olb-*
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'rc') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+          generate_release_notes: false
+          make_latest: ${{ !contains(github.ref_name, 'rc') && !contains(github.ref_name, 'beta') && !contains(github.ref_name, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ─── Build and push Docker images ────────────────────────────────────
+  docker:
+    name: Docker (${{ matrix.platform }})
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            artifact: olb-linux-amd64
+          - platform: linux/arm64
+            artifact: olb-linux-arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download binary artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/
+
+      - name: Prepare binary
+        run: |
+          chmod +x dist/olb-*
+          # Rename to plain 'olb' for Docker COPY
+          cp dist/olb-* dist/olb
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Docker metadata
+        id: docker_meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix=
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          push: true
+          tags: ${{ steps.docker_meta.outputs.tags }}
+          labels: ${{ steps.docker_meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  # ─── Create multi-arch manifest ──────────────────────────────────────
+  docker-manifest:
+    name: Docker Manifest
+    runs-on: ubuntu-latest
+    needs: docker
+    steps:
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Extract version
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          MAJOR="$(echo "$VERSION" | cut -d. -f1)"
+          MINOR="$(echo "$VERSION" | cut -d. -f1-2)"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "major=${MAJOR}" >> "$GITHUB_OUTPUT"
+          echo "minor=${MINOR}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push GHCR manifest
+        run: |
+          REPO="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          MINOR="${{ steps.version.outputs.minor }}"
+          MAJOR="${{ steps.version.outputs.major }}"
+
+          # version tag
+          docker manifest create "${REPO}:${VERSION}" \
+            "${REPO}:${VERSION}-linux-amd64" \
+            "${REPO}:${VERSION}-linux-arm64" 2>/dev/null || true
+          docker manifest push "${REPO}:${VERSION}" 2>/dev/null || true
+
+          # latest tag (skip for pre-releases)
+          if [[ "${GITHUB_REF_NAME}" != *"rc"* ]] && [[ "${GITHUB_REF_NAME}" != *"beta"* ]] && [[ "${GITHUB_REF_NAME}" != *"alpha"* ]]; then
+            docker manifest create "${REPO}:latest" \
+              "${REPO}:${VERSION}-linux-amd64" \
+              "${REPO}:${VERSION}-linux-arm64" 2>/dev/null || true
+            docker manifest push "${REPO}:latest" 2>/dev/null || true
+          fi
