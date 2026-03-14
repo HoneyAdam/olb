@@ -316,7 +316,7 @@
 ### 1.20 Phase 1 Polish
 - [x] Write example configs (olb.yaml, olb.minimal.yaml)
 - [x] Write getting-started.md
-- [ ] Run full test suite with race detector
+- [x] Run full test suite with race detector (CI job on Linux)
 - [x] Run benchmarks, document baseline numbers
 - [x] Binary size check (9.1MB — target <20MB)
 - [x] Startup time check
@@ -712,7 +712,7 @@
 - [x] Verify buffer pool effectiveness
 - [x] Verify connection pool effectiveness
 - [x] Benchmark: HTTP RPS (target: >50K single core, >300K 8-core)
-- [ ] Benchmark: TCP throughput (target: >10Gbps with splice)
+- [x] Benchmark: TCP throughput (target: >10Gbps with splice)
 - [x] Benchmark: Latency overhead (target: <1ms p99 L7, <0.1ms p99 L4)
 - [x] Benchmark: Memory per connection (target: <4KB idle)
 - [x] Benchmark: Startup time (target: <500ms)
@@ -739,7 +739,7 @@
 - [x] GitHub Actions release workflow
 
 ### 5.7 v1.0.0 Release
-- [ ] All tests pass with -race
+- [x] All tests pass with -race (CI job on Linux)
 - [x] All benchmarks meet targets
 - [x] Documentation complete
 - [x] Example configs for all formats
