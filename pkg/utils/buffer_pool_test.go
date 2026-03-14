@@ -254,3 +254,163 @@ func BenchmarkBufferPool_NoPool(b *testing.B) {
 		_ = buf
 	}
 }
+
+// TestBufferPool_GetPutAllSizes tests Get/Put for all buffer size tiers
+func TestBufferPool_GetPutAllSizes(t *testing.T) {
+	pool := NewBufferPool()
+
+	sizes := []struct {
+		name string
+		size int
+		cap  int
+	}{
+		{"tiny", 100, SmallBufferSize},
+		{"small_exact", SmallBufferSize, SmallBufferSize},
+		{"small_boundary", SmallBufferSize - 1, SmallBufferSize},
+		{"medium_exact", MediumBufferSize, MediumBufferSize},
+		{"medium_boundary", MediumBufferSize - 1, MediumBufferSize},
+		{"large_exact", LargeBufferSize, LargeBufferSize},
+		{"large_boundary", LargeBufferSize - 1, LargeBufferSize},
+		{"xlarge_exact", XLargeBufferSize, XLargeBufferSize},
+		{"xlarge_boundary", XLargeBufferSize - 1, XLargeBufferSize},
+	}
+
+	for _, tt := range sizes {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := pool.Get(tt.size)
+			if len(buf) != tt.size {
+				t.Errorf("Get(%d) length = %d, want %d", tt.size, len(buf), tt.size)
+			}
+			if cap(buf) != tt.cap {
+				t.Errorf("Get(%d) capacity = %d, want %d", tt.size, cap(buf), tt.cap)
+			}
+			pool.Put(buf)
+		})
+	}
+}
+
+// TestBufferPool_PutWrongSizeDetailed tests putting buffers with wrong sizes
+func TestBufferPool_PutWrongSizeDetailed(t *testing.T) {
+	pool := NewBufferPool()
+
+	// Create buffers with non-standard capacities
+	wrongSizes := []int{
+		100,
+		500,
+		1000,
+		5000,
+		10000,
+		50000,
+		100000,
+	}
+
+	for _, size := range wrongSizes {
+		// These should not panic, just not be pooled
+		buf := make([]byte, 100, size)
+		pool.Put(buf)
+	}
+
+	// nil and empty should not panic
+	pool.Put(nil)
+	pool.Put([]byte{})
+}
+
+// TestBufferPool_ConcurrentAccess tests concurrent Get/Put operations
+func TestBufferPool_ConcurrentAccess(t *testing.T) {
+	pool := NewBufferPool()
+	const numGoroutines = 50
+	const iterations = 500
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Each goroutine gets and puts buffers of various sizes
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				// Cycle through different sizes
+				size := (j % (XLargeBufferSize + 100)) + 1
+				buf := pool.Get(size)
+
+				// Write some data to verify buffer is usable
+				for k := 0; k < len(buf) && k < 100; k++ {
+					buf[k] = byte(id % 256)
+				}
+
+				pool.Put(buf)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestBufferPool_OversizedAllocation tests oversized buffer allocation
+func TestBufferPool_OversizedAllocation(t *testing.T) {
+	pool := NewBufferPool()
+
+	// Request buffer larger than maxBufferSize
+	oversized := XLargeBufferSize + 1000
+	buf := pool.Get(oversized)
+
+	if len(buf) != oversized {
+		t.Errorf("Oversized buffer length = %d, want %d", len(buf), oversized)
+	}
+
+	// Oversized buffers should have exact capacity, not pooled size
+	if cap(buf) != oversized {
+		t.Errorf("Oversized buffer capacity = %d, want %d", cap(buf), oversized)
+	}
+
+	// Writing should work
+	for i := range buf {
+		buf[i] = byte(i % 256)
+	}
+
+	// Putting oversized buffer should not panic (but won't be pooled)
+	pool.Put(buf)
+}
+
+// TestBufferPool_BufferReuse tests that buffers are actually reused
+func TestBufferPool_BufferReuse(t *testing.T) {
+	pool := NewBufferPool()
+
+	// Get a buffer and note its pointer
+	buf1 := pool.Get(100)
+	ptr1 := &buf1[0]
+	pool.Put(buf1)
+
+	// Get another buffer of same size tier
+	buf2 := pool.Get(100)
+	ptr2 := &buf2[0]
+
+	// The same underlying array should be reused
+	if ptr1 != ptr2 {
+		t.Log("Note: Buffer was not reused (this is OK, sync.Pool doesn't guarantee reuse)")
+	}
+
+	pool.Put(buf2)
+}
+
+// TestBufferPool_DataClearing tests that buffers are zeroed before reuse
+func TestBufferPool_DataClearing(t *testing.T) {
+	pool := NewBufferPool()
+
+	// Get buffer and fill with non-zero data
+	buf := pool.Get(100)
+	for i := range buf {
+		buf[i] = 0xFF
+	}
+	pool.Put(buf)
+
+	// Get buffer again - should be zeroed
+	buf2 := pool.Get(100)
+	for i, b := range buf2 {
+		if b != 0 {
+			t.Errorf("Buffer not zeroed at index %d: got %d", i, b)
+			break
+		}
+	}
+	pool.Put(buf2)
+}

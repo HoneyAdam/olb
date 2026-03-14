@@ -1,0 +1,34 @@
+# Minimal OpenLoadBalancer Configuration
+# This is a minimal working configuration for testing.
+
+version: 1
+
+# Single HTTP listener on port 8080
+listeners:
+  - name: http
+    protocol: http
+    address: ":8080"
+    routes:
+      - name: default
+        path: /
+        pool: backend
+
+# Backend pool with round-robin load balancing
+pools:
+  - name: backend
+    algorithm: round_robin
+    health_check:
+      type: http
+      path: /health
+      interval: 10s
+      timeout: 5s
+    backends:
+      - id: backend-1
+        address: "127.0.0.1:8081"
+      - id: backend-2
+        address: "127.0.0.1:8082"
+
+# Logging configuration
+logging:
+  level: info
+  output: stdout

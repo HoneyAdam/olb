@@ -1,0 +1,54 @@
+//go:build !windows
+// +build !windows
+
+package engine
+
+import (
+	"os"
+	"os/signal"
+	"syscall"
+)
+
+// setupSignalHandlers installs signal handlers for Unix systems.
+func (e *Engine) setupSignalHandlers() {
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh,
+		syscall.SIGHUP,  // Reload configuration
+		syscall.SIGTERM, // Graceful shutdown
+		syscall.SIGINT,  // Graceful shutdown (Ctrl+C)
+		syscall.SIGUSR1, // Reopen log files
+	)
+
+	e.wg.Add(1)
+	go func() {
+		defer e.wg.Done()
+		for {
+			select {
+			case sig := <-sigCh:
+				switch sig {
+				case syscall.SIGHUP:
+					e.logger.Info("Received SIGHUP, reloading configuration...")
+					if err := e.Reload(); err != nil {
+						e.logger.Error("Reload failed", logging.Error(err))
+					}
+
+				case syscall.SIGTERM, syscall.SIGINT:
+					e.logger.Info("Received shutdown signal", logging.String("signal", sig.String()))
+					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					if err := e.Shutdown(ctx); err != nil {
+						e.logger.Error("Shutdown failed", logging.Error(err))
+					}
+					return
+
+				case syscall.SIGUSR1:
+					e.logger.Info("Received SIGUSR1, reopening log files...")
+					// TODO: Implement log reopening
+				}
+
+			case <-e.stopCh:
+				return
+			}
+		}
+	}()
+}

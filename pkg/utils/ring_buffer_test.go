@@ -308,3 +308,230 @@ func BenchmarkRingBuffer_PushPopContended(b *testing.B) {
 		}
 	})
 }
+
+// TestRingBuffer_TryPushPop tests TryPush and TryPop aliases
+func TestRingBuffer_TryPushPop(t *testing.T) {
+	rb := MustNewRingBuffer[int](4)
+
+	// TryPush should work when buffer not full
+	if !rb.TryPush(1) {
+		t.Error("TryPush should succeed when buffer not full")
+	}
+	if !rb.TryPush(2) {
+		t.Error("TryPush should succeed when buffer not full")
+	}
+
+	// TryPush should fail when buffer full
+	rb.TryPush(3)
+	rb.TryPush(4)
+	if rb.TryPush(5) {
+		t.Error("TryPush should fail when buffer full")
+	}
+
+	// TryPop should return values in order
+	val, ok := rb.TryPop()
+	if !ok || val != 1 {
+		t.Errorf("TryPop() = %d, %v, want 1, true", val, ok)
+	}
+
+	val, ok = rb.TryPop()
+	if !ok || val != 2 {
+		t.Errorf("TryPop() = %d, %v, want 2, true", val, ok)
+	}
+
+	// TryPop should fail when empty
+	rb.TryPop()
+	rb.TryPop()
+	_, ok = rb.TryPop()
+	if ok {
+		t.Error("TryPop should fail when buffer empty")
+	}
+}
+
+// TestRingBuffer_ConcurrentPushPop tests concurrent push/pop with multiple patterns
+func TestRingBuffer_ConcurrentPushPop(t *testing.T) {
+	tests := []struct {
+		name     string
+		capacity int
+		count    int
+	}{
+		{"small_buffer", 16, 1000},
+		{"medium_buffer", 1024, 10000},
+		{"large_buffer", 65536, 100000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rb := MustNewRingBuffer[int](tt.capacity)
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+
+			// Producer
+			go func() {
+				defer wg.Done()
+				for i := 0; i < tt.count; i++ {
+					for !rb.Push(i) {
+						// Spin wait
+					}
+				}
+			}()
+
+			// Consumer with verification
+			go func() {
+				defer wg.Done()
+				expected := 0
+				for expected < tt.count {
+					val, ok := rb.Pop()
+					for !ok {
+						val, ok = rb.Pop()
+					}
+					if val != expected {
+						t.Errorf("Got %d, want %d", val, expected)
+					}
+					expected++
+				}
+			}()
+
+			wg.Wait()
+		})
+	}
+}
+
+// TestRingBuffer_FullEmptyEdgeCases tests full and empty edge cases
+func TestRingBuffer_FullEmptyEdgeCases(t *testing.T) {
+	rb := MustNewRingBuffer[int](2)
+
+	// Empty checks
+	if !rb.IsEmpty() {
+		t.Error("New buffer should be empty")
+	}
+	if rb.IsFull() {
+		t.Error("New buffer should not be full")
+	}
+	_, ok := rb.Pop()
+	if ok {
+		t.Error("Pop from empty should fail")
+	}
+
+	// Add one element
+	rb.Push(1)
+	if rb.IsEmpty() {
+		t.Error("Buffer with 1 element should not be empty")
+	}
+	if rb.IsFull() {
+		t.Error("Buffer with 1/2 elements should not be full")
+	}
+	if rb.Len() != 1 {
+		t.Errorf("Len() = %d, want 1", rb.Len())
+	}
+
+	// Add second element
+	rb.Push(2)
+	if rb.IsEmpty() {
+		t.Error("Full buffer should not be empty")
+	}
+	if !rb.IsFull() {
+		t.Error("Buffer with 2/2 elements should be full")
+	}
+	if rb.Len() != 2 {
+		t.Errorf("Len() = %d, want 2", rb.Len())
+	}
+
+	// Try to add to full buffer
+	if rb.Push(3) {
+		t.Error("Push to full buffer should fail")
+	}
+
+	// Remove one element
+	val, _ := rb.Pop()
+	if val != 1 {
+		t.Errorf("First pop = %d, want 1", val)
+	}
+	if rb.IsFull() {
+		t.Error("Buffer with 1/2 elements should not be full")
+	}
+	if rb.IsEmpty() {
+		t.Error("Buffer with 1 element should not be empty")
+	}
+
+	// Remove second element
+	val, _ = rb.Pop()
+	if val != 2 {
+		t.Errorf("Second pop = %d, want 2", val)
+	}
+	if !rb.IsEmpty() {
+		t.Error("Empty buffer should be empty")
+	}
+	if rb.IsFull() {
+		t.Error("Empty buffer should not be full")
+	}
+
+	// Wrap-around test: fill, empty, fill again
+	rb.Push(10)
+	rb.Push(20)
+	rb.Pop()
+	rb.Pop()
+	rb.Push(30)
+	rb.Push(40)
+
+	val, _ = rb.Pop()
+	if val != 30 {
+		t.Errorf("After wrap-around, first pop = %d, want 30", val)
+	}
+	val, _ = rb.Pop()
+	if val != 40 {
+		t.Errorf("After wrap-around, second pop = %d, want 40", val)
+	}
+}
+
+// TestRingBuffer_ResetFunctionality tests Reset functionality
+func TestRingBuffer_ResetFunctionality(t *testing.T) {
+	rb := MustNewRingBuffer[int](8)
+
+	// Add some elements
+	for i := 0; i < 5; i++ {
+		rb.Push(i)
+	}
+	if rb.Len() != 5 {
+		t.Errorf("Len() = %d, want 5", rb.Len())
+	}
+
+	// Reset
+	rb.Reset()
+
+	// Should be empty
+	if !rb.IsEmpty() {
+		t.Error("Buffer should be empty after Reset")
+	}
+	if rb.Len() != 0 {
+		t.Errorf("Len() = %d, want 0 after Reset", rb.Len())
+	}
+
+	// Should be able to push again
+	if !rb.Push(100) {
+		t.Error("Should be able to push after Reset")
+	}
+	val, ok := rb.Pop()
+	if !ok || val != 100 {
+		t.Errorf("Pop() = %d, %v, want 100, true", val, ok)
+	}
+
+	// Reset empty buffer should work
+	rb.Reset()
+	if !rb.IsEmpty() {
+		t.Error("Reset of empty buffer should keep it empty")
+	}
+
+	// Reset full buffer
+	for i := 0; i < 8; i++ {
+		rb.Push(i)
+	}
+	if !rb.IsFull() {
+		t.Error("Buffer should be full")
+	}
+	rb.Reset()
+	if !rb.IsEmpty() {
+		t.Error("Buffer should be empty after Reset")
+	}
+}

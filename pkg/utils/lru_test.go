@@ -426,3 +426,256 @@ func BenchmarkLRU_PutGet(b *testing.B) {
 		lru.Get(i)
 	}
 }
+
+// TestLRU_GetNonExistent tests Get for non-existent keys
+func TestLRU_GetNonExistent(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+
+	// Get from empty cache
+	val, ok := lru.Get("nonexistent")
+	if ok {
+		t.Error("Get from empty cache should return false")
+	}
+	if val != 0 {
+		t.Errorf("Get from empty cache should return zero value, got %d", val)
+	}
+
+	// Add some items
+	lru.Put("a", 1)
+	lru.Put("b", 2)
+
+	// Get non-existent key
+	val, ok = lru.Get("c")
+	if ok {
+		t.Error("Get non-existent key should return false")
+	}
+	if val != 0 {
+		t.Errorf("Get non-existent key should return zero value, got %d", val)
+	}
+}
+
+// TestLRU_PutWithEviction tests Put with eviction
+func TestLRU_PutWithEviction(t *testing.T) {
+	lru := MustNewLRU[string, int](3)
+
+	// Fill cache
+	lru.Put("a", 1)
+	lru.Put("b", 2)
+	lru.Put("c", 3)
+
+	if lru.Len() != 3 {
+		t.Errorf("Len() = %d, want 3", lru.Len())
+	}
+
+	// Add fourth item, should evict "a" (LRU)
+	lru.Put("d", 4)
+
+	if lru.Len() != 3 {
+		t.Errorf("Len() = %d, want 3 after eviction", lru.Len())
+	}
+
+	// "a" should be evicted
+	_, ok := lru.Get("a")
+	if ok {
+		t.Error("'a' should be evicted")
+	}
+
+	// "b", "c", "d" should exist
+	for _, key := range []string{"b", "c", "d"} {
+		_, ok := lru.Get(key)
+		if !ok {
+			t.Errorf("'%s' should exist", key)
+		}
+	}
+
+	// Access "b" to make it MRU, then add "e" to evict "c"
+	lru.Get("b")
+	lru.Put("e", 5)
+
+	_, ok = lru.Get("c")
+	if ok {
+		t.Error("'c' should be evicted after 'b' was accessed")
+	}
+
+	_, ok = lru.Get("b")
+	if !ok {
+		t.Error("'b' should still exist")
+	}
+}
+
+// TestLRU_TTLExpiration tests TTL expiration
+func TestLRU_TTLExpiration(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+
+	// Put with short TTL
+	lru.PutWithTTL("a", 1, 50*time.Millisecond)
+	lru.PutWithTTL("b", 2, 100*time.Millisecond)
+	lru.Put("c", 3) // No TTL
+
+	// All should exist immediately
+	val, ok := lru.Get("a")
+	if !ok || val != 1 {
+		t.Error("'a' should exist immediately")
+	}
+	val, ok = lru.Get("b")
+	if !ok || val != 2 {
+		t.Error("'b' should exist immediately")
+	}
+	val, ok = lru.Get("c")
+	if !ok || val != 3 {
+		t.Error("'c' should exist immediately")
+	}
+
+	// Wait for "a" to expire
+	time.Sleep(60 * time.Millisecond)
+
+	_, ok = lru.Get("a")
+	if ok {
+		t.Error("'a' should be expired after 60ms")
+	}
+
+	val, ok = lru.Get("b")
+	if !ok || val != 2 {
+		t.Error("'b' should still exist")
+	}
+
+	// Wait for "b" to expire
+	time.Sleep(60 * time.Millisecond)
+
+	_, ok = lru.Get("b")
+	if ok {
+		t.Error("'b' should be expired after 120ms")
+	}
+
+	// "c" should still exist
+	val, ok = lru.Get("c")
+	if !ok || val != 3 {
+		t.Error("'c' should still exist (no TTL)")
+	}
+
+	// Len should reflect expired items removed
+	if lru.Len() != 1 {
+		t.Errorf("Len() = %d, want 1 after TTL expiration", lru.Len())
+	}
+}
+
+// TestLRU_ConcurrentAccess tests concurrent access patterns
+func TestLRU_ConcurrentAccess(t *testing.T) {
+	lru := MustNewLRU[int, int](100)
+	const numGoroutines = 20
+	const iterations = 500
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 3)
+
+	// Writers
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				key := (id*iterations + j) % 150
+				lru.Put(key, key*10)
+			}
+		}(i)
+	}
+
+	// Readers
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				key := j % 150
+				lru.Get(key)
+			}
+		}(i)
+	}
+
+	// Deleters
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations/10; j++ {
+				key := (j + id*iterations) % 150
+				lru.Delete(key)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Cache should not exceed capacity
+	if lru.Len() > lru.Capacity() {
+		t.Errorf("Len() = %d > Capacity() = %d", lru.Len(), lru.Capacity())
+	}
+}
+
+// TestLRU_ResizeDetailed tests Resize functionality
+func TestLRU_ResizeDetailed(t *testing.T) {
+	lru := MustNewLRU[string, int](5)
+
+	// Fill cache
+	for i := 0; i < 5; i++ {
+		lru.Put(string(rune('a'+i)), i)
+	}
+
+	// Resize down to 3
+	evicted := lru.Resize(3)
+	if evicted != 2 {
+		t.Errorf("Resize(3) evicted = %d, want 2", evicted)
+	}
+
+	if lru.Capacity() != 3 {
+		t.Errorf("Capacity() = %d, want 3", lru.Capacity())
+	}
+
+	if lru.Len() != 3 {
+		t.Errorf("Len() = %d, want 3", lru.Len())
+	}
+
+	// Oldest items should be evicted (a and b)
+	_, ok := lru.Get("a")
+	if ok {
+		t.Error("'a' should be evicted")
+	}
+	_, ok = lru.Get("b")
+	if ok {
+		t.Error("'b' should be evicted")
+	}
+
+	// c, d, e should exist
+	for _, key := range []string{"c", "d", "e"} {
+		_, ok := lru.Get(key)
+		if !ok {
+			t.Errorf("'%s' should exist", key)
+		}
+	}
+
+	// Resize up to 10
+	evicted = lru.Resize(10)
+	if evicted != 0 {
+		t.Errorf("Resize(10) evicted = %d, want 0", evicted)
+	}
+
+	if lru.Capacity() != 10 {
+		t.Errorf("Capacity() = %d, want 10", lru.Capacity())
+	}
+
+	// Can add more items now
+	lru.Put("x", 100)
+	lru.Put("y", 200)
+
+	val, ok := lru.Get("x")
+	if !ok || val != 100 {
+		t.Error("'x' should exist after resize up")
+	}
+
+	// Resize to 0 (should not change capacity)
+	oldCap := lru.Capacity()
+	evicted = lru.Resize(0)
+	if evicted != 0 {
+		t.Errorf("Resize(0) evicted = %d, want 0", evicted)
+	}
+	if lru.Capacity() != oldCap {
+		t.Errorf("Capacity() = %d after Resize(0), want %d", lru.Capacity(), oldCap)
+	}
+}
