@@ -20,7 +20,7 @@ func NewPrometheusHandler(registry *Registry) *PrometheusHandler {
 }
 
 // WriteTo writes Prometheus format metrics to w.
-func (h *PrometheusHandler) WriteTo(w io.Writer) error {
+func (h *PrometheusHandler) WriteMetrics(w io.Writer) error {
 	// Collect and write all metrics
 	h.registry.Collect(
 		func(name string, c *Counter) {

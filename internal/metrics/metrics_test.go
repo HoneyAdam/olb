@@ -1161,7 +1161,7 @@ func TestPrometheusHandler(t *testing.T) {
 	// Write Prometheus format
 	h := NewPrometheusHandler(r)
 	var buf strings.Builder
-	err := h.WriteTo(&buf)
+	err := h.WriteMetrics(&buf)
 	if err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
@@ -1197,7 +1197,7 @@ func TestPrometheusHandler_Histogram(t *testing.T) {
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1232,7 +1232,7 @@ func TestPrometheusHandler_CounterVec(t *testing.T) {
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1260,7 +1260,7 @@ func TestPrometheusHandler_GaugeVec(t *testing.T) {
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1289,7 +1289,7 @@ func TestPrometheusHandler_HistogramVec(t *testing.T) {
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1325,7 +1325,7 @@ func TestPrometheusHandler_EmptyRegistry(t *testing.T) {
 	ph := NewPrometheusHandler(r)
 
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1341,7 +1341,7 @@ func TestPrometheusHandler_EscapeHelp(t *testing.T) {
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1364,7 +1364,7 @@ newline`).Inc()
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1388,7 +1388,7 @@ func TestJSONHandler(t *testing.T) {
 	// Write JSON format
 	h := NewJSONHandler(r)
 	var buf strings.Builder
-	err := h.WriteTo(&buf)
+	err := h.WriteMetrics(&buf)
 	if err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
@@ -1414,7 +1414,7 @@ func TestJSONHandler_Gauge(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1438,7 +1438,7 @@ func TestJSONHandler_Histogram(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1465,7 +1465,7 @@ func TestJSONHandler_CounterVec(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1492,7 +1492,7 @@ func TestJSONHandler_GaugeVec(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1513,7 +1513,7 @@ func TestJSONHandler_HistogramVec(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1537,7 +1537,7 @@ func TestJSONHandler_EmptyRegistry(t *testing.T) {
 	jh := NewJSONHandler(r)
 
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1560,7 +1560,7 @@ func TestJSONHandler_AllTypes(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1633,7 +1633,7 @@ func TestMetricsIntegration(t *testing.T) {
 	// Test Prometheus output
 	ph := NewPrometheusHandler(r)
 	var promBuf strings.Builder
-	if err := ph.WriteTo(&promBuf); err != nil {
+	if err := ph.WriteMetrics(&promBuf); err != nil {
 		t.Fatalf("Prometheus WriteTo failed: %v", err)
 	}
 	promOutput := promBuf.String()
@@ -1652,7 +1652,7 @@ func TestMetricsIntegration(t *testing.T) {
 	// Test JSON output
 	jh := NewJSONHandler(r)
 	var jsonBuf strings.Builder
-	if err := jh.WriteTo(&jsonBuf); err != nil {
+	if err := jh.WriteMetrics(&jsonBuf); err != nil {
 		t.Fatalf("JSON WriteTo failed: %v", err)
 	}
 	jsonOutput := jsonBuf.String()
@@ -1729,7 +1729,7 @@ func TestPrometheusHandler_EmptyLabels(t *testing.T) {
 
 	ph := NewPrometheusHandler(r)
 	var buf strings.Builder
-	if err := ph.WriteTo(&buf); err != nil {
+	if err := ph.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 
@@ -1748,7 +1748,7 @@ func TestJSONHandler_EmptyLabels(t *testing.T) {
 
 	jh := NewJSONHandler(r)
 	var buf strings.Builder
-	if err := jh.WriteTo(&buf); err != nil {
+	if err := jh.WriteMetrics(&buf); err != nil {
 		t.Fatalf("WriteTo failed: %v", err)
 	}
 

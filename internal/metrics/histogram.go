@@ -105,8 +105,8 @@ func (h *Histogram) Percentile(p float64) float64 {
 	target := int64(math.Ceil(float64(count) * p / 100))
 	cumulative := int64(0)
 
-	for i, bucket := range h.buckets {
-		cumulative += bucket.Load()
+	for i := range h.buckets {
+		cumulative += h.buckets[i].Load()
 		if cumulative >= target {
 			if i >= len(h.bounds) {
 				return h.bounds[len(h.bounds)-1] // Return max bucket
@@ -140,8 +140,8 @@ func (h *Histogram) Snapshot() HistogramSnapshot {
 		Sum:     h.GetSum(),
 		Count:   h.GetCount(),
 	}
-	for i, b := range h.buckets {
-		snap.Buckets[i] = b.Load()
+	for i := range h.buckets {
+		snap.Buckets[i] = h.buckets[i].Load()
 	}
 	return snap
 }

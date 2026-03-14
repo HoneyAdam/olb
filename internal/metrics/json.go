@@ -21,7 +21,7 @@ func NewJSONHandler(registry *Registry) *JSONHandler {
 }
 
 // WriteTo writes JSON format metrics to w.
-func (h *JSONHandler) WriteTo(w io.Writer) error {
+func (h *JSONHandler) WriteMetrics(w io.Writer) error {
 	metrics := make(map[string]interface{})
 
 	// Collect all metrics

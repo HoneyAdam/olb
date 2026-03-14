@@ -221,7 +221,7 @@ func (m *defaultMetrics) GetAllMetrics() map[string]interface{} {
 
 	var buf bytes.Buffer
 	handler := metrics.NewJSONHandler(m.registry)
-	if err := handler.WriteTo(&buf); err == nil {
+	if err := handler.WriteMetrics(&buf); err == nil {
 		// Parse the JSON output
 		var metrics map[string]interface{}
 		if err := json.Unmarshal(buf.Bytes(), &metrics); err == nil {
@@ -236,6 +236,6 @@ func (m *defaultMetrics) GetAllMetrics() map[string]interface{} {
 func (m *defaultMetrics) PrometheusFormat() string {
 	var buf bytes.Buffer
 	handler := metrics.NewPrometheusHandler(m.registry)
-	handler.WriteTo(&buf)
+	handler.WriteMetrics(&buf)
 	return buf.String()
 }
