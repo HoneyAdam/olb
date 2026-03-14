@@ -1,119 +1,432 @@
-# OpenLoadBalancer
+# OpenLoadBalancer (OLB)
 
-> A zero-dependency, production-grade load balancer written in Go using only the standard library.
+> A zero-dependency, production-grade Layer 4/Layer 7 load balancer and reverse proxy written in Go using only the standard library.
 
-## What is OpenLoadBalancer?
+- Repository: https://github.com/openloadbalancer/olb
+- Module: github.com/openloadbalancer/olb
+- Language: Go 1.23+ (stdlib only, zero external dependencies)
+- License: Apache 2.0
+- Author: Ersin Koc / ECOSTACK TECHNOLOGY OU
 
-OpenLoadBalancer (OLB) is a high-performance Layer 4 (TCP/UDP) and Layer 7 (HTTP/HTTPS/gRPC/WebSocket) load balancer and reverse proxy. It's designed as a single static binary with zero external dependencies, making it ideal for environments where simplicity and reliability are paramount.
+## Purpose
 
-## Key Characteristics
+OpenLoadBalancer is a single-binary load balancer that includes an HTTP/TCP/UDP reverse proxy, CLI, Web UI dashboard, admin REST API, Raft-based clustering, and an MCP server for AI integration. Everything is built from scratch using only Go's standard library -- no third-party packages. The YAML/TOML/HCL parsers, Raft consensus, gossip protocol, metrics engine, Web UI, TUI dashboard, ACME client, and WAF are all implemented internally.
 
-- **Language**: Go 1.23+ (stdlib only, single external exception for x/net and x/crypto)
-- **Architecture**: Modular, event-driven, hot-reloadable
-- **Deployment**: Single binary, Docker, Kubernetes
-- **Configuration**: YAML/JSON/TOML with environment variable substitution
-- **Observability**: Built-in metrics, logs, and Web UI (no external dependencies)
+## For LLMs / AI Assistants
 
-## For LLMs/AI Assistants
+When working with this codebase, follow these rules:
 
-When working with this codebase:
+1. **Zero Dependencies**: Never add external packages. Use only Go stdlib. The go.mod file contains only the module declaration.
+2. **Hot Reload**: All components must support runtime configuration changes without restart (SIGHUP or admin API).
+3. **Observability**: Every component should expose metrics via the metrics engine and use structured logging.
+4. **Error Handling**: Use wrapped errors with context from `pkg/errors`. Use sentinel errors for well-known conditions.
+5. **Testing**: Write unit tests for all packages. Write benchmarks for hot-path code (balancer selection, routing, middleware).
+6. **Documentation**: Write comprehensive GoDoc comments on all exported types and functions.
+7. **Concurrency Safety**: All shared state must be thread-safe. Use atomic operations for counters and gauges. Use sync.RWMutex for complex state.
 
-1. **Zero Dependencies**: Do not add external packages. Use stdlib only.
-2. **Hot Reload**: Design for runtime configuration changes without restart
-3. **Observability**: Every component should expose metrics and structured logging
-4. **Error Handling**: Use wrapped errors with context, sentinel errors for well-known conditions
-5. **Testing**: Unit tests for all packages, benchmarks for hot paths
-6. **Documentation**: Comprehensive GoDoc for all public APIs
-
-## Project Structure
+## Architecture Overview
 
 ```
-cmd/olb/              # Main entry point
-internal/             # Private implementation
-  engine/             # Core orchestration
-  listener/           # Network listeners
-  conn/               # Connection management
-  proxy/l7, l4/       # Protocol proxies
-  router/             # Request routing
-  balancer/           # LB algorithms (12 types)
-  backend/            # Backend management
-  health/             # Health checking
-  middleware/         # Middleware components
-  tls/                # TLS/ACME
-  config/             # Config parsing (YAML/JSON/TOML)
-  metrics/            # Metrics engine
-  logging/            # Structured logger
-  admin/              # Admin API
-  webui/              # Web UI (embedded)
-  cli/                # CLI commands
-  cluster/            # Raft/gossip clustering
-  mcp/                # MCP server for AI
-pkg/                  # Public libraries
-  version/            # Version info
-  utils/              # Utilities
-configs/              # Example configs
-docs/                 # Documentation
-test/                 # Integration tests
+┌─────────────────────────────────────────────────────────────┐
+│                     OpenLoadBalancer                         │
+├─────────────────────────────────────────────────────────────┤
+│  Listeners (HTTP/HTTPS, TCP, UDP, Admin API)                │
+│       │                                                      │
+│  Connection Manager (accept, track, limit, timeout, drain)   │
+│       │                                                      │
+│  Middleware Pipeline (rate-limit, cors, waf, compress, ...)  │
+│       │                                                      │
+│  Router (radix trie, host/path/method/header matching)       │
+│       │                                                      │
+│  Load Balancer (12 algorithms) → Backend Pool → Backends     │
+│                                                              │
+│  Support: TLS/ACME, Clustering, MCP, Web UI, CLI, Metrics   │
+└─────────────────────────────────────────────────────────────┘
 ```
+
+## Directory Structure
+
+```
+cmd/olb/                    Main entry point (parses CLI, dispatches commands)
+
+internal/
+  engine/                   Core orchestrator - wires all components, manages lifecycle
+    engine.go               Engine struct, New(), Start(), Shutdown(), Reload()
+
+  listener/                 Network listeners
+    listener.go             HTTPListener, HTTPSListener with graceful shutdown
+
+  conn/                     Connection management
+    manager.go              TrackedConn, per-source limits, global limits, drain
+    pool.go                 Channel-based idle connection pool per backend
+
+  proxy/
+    l7/                     Layer 7 proxies
+      proxy.go              HTTPProxy - reverse proxy with streaming, retries
+      websocket.go          WebSocket upgrade detection and bidirectional copy
+      grpc.go               gRPC proxy with trailer propagation
+      sse.go                SSE streaming proxy
+      http2.go              HTTP/2 h2c support and ALPN negotiation
+    l4/                     Layer 4 proxies
+      tcp.go                TCPProxy with zero-copy splice on Linux
+      udp.go                UDPProxy with session tracking
+      sni.go                SNI-based TLS routing (passthrough)
+      proxyproto.go         PROXY protocol v1/v2 parser and writer
+
+  router/                   HTTP request routing
+    trie.go                 RadixTrie with path parameters (:param) and wildcards (*path)
+    router.go               Host-based trie selection, method/header matching
+
+  balancer/                 Load balancing algorithms
+    balancer.go             Balancer interface, RequestContext, registry
+    round_robin.go          RoundRobin (atomic counter)
+    weighted_round_robin.go WeightedRoundRobin (Nginx smooth weighted)
+    least_conn.go           LeastConnections, WeightedLeastConnections
+    least_response.go       LeastResponseTime, WeightedLeastResponseTime
+    iphash.go               IPHash (FNV-1a)
+    consistent_hash.go      ConsistentHash (Ketama with virtual nodes)
+    maglev.go               Maglev (Google, 65537 lookup table)
+    ring_hash.go            RingHash (consistent hash ring)
+    p2c.go                  PowerOfTwo (random two, pick lighter)
+    random.go               Random, WeightedRandom
+
+  backend/                  Backend management
+    backend.go              Backend struct, state machine (Up/Down/Draining/Maintenance/Starting)
+    pool.go                 Pool (named collection + balancer), PoolManager
+
+  health/                   Health checking
+    checker.go              Active checks (HTTP, TCP) with state transitions
+    passive.go              Passive checks (error rate tracking from real traffic)
+
+  middleware/               Middleware pipeline
+    chain.go                Chain builder with priority ordering
+    context.go              Per-request state (request, response, route, backend)
+    request_id.go           UUID v4 X-Request-Id injection
+    real_ip.go              Client IP extraction (X-Forwarded-For, X-Real-IP)
+    rate_limiter.go         Token bucket rate limiting
+    cors.go                 CORS preflight and header injection
+    headers.go              Request/response header manipulation, security presets
+    compression.go          gzip/deflate compression
+    access_log.go           JSON and CLF access logging
+    metrics.go              Per-request metric recording
+    circuit_breaker.go      Per-backend circuit breaker (Closed/Open/Half-Open)
+    retry.go                Retry with exponential backoff and jitter
+    cache.go                LRU response cache with Cache-Control
+    ip_filter.go            Allow/deny with CIDR matching
+
+  tls/                      TLS management
+    manager.go              Certificate storage, SNI/wildcard matching, hot reload
+    mtls.go                 Mutual TLS for clients and backends
+    ocsp.go                 OCSP stapling with background refresh
+
+  acme/                     ACME v2 (Let's Encrypt)
+    acme.go                 Account registration, order creation, HTTP-01 challenge, CSR, cert download
+
+  config/                   Configuration system
+    config.go               Config struct with all sections, defaults, validation
+    loader.go               Format detection, parsing, env overlay, merge
+    watcher.go              File change detection (polling + SHA-256 hash)
+    yaml_lexer.go           YAML tokenizer (indentation, scalars, flow collections, anchors)
+    yaml_parser.go          YAML recursive descent parser
+    yaml_decoder.go         YAML AST to Go struct via reflection
+    json.go                 JSON config adapter (uses stdlib encoding/json)
+    toml_lexer.go           TOML v1.0 tokenizer
+    toml_parser.go          TOML parser (tables, arrays, inline tables)
+    hcl_lexer.go            HCL tokenizer
+    hcl_parser.go           HCL parser (blocks, attributes, interpolation)
+
+  metrics/                  Metrics engine
+    counter.go              Atomic int64 counter
+    gauge.go                Atomic float64 gauge
+    histogram.go            Log-linear bucketed histogram with percentiles
+    engine.go               Registry with pre-registered fast-path metrics
+    vec.go                  CounterVec, GaugeVec, HistogramVec (labeled families)
+    prometheus.go           Prometheus exposition format
+    json.go                 JSON metrics API
+
+  logging/                  Structured logger
+    logger.go               Logger with atomic level, child loggers, zero-alloc fast path
+    output.go               JSONOutput, TextOutput, MultiOutput, RotatingFileOutput
+
+  admin/                    Admin REST API
+    server.go               HTTP server with auth middleware
+    handlers.go             Route handlers for all API endpoints
+    types.go                Request/response types
+
+  webui/                    Web UI dashboard (embedded)
+    webui.go                go:embed handler serving static SPA
+    static/                 HTML, CSS, JavaScript (vanilla, no framework)
+    templates/              HTML templates
+
+  cli/                      CLI interface
+    cli.go                  CLI application struct, registration
+    parser.go               Argument parser (commands, subcommands, flags)
+    formatter.go            Table and JSON output formatters
+    commands.go             Core commands (start, stop, reload, status, version)
+    advanced_commands.go    Management commands (backend, route, cert, metrics, config)
+    cluster_commands.go     Cluster commands (status, join, leave, members)
+    client.go               HTTP client for admin API
+    top.go                  TUI dashboard engine (ANSI, box drawing, charts)
+    top_unix.go             Unix terminal raw mode (termios)
+    top_windows.go          Windows terminal raw mode
+
+  cluster/                  Multi-node clustering
+    raft.go                 Raft consensus (election, log replication, snapshots)
+    gossip.go               SWIM gossip protocol (failure detection, membership)
+    state.go                Distributed state machine
+
+  discovery/                Service discovery
+    discovery.go            Discovery Manager, Provider interface
+    static.go               Static provider (config-based)
+    dns.go                  DNS SRV provider
+    consul.go               Consul catalog provider
+
+  ratelimit/                Distributed rate limiting
+    ratelimit.go            Token bucket, per-client tracking, multi-zone
+
+  waf/                      Web Application Firewall
+    waf.go                  Rule engine, SQL injection, XSS, traversal, command injection detection
+
+  mcp/                      MCP server (AI integration)
+    mcp.go                  JSON-RPC 2.0 handler, tools, resources, prompts
+
+  plugin/                   Plugin system
+    plugin.go               Plugin interface, PluginAPI, Go plugin loader
+
+pkg/
+  version/                  Build-time version injection (Version, Commit, Date)
+  utils/                    Utility types
+    buffer_pool.go          sync.Pool buffer management with size tiers
+    ring_buffer.go          Generic lock-free circular buffer
+    lru.go                  Thread-safe LRU cache with TTL
+    cidr_matcher.go         Radix trie IP/CIDR matching
+    bloom_filter.go         Probabilistic set membership
+    atomic.go               AtomicFloat64, AtomicDuration
+    rand.go                 SplitMix64 PRNG
+  errors/                   Sentinel errors, error wrapping with codes
+
+configs/                    Example configuration files
+  olb.yaml                  Full YAML example
+  olb.minimal.yaml          Minimal YAML example
+  olb.toml                  Full TOML example
+  olb.hcl                   Full HCL example
+
+docs/                       Documentation
+  getting-started.md        5-minute quick start
+  configuration.md          Full configuration reference
+  algorithms.md             Load balancing algorithm details
+  api.md                    Admin REST API reference
+  clustering.md             Multi-node clustering guide
+  mcp.md                    MCP / AI integration guide
+```
+
+## Key Concepts
+
+### Listeners
+Listeners accept incoming connections. Each listener has a protocol (HTTP, HTTPS, TCP, UDP), a bind address, and a list of routes (for L7) or a single backend pool (for L4). HTTPS listeners reference TLS certificates. Multiple listeners can run simultaneously.
+
+### Routes
+Routes match incoming HTTP requests to backend pools. Matching uses: host (exact or wildcard `*.example.com`), path (exact, prefix, parameterized `/users/:id`, wildcard `/static/*path`), HTTP method, and headers. Routes are stored in a radix trie for O(path length) lookup. Each route can have its own middleware stack.
+
+### Pools
+A pool is a named collection of backends with a load balancing algorithm. Pools own the health checker for their backends. Example: `api-pool` with 3 backends using `least_connections`.
+
+### Backends
+A backend is a single upstream server (address:port) with a weight, max connections, and state. States: `up`, `down`, `draining`, `maintenance`, `starting`. State transitions are guarded by a state machine. Stats (connections, requests, errors, latency) are tracked atomically.
+
+### Middleware
+Middleware wraps request handling. The middleware pipeline processes requests in priority order. Built-in middleware: RequestID, RealIP, RateLimiter, CORS, Headers, Compression, AccessLog, Metrics, CircuitBreaker, Retry, Cache, WAF, IPFilter. Middleware is configurable per-route.
+
+### Health Checks
+Active health checks probe backends at regular intervals (HTTP GET to a path, or TCP connect). Consecutive failures mark a backend as down; consecutive successes mark it as up. Passive health checks track error rates from real traffic and disable backends that exceed a threshold.
+
+### Clustering
+Multi-node clustering uses Raft consensus for config replication and leader election, and SWIM gossip for membership and failure detection. All nodes share the same configuration. The Raft leader handles config changes; followers forward requests.
+
+## Configuration Format
+
+The primary format is YAML. All formats (YAML, JSON, TOML, HCL) map to the same Go `Config` struct:
+
+```yaml
+version: 1
+
+global:
+  workers:
+    count: auto              # auto = runtime.NumCPU()
+  limits:
+    max_connections: 10000
+    max_connections_per_source: 100
+    max_connections_per_backend: 1000
+  timeouts:
+    read: 30s
+    write: 30s
+    idle: 120s
+    header: 10s
+    drain: 30s
+
+admin:
+  enabled: true
+  address: "127.0.0.1:8081"
+  auth:
+    type: basic              # basic or bearer
+    username: admin
+    password: "$2a$10$..."   # bcrypt hash
+
+metrics:
+  enabled: true
+  path: /metrics
+
+listeners:
+  - name: http
+    protocol: http           # http, https, tcp, udp
+    address: ":80"
+    routes:
+      - name: api
+        host: api.example.com
+        path: /api/
+        methods: [GET, POST]
+        pool: api-pool
+        middleware:
+          - name: rate_limit
+            config:
+              requests_per_second: 100
+              burst_size: 200
+      - name: default
+        path: /
+        pool: web-pool
+
+pools:
+  - name: api-pool
+    algorithm: least_connections  # rr, wrr, lc, wlc, lrt, ch, maglev, p2c, random, etc.
+    health_check:
+      type: http
+      path: /health
+      interval: 10s
+      timeout: 5s
+      healthy_threshold: 2
+      unhealthy_threshold: 3
+    backends:
+      - address: "10.0.1.10:8080"
+        weight: 100
+        max_conns: 500
+      - address: "10.0.1.11:8080"
+        weight: 100
+
+tls:
+  certificates:
+    - cert_file: /etc/olb/certs/example.crt
+      key_file: /etc/olb/certs/example.key
+  acme:
+    enabled: true
+    email: admin@example.com
+    directory: https://acme-v2.api.letsencrypt.org/directory
+
+cluster:
+  enabled: true
+  node_id: node-1
+  bind_address: "0.0.0.0:7946"
+  peers:
+    - "10.0.0.2:7946"
+    - "10.0.0.3:7946"
+
+mcp:
+  enabled: true
+  transport: stdio           # stdio or http
+```
+
+Environment variables override config values with `OLB_` prefix and `__` as separator: `OLB_ADMIN__ADDRESS=0.0.0.0:9090` sets `admin.address`.
+
+## Admin API Endpoints
+
+All endpoints return JSON. Authentication is optional (configurable).
+
+```
+GET    /api/v1/system/info                  System info (version, uptime, state)
+GET    /api/v1/system/health                Self health check
+POST   /api/v1/system/reload                Trigger config reload
+
+GET    /api/v1/backends                     List all pools with backends
+GET    /api/v1/backends/:pool               Pool detail (backends, stats, health)
+POST   /api/v1/backends/:pool               Add backend to pool
+DELETE /api/v1/backends/:pool/:backend      Remove backend from pool
+POST   /api/v1/backends/:pool/:backend/drain  Drain backend (stop new connections)
+
+GET    /api/v1/routes                       List all routes
+GET    /api/v1/health                       All health check results
+GET    /api/v1/metrics                      Metrics (JSON format)
+GET    /metrics                             Metrics (Prometheus format)
+
+GET    /api/v1/cluster/status               Cluster status (Raft state, leader, members)
+POST   /api/v1/cluster/join                 Join cluster
+POST   /api/v1/cluster/leave                Leave cluster
+GET    /api/v1/cluster/members              List cluster members
+```
+
+## Load Balancing Algorithms
+
+| Name | Aliases | Use Case |
+|------|---------|----------|
+| RoundRobin | `rr`, `round_robin` | Default, uniform backends |
+| WeightedRoundRobin | `wrr`, `weighted_round_robin` | Heterogeneous backend capacity |
+| LeastConnections | `lc`, `least_conn` | Variable request duration |
+| WeightedLeastConnections | `wlc` | Variable duration + capacity |
+| LeastResponseTime | `lrt` | Latency-sensitive workloads |
+| WeightedLeastResponseTime | `wlrt` | Latency-sensitive + capacity |
+| IPHash | `iphash`, `ip_hash` | Simple session affinity |
+| ConsistentHash | `ch`, `ketama` | Cache distribution, minimal disruption |
+| Maglev | `maglev` | Large-scale consistent hashing |
+| RingHash | `ringhash`, `ring_hash` | Configurable vnode consistent hashing |
+| PowerOfTwo | `p2c` | Low-overhead adaptive balancing |
+| Random | `random` | Stateless environments |
+| WeightedRandom | `wrandom` | Stateless with capacity weighting |
+
+## MCP Tools and Resources
+
+### Tools (callable by AI agents)
+
+| Tool | Description |
+|------|-------------|
+| `olb_query_metrics` | Query RPS, latency, error rates by scope (global/route/backend) and time range |
+| `olb_list_backends` | List all pools with backend status, connections, and weight |
+| `olb_modify_backend` | Add, remove, drain, enable, or disable a backend |
+| `olb_modify_route` | Add or remove a route |
+| `olb_diagnose` | Automated diagnostics (error analysis, latency spikes, capacity planning) |
+| `olb_get_logs` | Retrieve recent log entries with count and level filter |
+| `olb_get_config` | Get the current running configuration |
+| `olb_cluster_status` | Get cluster state, leader, members |
+
+### Resources (readable data)
+
+| URI | Description |
+|-----|-------------|
+| `olb://metrics` | Current metrics snapshot |
+| `olb://config` | Running configuration |
+| `olb://health` | Backend health status |
+| `olb://logs` | Recent log entries |
+
+### Prompt Templates
+
+| Prompt | Description |
+|--------|-------------|
+| `diagnose` | Guided issue diagnosis workflow |
+| `capacity-plan` | Capacity planning analysis |
+| `canary-deploy` | Canary deployment setup guide |
 
 ## Build Commands
 
 ```bash
-# Build binary
-make build
-
-# Run tests
-make test
-
-# Run all checks
-make check
-
-# Build for all platforms
-make build-all
-
-# Docker build
-make docker
+make build          # Build binary for current platform
+make build-debug    # Build with debug symbols
+make build-race     # Build with race detector
+make build-all      # Cross-compile (linux, darwin, windows, freebsd; amd64, arm64)
+make test           # Run all tests
+make bench          # Run benchmarks
+make clean          # Remove build artifacts
+make docker         # Build Docker image
 ```
-
-## Configuration Example
-
-```yaml
-listeners:
-  - name: http
-    address: ":80"
-    routes:
-      - path: /
-        pool: backend
-
-pools:
-  - name: backend
-    health_check:
-      path: /health
-      interval: 10s
-    backends:
-      - address: "10.0.1.10:8080"
-        weight: 100
-      - address: "10.0.1.11:8080"
-        weight: 100
-```
-
-## Development Status
-
-- Phase 1: Core L7 Proxy (MVP) - In Progress
-- Phase 2: Advanced Features (TLS, clustering)
-- Phase 3: Web UI and MCP
-
-## API Surface
-
-The admin API exposes endpoints for:
-- `/health` - Health status
-- `/metrics` - Prometheus-compatible metrics
-- `/config` - Configuration management
-- `/backends` - Backend management
-- `/stats` - Real-time statistics
 
 ## Contact
 
 - Repository: https://github.com/openloadbalancer/olb
 - Issues: https://github.com/openloadbalancer/olb/issues
-- Author: Ersin Koç / ECOSTACK TECHNOLOGY OÜ
+- Author: Ersin Koc / ECOSTACK TECHNOLOGY OU
