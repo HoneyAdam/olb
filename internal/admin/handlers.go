@@ -492,6 +492,38 @@ func (s *Server) getMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(prometheusOutput))
 }
 
+// getConfig handles GET /api/v1/config
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "only GET is allowed")
+		return
+	}
+
+	if s.configGetter == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_AVAILABLE", "config provider not available")
+		return
+	}
+
+	cfg := s.configGetter.GetConfig()
+	writeSuccess(w, cfg)
+}
+
+// getCertificates handles GET /api/v1/certificates
+func (s *Server) getCertificates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "only GET is allowed")
+		return
+	}
+
+	if s.certLister == nil {
+		writeSuccess(w, []CertInfoView{})
+		return
+	}
+
+	certs := s.certLister.ListCertificates()
+	writeSuccess(w, certs)
+}
+
 // Helper functions
 
 // poolToInfo converts a Pool to PoolInfo.

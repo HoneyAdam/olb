@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/openloadbalancer/olb/internal/config/hcl"
+	"github.com/openloadbalancer/olb/internal/config/toml"
 	"github.com/openloadbalancer/olb/internal/config/yaml"
 )
 
@@ -49,6 +51,14 @@ func (l *Loader) Load(path string) (*Config, error) {
 		// JSON is a subset of YAML, use YAML parser
 		if err := yaml.UnmarshalString(configData, &cfg); err != nil {
 			return nil, fmt.Errorf("failed to parse JSON config: %w", err)
+		}
+	case ".toml":
+		if err := toml.Decode([]byte(configData), &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse TOML config: %w", err)
+		}
+	case ".hcl":
+		if err := hcl.Decode([]byte(configData), &cfg); err != nil {
+			return nil, fmt.Errorf("failed to parse HCL config: %w", err)
 		}
 	default:
 		// Try YAML as default

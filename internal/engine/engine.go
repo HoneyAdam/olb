@@ -14,16 +14,21 @@ import (
 	"github.com/openloadbalancer/olb/internal/admin"
 	"github.com/openloadbalancer/olb/internal/backend"
 	"github.com/openloadbalancer/olb/internal/balancer"
+	"github.com/openloadbalancer/olb/internal/cluster"
 	"github.com/openloadbalancer/olb/internal/config"
 	"github.com/openloadbalancer/olb/internal/conn"
+	"github.com/openloadbalancer/olb/internal/discovery"
 	"github.com/openloadbalancer/olb/internal/health"
 	"github.com/openloadbalancer/olb/internal/listener"
 	"github.com/openloadbalancer/olb/internal/logging"
+	"github.com/openloadbalancer/olb/internal/mcp"
 	"github.com/openloadbalancer/olb/internal/metrics"
 	"github.com/openloadbalancer/olb/internal/middleware"
+	"github.com/openloadbalancer/olb/internal/plugin"
 	"github.com/openloadbalancer/olb/internal/proxy/l7"
 	"github.com/openloadbalancer/olb/internal/router"
 	"github.com/openloadbalancer/olb/internal/tls"
+	"github.com/openloadbalancer/olb/internal/webui"
 	"github.com/openloadbalancer/olb/pkg/version"
 )
 
@@ -63,6 +68,14 @@ type Engine struct {
 	connManager     *conn.Manager
 	connPoolMgr     *conn.PoolManager
 	middlewareChain *middleware.Chain
+
+	// Integrated subsystems
+	mcpServer    *mcp.Server
+	mcpTransport *mcp.HTTPTransport
+	pluginMgr    *plugin.PluginManager
+	clusterMgr   *cluster.ClusterManager // optional, nil if not configured
+	discoveryMgr *discovery.Manager
+	webUIHandler *webui.Handler
 
 	// Runtime state
 	state     State
@@ -141,6 +154,23 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 	}
 	proxy := l7.NewHTTPProxy(proxyConfig)
 
+	// Initialize Web UI handler
+	webUIH, err := webui.NewHandler()
+	if err != nil {
+		logger.Warn("Failed to create Web UI handler, dashboard disabled",
+			logging.Error(err),
+		)
+	}
+
+	// Initialize plugin manager
+	pluginMgr := plugin.NewPluginManager(plugin.DefaultPluginManagerConfig())
+	pluginMgr.SetLogger(logger)
+	pluginMgr.SetMetrics(metricsRegistry)
+	pluginMgr.SetConfig(cfg)
+
+	// Initialize discovery manager
+	discoveryMgr := discovery.NewManager()
+
 	// Create admin server
 	adminCfg := &admin.Config{
 		Address:       getAdminAddress(cfg),
@@ -149,9 +179,10 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		HealthChecker: healthChecker,
 		Metrics:       admin.NewDefaultMetrics(metricsRegistry),
 	}
-	adminServer, err := admin.NewServer(adminCfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create admin server: %w", err)
+
+	// Wire optional admin components
+	if webUIH != nil {
+		adminCfg.WebUI = webUIH
 	}
 
 	e := &Engine{
@@ -164,14 +195,35 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		healthChecker:   healthChecker,
 		router:          rtr,
 		proxy:           proxy,
-		adminServer:     adminServer,
 		connManager:     connMgr,
 		connPoolMgr:     connPoolMgr,
 		middlewareChain: mwChain,
+		pluginMgr:       pluginMgr,
+		discoveryMgr:    discoveryMgr,
+		webUIHandler:    webUIH,
 		state:           StateStopped,
 		stopCh:          make(chan struct{}),
 		reloadCh:        make(chan struct{}),
 	}
+
+	// Wire config getter and cert lister for admin API
+	adminCfg.ConfigGetter = &engineConfigGetter{engine: e}
+	adminCfg.CertLister = &engineCertLister{tlsMgr: tlsMgr}
+
+	// Initialize MCP server with provider adapters
+	mcpCfg := mcp.ServerConfig{
+		Metrics:  &engineMetricsProvider{registry: metricsRegistry},
+		Backends: &engineBackendProvider{poolMgr: poolMgr},
+		Config:   &engineConfigProvider{engine: e},
+		Routes:   &engineRouteProvider{rtr: rtr},
+	}
+	e.mcpServer = mcp.NewServer(mcpCfg)
+
+	adminServer, err := admin.NewServer(adminCfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create admin server: %w", err)
+	}
+	e.adminServer = adminServer
 
 	// Set up admin server reload callback
 	adminCfg.OnReload = func() error {
@@ -250,10 +302,50 @@ func (e *Engine) Start() error {
 		}
 	}()
 
-	// 7. Install signal handlers
+	// 7. Start plugin manager
+	if e.pluginMgr != nil {
+		if err := e.pluginMgr.StartAll(); err != nil {
+			e.logger.Warn("Plugin manager start failed", logging.Error(err))
+		} else {
+			e.logger.Info("Plugin manager started")
+		}
+	}
+
+	// 8. Start MCP HTTP transport if admin address is available
+	if e.mcpServer != nil {
+		mcpAddr := getMCPAddress(e.config)
+		if mcpAddr != "" {
+			e.mcpTransport = mcp.NewHTTPTransport(e.mcpServer, mcpAddr)
+			if err := e.mcpTransport.Start(); err != nil {
+				e.logger.Warn("MCP HTTP transport start failed", logging.Error(err))
+				e.mcpTransport = nil
+			} else {
+				e.logger.Info("MCP HTTP transport started",
+					logging.String("address", e.mcpTransport.Addr()),
+				)
+			}
+		}
+	}
+
+	// 9. Start cluster manager if configured
+	if e.clusterMgr != nil {
+		e.logger.Info("Cluster manager available")
+	}
+
+	// 10. Start discovery manager
+	if e.discoveryMgr != nil {
+		ctx := context.Background()
+		if err := e.discoveryMgr.Start(ctx); err != nil {
+			e.logger.Warn("Discovery manager start failed", logging.Error(err))
+		} else {
+			e.logger.Info("Discovery manager started")
+		}
+	}
+
+	// 11. Install signal handlers
 	e.setupSignalHandlers()
 
-	// 8. Set running state
+	// 12. Set running state
 	e.mu.Lock()
 	e.state = StateRunning
 	e.startTime = time.Now()
@@ -279,6 +371,39 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	e.mu.Unlock()
 
 	e.logger.Info("Shutting down engine...")
+
+	// 0a. Stop MCP transport
+	if e.mcpTransport != nil {
+		if err := e.mcpTransport.Stop(ctx); err != nil {
+			e.logger.Warn("Failed to stop MCP transport", logging.Error(err))
+		} else {
+			e.logger.Info("MCP transport stopped")
+		}
+	}
+
+	// 0b. Stop plugin manager
+	if e.pluginMgr != nil {
+		if err := e.pluginMgr.StopAll(); err != nil {
+			e.logger.Warn("Failed to stop plugins", logging.Error(err))
+		} else {
+			e.logger.Info("Plugin manager stopped")
+		}
+	}
+
+	// 0c. Stop cluster manager
+	if e.clusterMgr != nil {
+		e.clusterMgr.Stop()
+		e.logger.Info("Cluster manager stopped")
+	}
+
+	// 0d. Stop discovery manager
+	if e.discoveryMgr != nil {
+		if err := e.discoveryMgr.Stop(); err != nil {
+			e.logger.Warn("Failed to stop discovery manager", logging.Error(err))
+		} else {
+			e.logger.Info("Discovery manager stopped")
+		}
+	}
 
 	// 1. Stop accepting new connections (close listeners)
 	for _, l := range e.listeners {
@@ -468,6 +593,26 @@ func (e *Engine) GetRouter() *router.Router {
 // GetHealthChecker returns the health checker.
 func (e *Engine) GetHealthChecker() *health.Checker {
 	return e.healthChecker
+}
+
+// GetMCPServer returns the MCP server.
+func (e *Engine) GetMCPServer() *mcp.Server {
+	return e.mcpServer
+}
+
+// GetPluginManager returns the plugin manager.
+func (e *Engine) GetPluginManager() *plugin.PluginManager {
+	return e.pluginMgr
+}
+
+// GetClusterManager returns the cluster manager (may be nil).
+func (e *Engine) GetClusterManager() *cluster.ClusterManager {
+	return e.clusterMgr
+}
+
+// GetDiscoveryManager returns the discovery manager.
+func (e *Engine) GetDiscoveryManager() *discovery.Manager {
+	return e.discoveryMgr
 }
 
 // setState sets the engine state (internal use only).

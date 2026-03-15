@@ -17,6 +17,29 @@ import (
 	"github.com/openloadbalancer/olb/internal/router"
 )
 
+// ClusterAdmin is the interface for cluster management operations.
+// It is optional and may be nil if clustering is not enabled.
+type ClusterAdmin interface {
+	RegisterAdminEndpoints(mux *http.ServeMux)
+}
+
+// ConfigGetter returns the current configuration as a serializable value.
+type ConfigGetter interface {
+	GetConfig() interface{}
+}
+
+// CertLister lists loaded TLS certificates.
+type CertLister interface {
+	ListCertificates() []CertInfoView
+}
+
+// CertInfoView is a JSON-friendly view of a TLS certificate.
+type CertInfoView struct {
+	Names      []string `json:"names"`
+	Expiry     int64    `json:"expiry"`
+	IsWildcard bool     `json:"is_wildcard"`
+}
+
 // Server provides the Admin API HTTP server.
 type Server struct {
 	addr      string
@@ -29,6 +52,12 @@ type Server struct {
 	router        Router
 	healthChecker HealthChecker
 	metrics       Metrics
+
+	// Optional components
+	clusterAdmin ClusterAdmin // optional, nil if clustering not enabled
+	webUI        http.Handler // optional, nil if web UI not available
+	configGetter ConfigGetter // optional, for GET /api/v1/config
+	certLister   CertLister   // optional, for GET /api/v1/certificates
 
 	// Callbacks
 	onReload func() error
@@ -47,6 +76,12 @@ type Config struct {
 	HealthChecker HealthChecker
 	Metrics       Metrics
 	OnReload      func() error
+
+	// Optional components
+	ClusterAdmin ClusterAdmin // optional cluster management
+	WebUI        http.Handler // optional web UI handler
+	ConfigGetter ConfigGetter // optional config provider
+	CertLister   CertLister   // optional certificate lister
 }
 
 // PoolManager interface for backend pool operations.
@@ -89,6 +124,10 @@ func NewServer(config *Config) (*Server, error) {
 		healthChecker: config.HealthChecker,
 		metrics:       config.Metrics,
 		onReload:      config.OnReload,
+		clusterAdmin:  config.ClusterAdmin,
+		webUI:         config.WebUI,
+		configGetter:  config.ConfigGetter,
+		certLister:    config.CertLister,
 		startTime:     time.Now(),
 		state:         "running",
 	}
@@ -119,6 +158,22 @@ func (s *Server) setupRoutes() {
 	// Metrics endpoints
 	mux.HandleFunc("/api/v1/metrics", s.getMetricsJSON)
 	mux.HandleFunc("/metrics", s.getMetricsPrometheus)
+
+	// Config endpoint
+	mux.HandleFunc("/api/v1/config", s.getConfig)
+
+	// Certificates endpoint
+	mux.HandleFunc("/api/v1/certificates", s.getCertificates)
+
+	// Cluster endpoints (optional)
+	if s.clusterAdmin != nil {
+		s.clusterAdmin.RegisterAdminEndpoints(mux)
+	}
+
+	// Web UI (optional) — serves static dashboard at root
+	if s.webUI != nil {
+		mux.Handle("/", s.webUI)
+	}
 
 	// Apply auth middleware if configured
 	var handler http.Handler = mux
