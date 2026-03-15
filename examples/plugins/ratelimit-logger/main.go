@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Package main implements an example OpenLoadBalancer plugin that demonstrates
 // the full plugin API. This plugin registers a custom middleware that logs
 // rate-limited requests (HTTP 429 responses) and subscribes to system events

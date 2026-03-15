@@ -14,8 +14,13 @@ bin/
 # Output of the go coverage tool
 coverage.out
 coverage.html
+conn_coverage.out
 *.cover
 *.cov
+
+# Benchmark results
+bench-results/
+build-results/
 
 # Dependency directories
 vendor/
@@ -23,6 +28,9 @@ vendor/
 # Go workspace files
 go.work
 go.work.sum
+
+# Claude Code
+.claude/
 
 # IDE specific files
 .idea/
