@@ -431,6 +431,169 @@ func TestCreateTLSConfigForSNI(t *testing.T) {
 	}
 }
 
+func TestNewSNIBasedProxy(t *testing.T) {
+	config := DefaultSNIRouterConfig()
+	proxy := NewSNIBasedProxy(config)
+
+	if proxy == nil {
+		t.Fatal("NewSNIBasedProxy returned nil")
+	}
+	if proxy.router == nil {
+		t.Error("Router should not be nil")
+	}
+}
+
+func TestSNIBasedProxy_AddRemoveRoute(t *testing.T) {
+	proxy := NewSNIBasedProxy(nil)
+	be := backend.NewBackend("b1", "127.0.0.1:8080")
+
+	proxy.AddRoute("example.com", be)
+	got := proxy.router.GetRoute("example.com")
+	if got != be {
+		t.Error("Expected route to be added")
+	}
+
+	proxy.RemoveRoute("example.com")
+	got = proxy.router.GetRoute("example.com")
+	if got != nil {
+		t.Error("Expected route to be removed")
+	}
+}
+
+func TestSNIBasedProxy_StartWithoutListen(t *testing.T) {
+	proxy := NewSNIBasedProxy(nil)
+	err := proxy.Start()
+	if err == nil {
+		t.Error("Expected error when starting without Listen")
+	}
+}
+
+func TestSNIBasedProxy_ListenStartStop(t *testing.T) {
+	proxy := NewSNIBasedProxy(nil)
+
+	err := proxy.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen error: %v", err)
+	}
+
+	err = proxy.Start()
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	if !proxy.running.Load() {
+		t.Error("Proxy should be running")
+	}
+
+	// Double start should fail
+	err = proxy.Start()
+	if err == nil {
+		t.Error("Double start should fail")
+	}
+
+	err = proxy.Stop()
+	if err != nil {
+		t.Errorf("Stop error: %v", err)
+	}
+
+	if proxy.running.Load() {
+		t.Error("Proxy should not be running after stop")
+	}
+}
+
+func TestSNIBasedProxy_StopWithoutStart(t *testing.T) {
+	proxy := NewSNIBasedProxy(nil)
+	err := proxy.Stop()
+	if err != nil {
+		t.Errorf("Stop without start should not error: %v", err)
+	}
+}
+
+func TestPeekedConn_Read(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		client.Write([]byte("subsequent data"))
+		client.Close()
+	}()
+
+	pc := &peekedConn{
+		Conn:   server,
+		peeked: []byte("peeked "),
+	}
+
+	// First read should return peeked data
+	buf := make([]byte, 7)
+	n, err := pc.Read(buf)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if string(buf[:n]) != "peeked " {
+		t.Errorf("Expected 'peeked ', got %q", string(buf[:n]))
+	}
+
+	// Second read should return from underlying connection
+	buf2 := make([]byte, 100)
+	n, err = pc.Read(buf2)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if string(buf2[:n]) != "subsequent data" {
+		t.Errorf("Expected 'subsequent data', got %q", string(buf2[:n]))
+	}
+}
+
+func TestParseTLSVersion_TooShort(t *testing.T) {
+	_, err := ParseTLSVersion([]byte{0x16})
+	if err == nil {
+		t.Error("Expected error for too-short data")
+	}
+}
+
+func TestParseTLSRecordInfo_AllContentTypes(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		wantType string
+	}{
+		{"ChangeCipherSpec", []byte{0x14, 0x03, 0x03, 0x00, 0x01, 0x00}, "ChangeCipherSpec"},
+		{"Alert", []byte{0x15, 0x03, 0x03, 0x00, 0x01, 0x00}, "Alert"},
+		{"Application", []byte{0x17, 0x03, 0x03, 0x00, 0x01, 0x00}, "Application"},
+		{"Unknown", []byte{0xFF, 0x03, 0x03, 0x00, 0x01, 0x00}, "Unknown (255)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			info, err := ParseTLSRecordInfo(tt.data)
+			if err != nil {
+				t.Fatalf("ParseTLSRecordInfo error: %v", err)
+			}
+			if info.ContentType != tt.wantType {
+				t.Errorf("ContentType = %q, want %q", info.ContentType, tt.wantType)
+			}
+		})
+	}
+}
+
+func TestParseTLSRecordInfo_TooShort(t *testing.T) {
+	_, err := ParseTLSRecordInfo([]byte{0x16, 0x03})
+	if err == nil {
+		t.Error("Expected error for too-short data")
+	}
+}
+
+func TestSNIProxy_NilConfig(t *testing.T) {
+	proxy := NewSNIProxy(nil)
+	if proxy == nil {
+		t.Fatal("NewSNIProxy(nil) returned nil")
+	}
+	if proxy.config == nil {
+		t.Error("config should use defaults")
+	}
+}
+
 // buildClientHelloWithSNI builds a minimal TLS ClientHello with SNI.
 func buildClientHelloWithSNI(sni string) []byte {
 	buf := new(bytes.Buffer)

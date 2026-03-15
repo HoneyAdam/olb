@@ -541,6 +541,183 @@ func TestTCPProxy_HandleConnection_MaxConnections(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 }
 
+func TestTCPProxy_Start(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	err := proxy.Start()
+	if err != nil {
+		t.Errorf("Start() should return nil: %v", err)
+	}
+}
+
+func TestTCPProxy_Stop(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := proxy.Stop(ctx)
+	if err != nil {
+		t.Errorf("Stop() error: %v", err)
+	}
+}
+
+func TestTCPProxy_Stop_Timeout(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	// Simulate an active connection by adding to the WaitGroup
+	proxy.connWg.Add(1)
+
+	// Use an already-cancelled context for immediate timeout
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	err := proxy.Stop(ctx)
+	if err == nil {
+		t.Error("Expected timeout error from Stop()")
+	}
+
+	// Clean up the waitgroup
+	proxy.connWg.Done()
+}
+
+func TestTCPListener_Name(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	listener, _ := NewTCPListener(&TCPListenerOptions{
+		Name:    "my-listener",
+		Address: "127.0.0.1:0",
+		Proxy:   proxy,
+	})
+
+	if listener.Name() != "my-listener" {
+		t.Errorf("Name() = %q, want my-listener", listener.Name())
+	}
+}
+
+func TestTCPListener_Address_BeforeStart(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	listener, _ := NewTCPListener(&TCPListenerOptions{
+		Name:    "test",
+		Address: "127.0.0.1:9999",
+		Proxy:   proxy,
+	})
+
+	// Before Start, Address returns configured address
+	addr := listener.Address()
+	if addr != "127.0.0.1:9999" {
+		t.Errorf("Address() before start = %q, want 127.0.0.1:9999", addr)
+	}
+}
+
+func TestTCPListener_StartError(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	listener, _ := NewTCPListener(&TCPListenerOptions{
+		Name:    "test",
+		Address: "127.0.0.1:0",
+		Proxy:   proxy,
+	})
+
+	// Before start, StartError should be nil
+	if listener.StartError() != nil {
+		t.Error("StartError() should be nil before start")
+	}
+}
+
+func TestTCPListener_StopNotRunning(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	listener, _ := NewTCPListener(&TCPListenerOptions{
+		Name:    "test",
+		Address: "127.0.0.1:0",
+		Proxy:   proxy,
+	})
+
+	err := listener.Stop(context.Background())
+	if err == nil {
+		t.Error("Stop() on non-running listener should return error")
+	}
+}
+
+func TestTCPProxy_HandleConnection_NoBackends(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	// Create a pipe to simulate client connection
+	client, server := net.Pipe()
+	defer client.Close()
+
+	// HandleConnection should handle gracefully when no backends available
+	go proxy.HandleConnection(server)
+
+	// Wait for handling to complete (server conn should be closed)
+	buf := make([]byte, 1)
+	client.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, err := client.Read(buf)
+	if err == nil {
+		t.Error("Expected read error after HandleConnection completes")
+	}
+}
+
+func TestTCPProxy_HandleConnection_CancelledContext(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	// Cancel the proxy context
+	proxy.cancel()
+
+	client, server := net.Pipe()
+	defer client.Close()
+
+	// HandleConnection should exit immediately when context is cancelled
+	go proxy.HandleConnection(server)
+
+	buf := make([]byte, 1)
+	client.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_, err := client.Read(buf)
+	if err == nil {
+		t.Error("Expected read error after HandleConnection exits")
+	}
+}
+
+func TestContainsAny(t *testing.T) {
+	tests := []struct {
+		s       string
+		substrs []string
+		want    bool
+	}{
+		{"connection reset by peer", []string{"reset", "closed"}, true},
+		{"something else", []string{"reset", "closed"}, false},
+		{"use of closed network connection", []string{"closed"}, true},
+		{"", []string{"anything"}, false},
+	}
+
+	for _, tt := range tests {
+		got := containsAny(tt.s, tt.substrs)
+		if got != tt.want {
+			t.Errorf("containsAny(%q, %v) = %v, want %v", tt.s, tt.substrs, got, tt.want)
+		}
+	}
+}
+
 func TestCopyWithBuffer(t *testing.T) {
 	// Create two pipes: one for source, one for destination
 	// In a real scenario, src and dst are different connections

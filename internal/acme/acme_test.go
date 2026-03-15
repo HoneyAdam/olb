@@ -695,3 +695,277 @@ func TestClient_IsStaging_MoreCases(t *testing.T) {
 		}
 	}
 }
+
+// Additional tests for coverage
+
+func TestClient_PollAuthorization_Valid(t *testing.T) {
+	callCount := 0
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case strings.HasPrefix(r.URL.Path, "/authz/"):
+			callCount++
+			// Return "valid" immediately
+			json.NewEncoder(w).Encode(Authorization{
+				Status:     "valid",
+				Expires:    time.Now().Add(time.Hour).Format(time.RFC3339),
+				Identifier: Identifier{Type: "dns", Value: "example.com"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	authz, err := client.PollAuthorization(server.URL+"/authz/1", 5*time.Second)
+	if err != nil {
+		t.Fatalf("PollAuthorization error: %v", err)
+	}
+	if authz.Status != "valid" {
+		t.Errorf("Status = %q, want valid", authz.Status)
+	}
+}
+
+func TestClient_PollAuthorization_Invalid(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case strings.HasPrefix(r.URL.Path, "/authz/"):
+			json.NewEncoder(w).Encode(Authorization{
+				Status:     "invalid",
+				Identifier: Identifier{Type: "dns", Value: "example.com"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	_, err := client.PollAuthorization(server.URL+"/authz/1", 5*time.Second)
+	if err == nil {
+		t.Error("Expected error for invalid authorization")
+	}
+	if !strings.Contains(err.Error(), "authorization failed") {
+		t.Errorf("Expected 'authorization failed' error, got: %v", err)
+	}
+}
+
+func TestClient_PollAuthorization_Expired(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case strings.HasPrefix(r.URL.Path, "/authz/"):
+			json.NewEncoder(w).Encode(Authorization{
+				Status:     "expired",
+				Identifier: Identifier{Type: "dns", Value: "example.com"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	_, err := client.PollAuthorization(server.URL+"/authz/1", 5*time.Second)
+	if err == nil {
+		t.Error("Expected error for expired authorization")
+	}
+	if !strings.Contains(err.Error(), "authorization expired") {
+		t.Errorf("Expected 'authorization expired' error, got: %v", err)
+	}
+}
+
+func TestClient_PollOrder_Valid(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case strings.HasPrefix(r.URL.Path, "/order/"):
+			json.NewEncoder(w).Encode(Order{
+				Status:      "valid",
+				Certificate: "http://" + r.Host + "/cert/1",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	order := &Order{
+		Status: "processing",
+		URL:    server.URL + "/order/1",
+	}
+
+	err := client.PollOrder(order, 5*time.Second)
+	if err != nil {
+		t.Fatalf("PollOrder error: %v", err)
+	}
+	if order.Status != "valid" {
+		t.Errorf("Order status = %q, want valid", order.Status)
+	}
+	if order.Certificate == "" {
+		t.Error("Certificate URL should be set")
+	}
+}
+
+func TestClient_PollOrder_Invalid(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case strings.HasPrefix(r.URL.Path, "/order/"):
+			json.NewEncoder(w).Encode(Order{
+				Status: "invalid",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	order := &Order{
+		Status: "processing",
+		URL:    server.URL + "/order/1",
+	}
+
+	err := client.PollOrder(order, 5*time.Second)
+	if err == nil {
+		t.Error("Expected error for invalid order")
+	}
+	if !strings.Contains(err.Error(), "order failed") {
+		t.Errorf("Expected 'order failed' error, got: %v", err)
+	}
+}
+
+func TestClient_parseError(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case r.URL.Path == "/error-endpoint":
+			w.Header().Set("Replay-Nonce", "saved-nonce-123")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(Problem{
+				Type:   "urn:ietf:params:acme:error:unauthorized",
+				Detail: "test unauthorized",
+				Title:  "Unauthorized",
+				Status: 403,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	// Make a request to the error endpoint via postJWS to trigger parseError
+	resp, err := client.postJWS(server.URL+"/error-endpoint", "", false)
+	if err != nil {
+		t.Fatalf("postJWS error: %v", err)
+	}
+
+	// Parse the error response
+	parsedErr := client.parseError(resp)
+	if parsedErr == nil {
+		t.Fatal("Expected non-nil error from parseError")
+	}
+
+	// The error should be a Problem type
+	problem, ok := parsedErr.(*Problem)
+	if !ok {
+		// It's okay if it's just a regular error
+		if !strings.Contains(parsedErr.Error(), "unauthorized") && !strings.Contains(parsedErr.Error(), "403") {
+			t.Errorf("Expected error to contain unauthorized or 403, got: %v", parsedErr)
+		}
+		return
+	}
+	if problem.Type != "urn:ietf:params:acme:error:unauthorized" {
+		t.Errorf("Problem type = %q, want unauthorized", problem.Type)
+	}
+}
+
+func TestClient_parseError_InvalidJSON(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case r.URL.Path == "/bad-error":
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("not json"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	resp, err := client.postJWS(server.URL+"/bad-error", "", false)
+	if err != nil {
+		t.Fatalf("postJWS error: %v", err)
+	}
+
+	parsedErr := client.parseError(resp)
+	if parsedErr == nil {
+		t.Fatal("Expected non-nil error from parseError with invalid JSON")
+	}
+	// Should fallback to HTTP status message
+	if !strings.Contains(parsedErr.Error(), "400") {
+		t.Errorf("Expected error to contain status code 400, got: %v", parsedErr)
+	}
+}

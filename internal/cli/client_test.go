@@ -1376,3 +1376,129 @@ func TestClient_RequestCreationError(t *testing.T) {
 		t.Error("expected error for invalid URL")
 	}
 }
+
+// Tests for exported Client methods (Post, Delete, Get, DoRequest)
+
+func TestClient_Post_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"status": "created"})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+
+	var result map[string]string
+	err := client.Post("/test", map[string]string{"name": "test"}, &result)
+	if err != nil {
+		t.Fatalf("Post error: %v", err)
+	}
+	if result["status"] != "created" {
+		t.Errorf("expected status 'created', got %q", result["status"])
+	}
+}
+
+func TestClient_Delete_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.Delete("/test/resource")
+	if err != nil {
+		t.Fatalf("Delete error: %v", err)
+	}
+}
+
+func TestClient_Get_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"key": "value"})
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+
+	var result map[string]string
+	err := client.Get("/test", &result)
+	if err != nil {
+		t.Fatalf("Get error: %v", err)
+	}
+	if result["key"] != "value" {
+		t.Errorf("expected key 'value', got %q", result["key"])
+	}
+}
+
+func TestClient_DoRequest_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "ok")
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	resp, err := client.DoRequest(http.MethodGet, "/test", nil)
+	if err != nil {
+		t.Fatalf("DoRequest error: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestClient_Post_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(admin.ErrorResponse("BAD_REQUEST", "invalid input"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.Post("/test", nil, nil)
+	if err == nil {
+		t.Error("expected error for bad request")
+	}
+}
+
+func TestClient_Delete_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(admin.ErrorResponse("NOT_FOUND", "resource not found"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.Delete("/test/nonexistent")
+	if err == nil {
+		t.Error("expected error for not found")
+	}
+}
+
+func TestClient_Get_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.Get("/test", nil)
+	if err == nil {
+		t.Error("expected error for server error")
+	}
+}

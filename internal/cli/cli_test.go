@@ -947,3 +947,160 @@ func TestFormatWithGlobals_InvalidFormat(t *testing.T) {
 		t.Error("expected error for invalid format")
 	}
 }
+
+// Additional tests for coverage
+
+func TestTableFormatter_Format_Nil(t *testing.T) {
+	f := &TableFormatter{}
+	result, err := f.Format(nil)
+	if err != nil {
+		t.Errorf("expected no error for nil data, got: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result for nil data, got: %q", result)
+	}
+}
+
+func TestTableFormatter_formatWithHeaders(t *testing.T) {
+	f := &TableFormatter{Headers: []string{"Col1", "Col2"}}
+	// Pass an unsupported type to trigger formatWithHeaders fallback
+	data := 42
+	result, err := f.Format(data)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if result != "42" {
+		t.Errorf("expected '42', got: %q", result)
+	}
+}
+
+func TestTableFormatter_formatWithHeaders_Struct(t *testing.T) {
+	f := &TableFormatter{}
+	type testStruct struct {
+		Name string
+	}
+	data := testStruct{Name: "test"}
+	result, err := f.Format(data)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if result == "" {
+		t.Error("expected non-empty result for struct")
+	}
+}
+
+func TestFormatToWriter_Error(t *testing.T) {
+	// Test with data that will cause JSON encoding to fail
+	type badType struct {
+		Ch chan int
+	}
+	formatter := &JSONFormatter{Indent: false}
+	var buf bytes.Buffer
+	err := FormatToWriter(&buf, formatter, badType{Ch: make(chan int)})
+	if err == nil {
+		t.Error("expected error for unmarshalable data")
+	}
+}
+
+func TestTableFormatter_Format_MapSliceNoHeaders(t *testing.T) {
+	// Test formatMapSlice with no pre-set Headers to trigger auto-extraction
+	f := &TableFormatter{}
+	data := []map[string]string{
+		{"name": "alice", "age": "30"},
+		{"name": "bob", "age": "25"},
+	}
+	result, err := f.Format(data)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(result, "alice") {
+		t.Error("expected 'alice' in output")
+	}
+	if !strings.Contains(result, "bob") {
+		t.Error("expected 'bob' in output")
+	}
+}
+
+func TestTableFormatter_Format_EmptyMapSlice(t *testing.T) {
+	f := &TableFormatter{}
+	result, err := f.Format([]map[string]string{})
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result for empty map slice, got: %q", result)
+	}
+}
+
+func TestTableFormatter_Format_EmptySingleMap(t *testing.T) {
+	f := &TableFormatter{}
+	result, err := f.Format(map[string]string{})
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result for empty map, got: %q", result)
+	}
+}
+
+func TestTableFormatter_Format_EmptySingleColumn(t *testing.T) {
+	f := &TableFormatter{}
+	result, err := f.Format([]string{})
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if result != "" {
+		t.Errorf("expected empty result for empty string slice, got: %q", result)
+	}
+}
+
+func TestTableFormatter_Format_SingleColumnNoHeader(t *testing.T) {
+	f := &TableFormatter{}
+	data := []string{"item1", "item2"}
+	result, err := f.Format(data)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(result, "item1") {
+		t.Error("expected 'item1' in output")
+	}
+}
+
+func TestTableFormatter_Format_StringSliceNoHeaders(t *testing.T) {
+	f := &TableFormatter{}
+	data := [][]string{
+		{"a", "b"},
+		{"c", "d"},
+	}
+	result, err := f.Format(data)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(result, "a") {
+		t.Error("expected 'a' in output")
+	}
+}
+
+func TestFormatWithGlobals_Table(t *testing.T) {
+	globals := &GlobalFlags{Format: "table"}
+	data := map[string]string{"key": "val"}
+	result, err := FormatWithGlobals(globals, data)
+	if err != nil {
+		t.Errorf("expected no error, got: %v", err)
+	}
+	if !strings.Contains(result, "key") {
+		t.Errorf("expected 'key' in output, got: %s", result)
+	}
+}
+
+func TestCLI_Run_GlobalFlagParseError(t *testing.T) {
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	cli := NewWithWriters("olb", "1.0.0", &out, &errOut)
+
+	// --format with invalid value triggers error
+	err := cli.Run([]string{"--format=xml"})
+	if err == nil {
+		t.Error("expected error for invalid global flag")
+	}
+}

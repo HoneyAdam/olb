@@ -721,6 +721,99 @@ func TestHTTP2Proxy_ServeHTTP_HTTP11Request(t *testing.T) {
 	}
 }
 
+func TestHTTP2Listener_Name(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	opts := &HTTP2ListenerOptions{
+		Name:    "test-name",
+		Address: "127.0.0.1:0",
+		Handler: handler,
+	}
+	listener, err := NewHTTP2Listener(opts)
+	if err != nil {
+		t.Fatalf("NewHTTP2Listener error: %v", err)
+	}
+	if listener.Name() != "test-name" {
+		t.Errorf("Name() = %q, want test-name", listener.Name())
+	}
+}
+
+func TestHTTP2Listener_Address_BeforeStart(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	opts := &HTTP2ListenerOptions{
+		Name:    "test",
+		Address: "127.0.0.1:9999",
+		Handler: handler,
+	}
+	listener, _ := NewHTTP2Listener(opts)
+
+	addr := listener.Address()
+	if addr != "127.0.0.1:9999" {
+		t.Errorf("Address() before start = %q, want 127.0.0.1:9999", addr)
+	}
+}
+
+func TestHTTP2Listener_StartError(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	opts := &HTTP2ListenerOptions{
+		Name:    "test",
+		Address: "127.0.0.1:0",
+		Handler: handler,
+	}
+	listener, _ := NewHTTP2Listener(opts)
+
+	if listener.StartError() != nil {
+		t.Error("StartError() should be nil before start")
+	}
+}
+
+func TestHTTP2Listener_StopNotRunning(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	opts := &HTTP2ListenerOptions{
+		Name:    "test",
+		Address: "127.0.0.1:0",
+		Handler: handler,
+	}
+	listener, _ := NewHTTP2Listener(opts)
+
+	err := listener.Stop(context.Background())
+	if err == nil {
+		t.Error("Stop() on non-running listener should return error")
+	}
+}
+
+func TestNewHTTP2BackendTransport_NilConfig(t *testing.T) {
+	transport := NewHTTP2BackendTransport(nil)
+	if transport == nil {
+		t.Fatal("NewHTTP2BackendTransport(nil) returned nil")
+	}
+	if transport.config == nil {
+		t.Error("Should use default config when nil")
+	}
+}
+
+func TestHTTP2BackendTransport_CloseIdleConnections(t *testing.T) {
+	transport := NewHTTP2BackendTransport(DefaultHTTP2Config())
+	// Should not panic
+	transport.CloseIdleConnections()
+}
+
+func TestALPNNegotiator_NegotiatedProtocol(t *testing.T) {
+	n := NewALPNNegotiator(true)
+
+	// Nil state
+	proto := n.NegotiatedProtocol(nil)
+	if proto != "" {
+		t.Errorf("NegotiatedProtocol(nil) = %q, want empty", proto)
+	}
+
+	// With state
+	state := &tls.ConnectionState{NegotiatedProtocol: "h2"}
+	proto = n.NegotiatedProtocol(state)
+	if proto != "h2" {
+		t.Errorf("NegotiatedProtocol() = %q, want h2", proto)
+	}
+}
+
 // Test with real HTTP/2 server using h2c
 func TestHTTP2Handler_Integration(t *testing.T) {
 	// Create a simple handler

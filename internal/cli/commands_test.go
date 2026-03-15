@@ -1053,3 +1053,195 @@ func TestWaitForProcessExit_ExitedProcess(t *testing.T) {
 		t.Errorf("Expected no error for non-existent process, got: %v", err)
 	}
 }
+
+func TestForkDaemon(t *testing.T) {
+	// forkDaemon always returns an error because it's not yet implemented
+	err := forkDaemon("/tmp/olb.yaml", "/tmp/olb.pid")
+	if err == nil {
+		t.Error("Expected error from forkDaemon placeholder")
+	}
+}
+
+func TestStatusCommand_TableFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/system/info" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"version":   "1.0.0",
+				"uptime":    "1h30m",
+				"listeners": float64(3),
+				"backends":  float64(5),
+			})
+			return
+		}
+		if r.URL.Path == "/api/v1/system/health" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "healthy",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+
+	cmd := &StatusCommand{}
+	err := cmd.Run([]string{"--api-addr", apiAddr, "--format", "table"})
+	if err != nil {
+		t.Errorf("Expected success, got: %v", err)
+	}
+}
+
+func TestStatusCommand_UnknownFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/system/info" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"version": "1.0.0"})
+			return
+		}
+		if r.URL.Path == "/api/v1/system/health" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &StatusCommand{}
+	err := cmd.Run([]string{"--api-addr", apiAddr, "--format", "yaml"})
+	if err == nil {
+		t.Error("Expected error for unknown format")
+	}
+	if !strings.Contains(err.Error(), "unknown format") {
+		t.Errorf("Expected 'unknown format' error, got: %v", err)
+	}
+}
+
+func TestBackendCommand_TableFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/backends" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode([]map[string]interface{}{
+				{"id": "b1", "address": "10.0.0.1:8080", "weight": float64(1), "status": "healthy"},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &BackendCommand{}
+	err := cmd.Run([]string{"list", "--api-addr", apiAddr, "--format", "table"})
+	if err != nil {
+		t.Errorf("Expected success, got: %v", err)
+	}
+}
+
+func TestBackendCommand_UnknownFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/backends" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode([]map[string]interface{}{})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &BackendCommand{}
+	err := cmd.Run([]string{"list", "--api-addr", apiAddr, "--format", "xml"})
+	if err == nil {
+		t.Error("Expected error for unknown format")
+	}
+}
+
+func TestHealthCommand_TableFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/health" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "healthy",
+				"message": "all systems operational",
+				"checks": map[string]interface{}{
+					"backend": "ok",
+				},
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &HealthCommand{}
+	err := cmd.Run([]string{"show", "--api-addr", apiAddr, "--format", "table"})
+	if err != nil {
+		t.Errorf("Expected success, got: %v", err)
+	}
+}
+
+func TestHealthCommand_UnknownFormat(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/health" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok"})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &HealthCommand{}
+	err := cmd.Run([]string{"show", "--api-addr", apiAddr, "--format", "xml"})
+	if err == nil {
+		t.Error("Expected error for unknown format")
+	}
+}
+
+func TestStatusCommand_HealthUnhealthy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/system/info" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{"version": "1.0.0"})
+			return
+		}
+		if r.URL.Path == "/api/v1/system/health" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &StatusCommand{}
+	err := cmd.Run([]string{"--api-addr", apiAddr, "--format", "table"})
+	if err != nil {
+		t.Errorf("Expected success (unhealthy is valid state), got: %v", err)
+	}
+}
+
+func TestWritePIDFile_SubDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	pidFile := filepath.Join(tmpDir, "sub", "dir", "test.pid")
+	err := writePIDFile(pidFile, 12345)
+	if err != nil {
+		t.Errorf("writePIDFile should create subdirectories, got: %v", err)
+	}
+}

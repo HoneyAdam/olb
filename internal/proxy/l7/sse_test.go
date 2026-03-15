@@ -566,6 +566,31 @@ func TestSSEHandler_streamSSEResponse(t *testing.T) {
 	}
 }
 
+func TestTimeoutError(t *testing.T) {
+	err := &timeoutError{}
+
+	if err.Error() != "timeout" {
+		t.Errorf("Error() = %q, want 'timeout'", err.Error())
+	}
+	if !err.Timeout() {
+		t.Error("Timeout() should return true")
+	}
+	if !err.Temporary() {
+		t.Error("Temporary() should return true")
+	}
+}
+
+func TestSSEHandler_createSSETransport(t *testing.T) {
+	handler := NewSSEHandler(nil)
+	transport := handler.createSSETransport()
+	if transport == nil {
+		t.Fatal("createSSETransport() returned nil")
+	}
+	if !transport.DisableCompression {
+		t.Error("DisableCompression should be true for SSE transport")
+	}
+}
+
 func TestSSEHandler_copyRegularResponse(t *testing.T) {
 	handler := NewSSEHandler(nil)
 

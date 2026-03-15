@@ -369,6 +369,171 @@ func createTestCert(t *testing.T, cn string, parent *x509.Certificate) *x509.Cer
 	return cert
 }
 
+func TestOCSPManager_StartStop_Disabled(t *testing.T) {
+	config := &OCSPConfig{Enabled: false}
+	manager := NewOCSPManager(config)
+
+	err := manager.Start()
+	if err != nil {
+		t.Fatalf("Start error for disabled manager: %v", err)
+	}
+
+	err = manager.Stop()
+	if err != nil {
+		t.Fatalf("Stop error for disabled manager: %v", err)
+	}
+}
+
+func TestOCSPManager_GetResponseBytes_Disabled(t *testing.T) {
+	config := &OCSPConfig{Enabled: false}
+	manager := NewOCSPManager(config)
+
+	_, err := manager.GetResponseBytes(nil, nil)
+	if err == nil {
+		t.Error("Expected error when OCSP is disabled")
+	}
+}
+
+func TestOCSPManager_GetResponseBytes_NilCert(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	issuer := createTestCert(t, "Test CA", nil)
+
+	_, err := manager.GetResponseBytes(nil, issuer)
+	if err == nil {
+		t.Error("Expected error for nil certificate")
+	}
+}
+
+func TestOCSPManager_GetResponse_NoOCSPServers(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+
+	cert := createTestCert(t, "example.com", nil)
+	issuer := createTestCert(t, "Test CA", nil)
+
+	_, err := manager.GetResponse(cert, issuer)
+	if err == nil {
+		t.Error("Expected error for cert without OCSP servers")
+	}
+}
+
+func TestOCSPManager_RefreshAll_EmptyCache(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	// Should not panic with empty cache
+	manager.refreshAll()
+}
+
+func TestOCSPManager_RefreshAll_WithEntries(t *testing.T) {
+	config := DefaultOCSPConfig()
+	config.UpdateInterval = 1 * time.Hour
+	manager := NewOCSPManager(config)
+
+	now := time.Now()
+
+	// Add a response that is expiring soon (remaining < 2*UpdateInterval)
+	manager.cacheMu.Lock()
+	manager.cache["expiring-cert"] = &OCSPResponse{
+		Raw:        []byte("test"),
+		CachedAt:   now,
+		ThisUpdate: now.Add(-23 * time.Hour),
+		NextUpdate: now.Add(30 * time.Minute), // Less than 2 hours
+	}
+	// Add a response that is not expiring soon
+	manager.cache["valid-cert"] = &OCSPResponse{
+		Raw:        []byte("test2"),
+		CachedAt:   now,
+		ThisUpdate: now.Add(-1 * time.Hour),
+		NextUpdate: now.Add(23 * time.Hour), // More than 2 hours
+	}
+	manager.cacheMu.Unlock()
+
+	manager.refreshAll()
+
+	// Expiring cert should be removed
+	manager.cacheMu.RLock()
+	_, hasExpiring := manager.cache["expiring-cert"]
+	_, hasValid := manager.cache["valid-cert"]
+	manager.cacheMu.RUnlock()
+
+	if hasExpiring {
+		t.Error("Expected expiring cert to be removed from cache")
+	}
+	if !hasValid {
+		t.Error("Expected valid cert to remain in cache")
+	}
+}
+
+func TestOCSPManager_CacheStats_Mixed(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	now := time.Now()
+
+	manager.cacheMu.Lock()
+	manager.cache["valid"] = &OCSPResponse{
+		ThisUpdate: now.Add(-1 * time.Hour),
+		NextUpdate: now.Add(1 * time.Hour),
+	}
+	manager.cache["expired"] = &OCSPResponse{
+		ThisUpdate: now.Add(-2 * time.Hour),
+		NextUpdate: now.Add(-1 * time.Hour),
+	}
+	manager.cacheMu.Unlock()
+
+	total, valid, expired := manager.GetCacheStats()
+	if total != 2 {
+		t.Errorf("Total = %d, want 2", total)
+	}
+	if valid != 1 {
+		t.Errorf("Valid = %d, want 1", valid)
+	}
+	if expired != 1 {
+		t.Errorf("Expired = %d, want 1", expired)
+	}
+}
+
+func TestParseOCSPResponse_Invalid(t *testing.T) {
+	_, err := ParseOCSPResponse([]byte("invalid ocsp data"))
+	if err == nil {
+		t.Error("Expected error for invalid OCSP response data")
+	}
+}
+
+func TestCreateOCSPRequest_ValidCerts(t *testing.T) {
+	cert := createTestCert(t, "example.com", nil)
+	issuer := createTestCert(t, "Test CA", nil)
+
+	// CreateOCSPRequest may succeed or fail depending on cert contents,
+	// but should not panic
+	_, _ = CreateOCSPRequest(cert, issuer)
+}
+
+func TestOCSPManager_GetResponse_CachedValid(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	now := time.Now()
+
+	cert := createTestCert(t, "example.com", nil)
+	issuer := createTestCert(t, "Test CA", nil)
+
+	fp := fingerprint(cert)
+
+	// Pre-populate cache with a valid response
+	cachedResp := &OCSPResponse{
+		Raw:        []byte("cached-response"),
+		CachedAt:   now,
+		ThisUpdate: now.Add(-1 * time.Hour),
+		NextUpdate: now.Add(1 * time.Hour),
+	}
+	manager.cacheMu.Lock()
+	manager.cache[fp] = cachedResp
+	manager.cacheMu.Unlock()
+
+	resp, err := manager.GetResponse(cert, issuer)
+	if err != nil {
+		t.Fatalf("GetResponse error: %v", err)
+	}
+	if string(resp.Raw) != "cached-response" {
+		t.Error("Expected cached response to be returned")
+	}
+}
+
 func createTestOCSPResponse(t *testing.T, cert *x509.Certificate, issuer *x509.Certificate) []byte {
 	t.Helper()
 
