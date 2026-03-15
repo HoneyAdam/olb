@@ -430,6 +430,54 @@ func TestIPHash_SingleBackend(t *testing.T) {
 	}
 }
 
+// --- Tests for extractIP helper ---
+
+func TestExtractIP(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"192.168.1.1:8080", "192.168.1.1"},
+		{"10.0.0.1:443", "10.0.0.1"},
+		{"[::1]:8080", "::1"},
+		{"[2001:db8::1]:443", "2001:db8::1"},
+		{"192.168.1.1", "192.168.1.1"},
+		{"::1", "::1"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := extractIP(tt.input)
+			if got != tt.expected {
+				t.Errorf("extractIP(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIPHash_Next_InterfaceMethod(t *testing.T) {
+	ih := NewIPHash()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	b2 := backend.NewBackend("b2", "127.0.0.1:8081")
+	backends := []*backend.Backend{b1, b2}
+
+	// Next (without IP) should return a backend deterministically
+	result := ih.Next(backends)
+	if result == nil {
+		t.Fatal("Next() returned nil")
+	}
+
+	// Should be consistent (empty IP always hashes to 0 -> first backend)
+	for i := 0; i < 10; i++ {
+		r := ih.Next(backends)
+		if r.ID != result.ID {
+			t.Errorf("Next() inconsistent: got %s then %s", result.ID, r.ID)
+		}
+	}
+}
+
 // Benchmarks
 
 func BenchmarkIPHash_NextWithIP(b *testing.B) {

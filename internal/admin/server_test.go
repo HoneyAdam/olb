@@ -2404,3 +2404,231 @@ func TestAuthMiddleware_InvalidBasicAuthFormat(t *testing.T) {
 		t.Errorf("expected 401 for invalid format, got %d", resp.StatusCode)
 	}
 }
+
+// --- Tests for getConfig and getCertificates handlers ---
+
+// mockConfigGetter implements admin.ConfigGetter for testing.
+type mockConfigGetter struct {
+	config interface{}
+}
+
+func (m *mockConfigGetter) GetConfig() interface{} {
+	return m.config
+}
+
+// mockCertLister implements admin.CertLister for testing.
+type mockCertLister struct {
+	certs []CertInfoView
+}
+
+func (m *mockCertLister) ListCertificates() []CertInfoView {
+	return m.certs
+}
+
+func TestGetConfig_ReturnsJSON(t *testing.T) {
+	configData := map[string]interface{}{
+		"version": "1",
+		"admin":   map[string]interface{}{"enabled": true, "address": ":8080"},
+	}
+	getter := &mockConfigGetter{config: configData}
+
+	serverCfg := &Config{
+		Address:      "127.0.0.1:0",
+		ConfigGetter: getter,
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success to be true")
+	}
+
+	// Data should be present
+	if resp.Data == nil {
+		t.Error("expected data in response")
+	}
+}
+
+func TestGetConfig_NilConfigGetter(t *testing.T) {
+	serverCfg := &Config{
+		Address: "127.0.0.1:0",
+		// No ConfigGetter set
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/config", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status 503 for nil configGetter, got %d", w.Code)
+	}
+}
+
+func TestGetConfig_MethodNotAllowed(t *testing.T) {
+	serverCfg := &Config{
+		Address: "127.0.0.1:0",
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/config", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+}
+
+func TestGetCertificates_WithCerts(t *testing.T) {
+	lister := &mockCertLister{
+		certs: []CertInfoView{
+			{Names: []string{"example.com", "www.example.com"}, Expiry: 1700000000, IsWildcard: false},
+			{Names: []string{"*.test.com"}, Expiry: 1800000000, IsWildcard: true},
+		},
+	}
+
+	serverCfg := &Config{
+		Address:    "127.0.0.1:0",
+		CertLister: lister,
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success to be true")
+	}
+
+	// Data should be present (array of certs)
+	dataSlice, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be an array, got %T", resp.Data)
+	}
+	if len(dataSlice) != 2 {
+		t.Errorf("expected 2 certificates, got %d", len(dataSlice))
+	}
+}
+
+func TestGetCertificates_NilCertLister(t *testing.T) {
+	serverCfg := &Config{
+		Address: "127.0.0.1:0",
+		// No CertLister set
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200 for nil certLister (empty array), got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	// Should return empty array
+	dataSlice, ok := resp.Data.([]interface{})
+	if !ok {
+		t.Fatalf("expected data to be an array, got %T", resp.Data)
+	}
+	if len(dataSlice) != 0 {
+		t.Errorf("expected 0 certificates for nil lister, got %d", len(dataSlice))
+	}
+}
+
+func TestGetCertificates_EmptyCertLister(t *testing.T) {
+	lister := &mockCertLister{
+		certs: []CertInfoView{},
+	}
+
+	serverCfg := &Config{
+		Address:    "127.0.0.1:0",
+		CertLister: lister,
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/certificates", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+func TestGetCertificates_MethodNotAllowed(t *testing.T) {
+	serverCfg := &Config{
+		Address: "127.0.0.1:0",
+	}
+
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/certificates", nil)
+	w := httptest.NewRecorder()
+
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+}

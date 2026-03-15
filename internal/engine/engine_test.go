@@ -10,7 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/openloadbalancer/olb/internal/backend"
 	"github.com/openloadbalancer/olb/internal/config"
+	"github.com/openloadbalancer/olb/internal/router"
 )
 
 // createTestConfig creates a minimal valid configuration for testing.
@@ -2181,6 +2183,255 @@ func TestEngineErrorRecovery(t *testing.T) {
 			t.Error("Second Shutdown() expected error")
 		}
 	})
+}
+
+// --- Adapter tests ---
+
+func TestEngineConfigGetter(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	getter := &engineConfigGetter{engine: engine}
+	result := getter.GetConfig()
+
+	if result == nil {
+		t.Fatal("GetConfig() returned nil")
+	}
+
+	// The result should be *config.Config
+	resultCfg, ok := result.(*config.Config)
+	if !ok {
+		t.Fatalf("GetConfig() returned %T, want *config.Config", result)
+	}
+	if resultCfg.Version != "1" {
+		t.Errorf("GetConfig().Version = %q, want %q", resultCfg.Version, "1")
+	}
+}
+
+func TestEngineMetricsProvider_QueryMetrics(t *testing.T) {
+	provider := &engineMetricsProvider{}
+
+	result := provider.QueryMetrics("test.*")
+	if result == nil {
+		t.Fatal("QueryMetrics() returned nil")
+	}
+
+	if result["pattern"] != "test.*" {
+		t.Errorf("QueryMetrics pattern = %v, want %q", result["pattern"], "test.*")
+	}
+	if result["message"] != "metrics query via MCP" {
+		t.Errorf("QueryMetrics message = %v, want %q", result["message"], "metrics query via MCP")
+	}
+}
+
+func TestEngineBackendProvider_ListPools(t *testing.T) {
+	poolMgr := backend.NewPoolManager()
+	pool := backend.NewPool("test-pool", "round_robin")
+	b := backend.NewBackend("b1", "127.0.0.1:8080")
+	b.Weight = 5
+	pool.AddBackend(b)
+	poolMgr.AddPool(pool)
+
+	provider := &engineBackendProvider{poolMgr: poolMgr}
+
+	pools := provider.ListPools()
+	if len(pools) != 1 {
+		t.Fatalf("ListPools() returned %d pools, want 1", len(pools))
+	}
+
+	if pools[0].Name != "test-pool" {
+		t.Errorf("pool name = %q, want %q", pools[0].Name, "test-pool")
+	}
+	if pools[0].Algorithm != "round_robin" {
+		t.Errorf("pool algorithm = %q, want %q", pools[0].Algorithm, "round_robin")
+	}
+	if len(pools[0].Backends) != 1 {
+		t.Fatalf("pool has %d backends, want 1", len(pools[0].Backends))
+	}
+	if pools[0].Backends[0].ID != "b1" {
+		t.Errorf("backend ID = %q, want %q", pools[0].Backends[0].ID, "b1")
+	}
+	if pools[0].Backends[0].Weight != 5 {
+		t.Errorf("backend weight = %d, want 5", pools[0].Backends[0].Weight)
+	}
+}
+
+func TestEngineBackendProvider_ModifyBackend(t *testing.T) {
+	poolMgr := backend.NewPoolManager()
+	pool := backend.NewPool("web", "round_robin")
+	poolMgr.AddPool(pool)
+
+	provider := &engineBackendProvider{poolMgr: poolMgr}
+
+	// Test add
+	err := provider.ModifyBackend("add", "web", "127.0.0.1:9090")
+	if err != nil {
+		t.Fatalf("ModifyBackend(add) error = %v", err)
+	}
+	if b := pool.GetBackend("127.0.0.1:9090"); b == nil {
+		t.Error("backend should have been added")
+	}
+
+	// Test enable
+	err = provider.ModifyBackend("enable", "web", "127.0.0.1:9090")
+	if err != nil {
+		t.Errorf("ModifyBackend(enable) error = %v", err)
+	}
+
+	// Test disable
+	err = provider.ModifyBackend("disable", "web", "127.0.0.1:9090")
+	if err != nil {
+		t.Errorf("ModifyBackend(disable) error = %v", err)
+	}
+
+	// Test drain
+	err = provider.ModifyBackend("drain", "web", "127.0.0.1:9090")
+	if err != nil {
+		t.Errorf("ModifyBackend(drain) error = %v", err)
+	}
+
+	// Test remove
+	err = provider.ModifyBackend("remove", "web", "127.0.0.1:9090")
+	if err != nil {
+		t.Errorf("ModifyBackend(remove) error = %v", err)
+	}
+
+	// Test pool not found
+	err = provider.ModifyBackend("add", "nonexistent", "127.0.0.1:9090")
+	if err == nil {
+		t.Error("expected error for nonexistent pool")
+	}
+
+	// Test unknown action
+	err = provider.ModifyBackend("restart", "web", "127.0.0.1:9090")
+	if err == nil {
+		t.Error("expected error for unknown action")
+	}
+
+	// Test enable nonexistent backend
+	err = provider.ModifyBackend("enable", "web", "nonexistent")
+	if err == nil {
+		t.Error("expected error for enable nonexistent backend")
+	}
+
+	// Test disable nonexistent backend
+	err = provider.ModifyBackend("disable", "web", "nonexistent")
+	if err == nil {
+		t.Error("expected error for disable nonexistent backend")
+	}
+}
+
+func TestEngineConfigProvider_GetConfig(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	provider := &engineConfigProvider{engine: engine}
+	result := provider.GetConfig()
+
+	if result == nil {
+		t.Fatal("GetConfig() returned nil")
+	}
+
+	resultCfg, ok := result.(*config.Config)
+	if !ok {
+		t.Fatalf("GetConfig() returned %T, want *config.Config", result)
+	}
+	if resultCfg.Version != "1" {
+		t.Errorf("GetConfig().Version = %q, want %q", resultCfg.Version, "1")
+	}
+}
+
+func TestEngineRouteProvider_ModifyRoute(t *testing.T) {
+	rtr := router.NewRouter()
+
+	provider := &engineRouteProvider{rtr: rtr}
+
+	// Test add route
+	err := provider.ModifyRoute("add", "example.com", "/api", "backend-pool")
+	if err != nil {
+		t.Fatalf("ModifyRoute(add) error = %v", err)
+	}
+
+	// Verify route was added
+	routes := rtr.Routes()
+	if len(routes) != 1 {
+		t.Fatalf("expected 1 route, got %d", len(routes))
+	}
+	if routes[0].Host != "example.com" {
+		t.Errorf("route host = %q, want %q", routes[0].Host, "example.com")
+	}
+	if routes[0].Path != "/api" {
+		t.Errorf("route path = %q, want %q", routes[0].Path, "/api")
+	}
+
+	// Test update route
+	err = provider.ModifyRoute("update", "example.com", "/api", "new-pool")
+	if err != nil {
+		t.Errorf("ModifyRoute(update) error = %v", err)
+	}
+
+	// Test remove route
+	err = provider.ModifyRoute("remove", "example.com", "/api", "")
+	if err != nil {
+		t.Errorf("ModifyRoute(remove) error = %v", err)
+	}
+
+	// Test unknown action
+	err = provider.ModifyRoute("unknown", "example.com", "/api", "pool")
+	if err == nil {
+		t.Error("expected error for unknown action")
+	}
+}
+
+func TestGetMCPAddress(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		expected string
+	}{
+		{
+			name: "admin address with port",
+			cfg: &config.Config{
+				Admin: &config.Admin{
+					Address: "127.0.0.1:8080",
+				},
+			},
+			expected: "127.0.0.1:8081",
+		},
+		{
+			name: "admin address with different port",
+			cfg: &config.Config{
+				Admin: &config.Admin{
+					Address: ":9090",
+				},
+			},
+			expected: ":9091",
+		},
+		{
+			name:     "nil admin config uses default :8080",
+			cfg:      &config.Config{},
+			expected: ":8081",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getMCPAddress(tt.cfg)
+			if result != tt.expected {
+				t.Errorf("getMCPAddress() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
 }
 
 // TestSignalHandlersWindows tests signal handling on Windows

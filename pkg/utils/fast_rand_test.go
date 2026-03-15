@@ -442,3 +442,82 @@ func TestFastRandAllMethods(t *testing.T) {
 		}
 	})
 }
+
+// --- Tests for global/default FastRand functions ---
+
+func TestRandUint64(t *testing.T) {
+	v1 := RandUint64()
+	v2 := RandUint64()
+	// Two consecutive calls should almost certainly differ
+	if v1 == v2 {
+		t.Error("RandUint64: consecutive calls returned identical values")
+	}
+}
+
+func TestRandInt63(t *testing.T) {
+	v := RandInt63()
+	if v < 0 {
+		t.Errorf("RandInt63() = %d, expected non-negative", v)
+	}
+}
+
+func TestRandInt63n(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		v := RandInt63n(50)
+		if v < 0 || v >= 50 {
+			t.Errorf("RandInt63n(50) = %d, out of range [0, 50)", v)
+		}
+	}
+	// Edge case: n <= 0 returns 0
+	if v := RandInt63n(0); v != 0 {
+		t.Errorf("RandInt63n(0) = %d, want 0", v)
+	}
+	if v := RandInt63n(-1); v != 0 {
+		t.Errorf("RandInt63n(-1) = %d, want 0", v)
+	}
+}
+
+func TestRandInt(t *testing.T) {
+	v := RandInt()
+	if v < 0 {
+		t.Errorf("RandInt() = %d, expected non-negative", v)
+	}
+}
+
+func TestRandIntn(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		v := RandIntn(10)
+		if v < 0 || v >= 10 {
+			t.Errorf("RandIntn(10) = %d, out of range [0, 10)", v)
+		}
+	}
+	// Edge case: n <= 0 returns 0
+	if v := RandIntn(0); v != 0 {
+		t.Errorf("RandIntn(0) = %d, want 0", v)
+	}
+	if v := RandIntn(-5); v != 0 {
+		t.Errorf("RandIntn(-5) = %d, want 0", v)
+	}
+}
+
+func TestRandFloat64(t *testing.T) {
+	for i := 0; i < 100; i++ {
+		f := RandFloat64()
+		if f < 0 || f >= 1 {
+			t.Errorf("RandFloat64() = %f, out of range [0, 1)", f)
+		}
+	}
+}
+
+func TestRandBool(t *testing.T) {
+	trueCount := 0
+	for i := 0; i < 1000; i++ {
+		if RandBool() {
+			trueCount++
+		}
+	}
+	// Should be roughly 50/50
+	if trueCount < 350 || trueCount > 650 {
+		t.Errorf("RandBool distribution: %d true out of 1000, expected ~500", trueCount)
+	}
+}

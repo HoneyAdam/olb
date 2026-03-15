@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -851,4 +852,73 @@ func TestDefaultCacheConfig(t *testing.T) {
 	if len(cfg.CacheableStatuses) != 3 {
 		t.Errorf("CacheableStatuses len = %d, want 3", len(cfg.CacheableStatuses))
 	}
+}
+
+// --- Tests for responseCapturer.WriteHeader ---
+
+func TestResponseCapturer_WriteHeader_OnlyOnce(t *testing.T) {
+	// The responseCapturer should only forward the first WriteHeader call.
+	inner := httptest.NewRecorder()
+	rc := &responseCapturer{
+		ResponseWriter: inner,
+		body:           &bytes.Buffer{},
+		statusCode:     http.StatusOK,
+	}
+
+	rc.WriteHeader(http.StatusCreated)
+	if rc.statusCode != http.StatusCreated {
+		t.Errorf("statusCode = %d, want %d", rc.statusCode, http.StatusCreated)
+	}
+
+	// Write body marks wroteBody = true
+	rc.Write([]byte("hello"))
+
+	// Second WriteHeader should be ignored (wroteBody is true)
+	rc.WriteHeader(http.StatusNotFound)
+	if rc.statusCode != http.StatusCreated {
+		t.Errorf("statusCode changed to %d after body write, want %d", rc.statusCode, http.StatusCreated)
+	}
+}
+
+func TestResponseCapturer_Write_SetsWroteBody(t *testing.T) {
+	inner := httptest.NewRecorder()
+	rc := &responseCapturer{
+		ResponseWriter: inner,
+		body:           &bytes.Buffer{},
+		statusCode:     http.StatusOK,
+	}
+
+	if rc.wroteBody {
+		t.Error("wroteBody should be false initially")
+	}
+
+	rc.Write([]byte("data"))
+
+	if !rc.wroteBody {
+		t.Error("wroteBody should be true after Write")
+	}
+}
+
+// --- Tests for discardResponseWriter ---
+
+func TestDiscardResponseWriter(t *testing.T) {
+	d := &discardResponseWriter{header: make(http.Header)}
+
+	// Header should be accessible
+	d.Header().Set("X-Test", "value")
+	if d.Header().Get("X-Test") != "value" {
+		t.Error("Header should be settable")
+	}
+
+	// Write should succeed and discard
+	n, err := d.Write([]byte("hello"))
+	if err != nil {
+		t.Errorf("Write error = %v", err)
+	}
+	if n != 5 {
+		t.Errorf("Write returned %d, want 5", n)
+	}
+
+	// WriteHeader should not panic
+	d.WriteHeader(http.StatusOK)
 }

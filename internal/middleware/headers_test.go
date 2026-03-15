@@ -488,3 +488,108 @@ func TestHeadersMiddleware_CaseInsensitiveHeaderMatching(t *testing.T) {
 		t.Errorf("expected Content-Type 'application/json', got '%s'", capturedReq.Header.Get("Content-Type"))
 	}
 }
+
+// --- Tests for helper functions ---
+
+func TestHasHeader(t *testing.T) {
+	headers := http.Header{}
+	headers.Set("Content-Type", "text/html")
+	headers.Set("X-Custom", "value")
+
+	tests := []struct {
+		name     string
+		header   string
+		expected bool
+	}{
+		{"existing header", "Content-Type", true},
+		{"existing header lowercase", "content-type", true},
+		{"existing custom header", "X-Custom", true},
+		{"non-existent header", "X-Missing", false},
+		{"empty header name", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hasHeader(headers, tt.header); got != tt.expected {
+				t.Errorf("hasHeader(%q) = %v, want %v", tt.header, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestContainsHeader(t *testing.T) {
+	slice := []string{"Content-Type", "X-Custom", "Authorization"}
+
+	tests := []struct {
+		name     string
+		target   string
+		expected bool
+	}{
+		{"exact match", "Content-Type", true},
+		{"case insensitive match", "content-type", true},
+		{"another match", "authorization", true},
+		{"not found", "X-Missing", false},
+		{"empty target", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := containsHeader(slice, tt.target); got != tt.expected {
+				t.Errorf("containsHeader(%q) = %v, want %v", tt.target, got, tt.expected)
+			}
+		})
+	}
+
+	// Test with empty slice
+	if containsHeader([]string{}, "anything") {
+		t.Error("containsHeader with empty slice should return false")
+	}
+}
+
+func TestCanonicalizeHeaders(t *testing.T) {
+	input := map[string]string{
+		"content-type":  "text/html",
+		"x-custom":      "value",
+		"AUTHORIZATION": "Bearer token",
+	}
+
+	result := canonicalizeHeaders(input)
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 headers, got %d", len(result))
+	}
+
+	if result["Content-Type"] != "text/html" {
+		t.Errorf("expected Content-Type header, got keys: %v", result)
+	}
+	if result["X-Custom"] != "value" {
+		t.Errorf("expected X-Custom header, got keys: %v", result)
+	}
+	if result["Authorization"] != "Bearer token" {
+		t.Errorf("expected Authorization header, got keys: %v", result)
+	}
+
+	// Test with empty map
+	empty := canonicalizeHeaders(map[string]string{})
+	if len(empty) != 0 {
+		t.Errorf("expected 0 headers for empty input, got %d", len(empty))
+	}
+}
+
+func TestCanonicalizeHeaderSlice(t *testing.T) {
+	input := []string{"content-type", "x-custom", "AUTHORIZATION"}
+	result := canonicalizeHeaderSlice(input)
+
+	if len(result) != 3 {
+		t.Fatalf("expected 3 headers, got %d", len(result))
+	}
+	if result[0] != "Content-Type" {
+		t.Errorf("expected Content-Type, got %q", result[0])
+	}
+	if result[1] != "X-Custom" {
+		t.Errorf("expected X-Custom, got %q", result[1])
+	}
+	if result[2] != "Authorization" {
+		t.Errorf("expected Authorization, got %q", result[2])
+	}
+}

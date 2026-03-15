@@ -319,3 +319,31 @@ func TestClientIPFromContext_NotSet(t *testing.T) {
 		t.Errorf("ClientIPFromContext(nil) = %q, want empty string", ip)
 	}
 }
+
+func TestIsValidIP(t *testing.T) {
+	tests := []struct {
+		ip    string
+		valid bool
+	}{
+		{"192.168.1.1", true},
+		{"10.0.0.1", true},
+		{"0.0.0.0", true},
+		{"255.255.255.255", true},
+		{"::1", true},
+		{"2001:db8::1", true},
+		{"fe80::1", true},
+		{"", false},
+		{"not-an-ip", false},
+		{"256.1.1.1", false},
+		{"1.2.3", false},
+		{"abc", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			if got := isValidIP(tt.ip); got != tt.valid {
+				t.Errorf("isValidIP(%q) = %v, want %v", tt.ip, got, tt.valid)
+			}
+		})
+	}
+}
