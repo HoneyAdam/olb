@@ -901,9 +901,17 @@ func TestPoolManager_GetPoolNilConfig(t *testing.T) {
 
 // TestPool_Get_DialError tests Get when dial fails
 func TestPool_Get_DialError(t *testing.T) {
+	// Find a port that is not listening by binding and immediately closing
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to get free port: %v", err)
+	}
+	unusedAddr := l.Addr().String()
+	l.Close()
+
 	config := &PoolConfig{
 		BackendID:   "backend-1",
-		Address:     "127.0.0.1:1", // Port 1 is unlikely to be open
+		Address:     unusedAddr, // Port is now closed, dial will fail
 		DialTimeout: 100 * time.Millisecond,
 	}
 

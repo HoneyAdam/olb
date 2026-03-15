@@ -181,8 +181,11 @@ func TestChecker_checkTCP(t *testing.T) {
 		t.Errorf("checkTCP() error = %v", result.Error)
 	}
 
-	// Test failed TCP check
-	b2 := backend.NewBackend("test2", "127.0.0.1:1")
+	// Test failed TCP check - use a port that's not listening
+	failListener, _ := net.Listen("tcp", "127.0.0.1:0")
+	failAddr := failListener.Addr().String()
+	failListener.Close()
+	b2 := backend.NewBackend("test2", failAddr)
 	result2 := checker.checkTCP(b2, check)
 	if result2.Healthy {
 		t.Error("checkTCP() on unavailable port should be unhealthy")

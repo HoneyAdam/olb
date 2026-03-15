@@ -82,11 +82,10 @@ func TestGossipConfigValidate(t *testing.T) {
 
 func TestGossipNodeCreation(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 0 // will be assigned by OS
 	cfg.NodeID = "test-node-1"
 
-	// Use port 0 to let the OS assign a free port; we just need NewGossip to succeed.
-	cfg.BindPort = 19000
+	// Use a free port to avoid conflicts in parallel test runs.
+	cfg.BindPort = getFreePort(t)
 	g, err := NewGossip(cfg)
 	if err != nil {
 		t.Fatalf("NewGossip() error = %v", err)
@@ -434,7 +433,7 @@ func TestDecodeMessage_WithRemaining(t *testing.T) {
 
 func TestBroadcastQueue_AddAndGet(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19100
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "bq-test"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -455,7 +454,7 @@ func TestBroadcastQueue_AddAndGet(t *testing.T) {
 
 func TestBroadcastQueue_SizeLimit(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19101
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "bq-limit-test"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -484,7 +483,7 @@ func TestBroadcastQueue_SizeLimit(t *testing.T) {
 
 func TestBroadcastQueue_Retransmit(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19102
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "bq-retransmit"
 	cfg.RetransmitMult = 1 // small for testing
 	g, err := NewGossip(cfg)
@@ -512,7 +511,7 @@ func TestBroadcastQueue_Retransmit(t *testing.T) {
 
 func TestBroadcastQueue_Priority(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19103
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "bq-priority"
 	cfg.RetransmitMult = 10 // high so nothing expires
 	g, err := NewGossip(cfg)
@@ -556,7 +555,7 @@ func TestBroadcastQueue_Priority(t *testing.T) {
 
 func TestIncarnationPrecedence_AliveOverridesSuspect(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19110
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -594,7 +593,7 @@ func TestIncarnationPrecedence_AliveOverridesSuspect(t *testing.T) {
 
 func TestIncarnationPrecedence_SameIncarnationNoOverride(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19111
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -629,7 +628,7 @@ func TestIncarnationPrecedence_SameIncarnationNoOverride(t *testing.T) {
 
 func TestIncarnationPrecedence_SuspectOverridesAlive(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19112
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -667,7 +666,7 @@ func TestIncarnationPrecedence_SuspectOverridesAlive(t *testing.T) {
 
 func TestIncarnationPrecedence_DeadOverridesAll(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19113
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -707,7 +706,7 @@ func TestIncarnationPrecedence_DeadOverridesAll(t *testing.T) {
 
 func TestSelfRefutation_Suspect(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19114
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local-node"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -729,7 +728,7 @@ func TestSelfRefutation_Suspect(t *testing.T) {
 
 func TestSelfRefutation_Dead(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19115
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local-node"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -753,7 +752,7 @@ func TestSelfRefutation_Dead(t *testing.T) {
 
 func TestEventCallbacks(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19120
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -789,7 +788,7 @@ func TestEventCallbacks(t *testing.T) {
 
 func TestHandleJoin(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19130
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	cfg.TCPTimeout = 100 * time.Millisecond // Short timeout for test
 	g, err := NewGossip(cfg)
@@ -817,7 +816,7 @@ func TestHandleJoin(t *testing.T) {
 
 func TestHandleLeave(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19131
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -851,7 +850,7 @@ func TestHandleLeave(t *testing.T) {
 
 func TestMembersAndNumMembers(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19140
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "local"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -1405,7 +1404,7 @@ func TestParseHostPort(t *testing.T) {
 
 func TestSetMetadata(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19200
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "meta-test"
 	g, err := NewGossip(cfg)
 	if err != nil {
@@ -1428,7 +1427,7 @@ func TestSetMetadata(t *testing.T) {
 
 func TestRetransmitLimit(t *testing.T) {
 	cfg := DefaultGossipConfig()
-	cfg.BindPort = 19210
+	cfg.BindPort = getFreePort(t)
 	cfg.NodeID = "rt-test"
 	cfg.RetransmitMult = 4
 	g, err := NewGossip(cfg)
@@ -1458,14 +1457,35 @@ func TestRetransmitLimit(t *testing.T) {
 
 // ---- Helpers ----
 
-// getFreePort returns a free TCP port on localhost.
+// getFreePort returns a port on localhost that is free for both TCP and UDP.
+// It binds both protocols simultaneously to verify availability, which avoids
+// flaky failures on Windows where TCP and UDP port availability can differ.
 func getFreePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("getFreePort: %v", err)
+	for attempt := 0; attempt < 50; attempt++ {
+		// Bind UDP first (more restrictive on Windows)
+		udpAddr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+		if err != nil {
+			continue
+		}
+		udpConn, err := net.ListenUDP("udp", udpAddr)
+		if err != nil {
+			continue
+		}
+		port := udpConn.LocalAddr().(*net.UDPAddr).Port
+
+		// Verify TCP is also available on the same port
+		tcpL, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			udpConn.Close()
+			continue
+		}
+
+		// Both available - close and return
+		tcpL.Close()
+		udpConn.Close()
+		return port
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-	return port
+	t.Fatalf("getFreePort: unable to find a port free for both TCP and UDP after 50 attempts")
+	return 0
 }

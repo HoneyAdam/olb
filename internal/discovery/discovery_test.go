@@ -2,7 +2,10 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 )
@@ -461,3 +464,360 @@ func (p *mockProvider) Start(ctx context.Context) error {
 	p.started = true
 	return nil
 }
+
+// ---- baseProvider tests ----
+
+func TestBaseProvider_AddRemoveService(t *testing.T) {
+	bp := newBaseProvider("test", ProviderTypeStatic, DefaultProviderConfig())
+
+	svc := &Service{
+		ID:      "svc-1",
+		Name:    "test-service",
+		Address: "10.0.0.1",
+		Port:    8080,
+		Healthy: true,
+	}
+
+	bp.addService(svc)
+
+	services := bp.Services()
+	if len(services) != 1 {
+		t.Fatalf("Expected 1 service, got %d", len(services))
+	}
+
+	// Update same service (no change) should not emit event
+	bp.addService(svc)
+
+	// Update service with change
+	updatedSvc := &Service{
+		ID:      "svc-1",
+		Name:    "test-service",
+		Address: "10.0.0.2",
+		Port:    8080,
+		Healthy: true,
+	}
+	bp.addService(updatedSvc)
+
+	// Remove
+	bp.removeService("svc-1")
+	services = bp.Services()
+	if len(services) != 0 {
+		t.Errorf("Expected 0 services after remove, got %d", len(services))
+	}
+
+	// Remove non-existent should not panic
+	bp.removeService("nonexistent")
+}
+
+func TestManager_AggregateEvents(t *testing.T) {
+	manager := NewManager()
+
+	p1 := &mockProvider{
+		baseProvider: newBaseProvider("p1", ProviderTypeStatic, DefaultProviderConfig()),
+	}
+	p2 := &mockProvider{
+		baseProvider: newBaseProvider("p2", ProviderTypeStatic, DefaultProviderConfig()),
+	}
+
+	manager.AddProvider(p1)
+	manager.AddProvider(p2)
+
+	agg := manager.AggregateEvents()
+	if agg == nil {
+		t.Fatal("AggregateEvents() returned nil")
+	}
+}
+
+// ---- Consul Provider Tests ----
+
+// mockConsulServer simulates a Consul API for testing.
+type mockConsulServer struct{}
+
+func newMockConsulServer() *httptest.Server {
+	mock := &mockConsulServer{}
+	return httptest.NewServer(http.HandlerFunc(mock.handleRequest))
+}
+
+func (m *mockConsulServer) handleRequest(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.URL.Path == "/v1/catalog/services":
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"web":["v1","http"],"api":["v2"]}`)
+	case hasSubstr(r.URL.Path, "/v1/catalog/service/"):
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `[{"ServiceAddress":"10.0.0.1","ServicePort":8080,"ServiceTags":["v1"],"ServiceMeta":{},"ServiceName":"web","ServiceID":"web-1","Node":"node-1","Datacenter":"dc1"}]`)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// hasSubstr checks if s contains substr (avoids name collision with docker_test.go helpers).
+func hasSubstr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
+func TestNewConsulProvider(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "127.0.0.1:8500",
+		},
+	}
+
+	provider, err := NewConsulProvider(config)
+	if err != nil {
+		t.Fatalf("NewConsulProvider error: %v", err)
+	}
+
+	if provider.Name() != "test-consul" {
+		t.Errorf("Name() = %q, want test-consul", provider.Name())
+	}
+	if provider.Type() != ProviderTypeConsul {
+		t.Errorf("Type() = %q, want consul", provider.Type())
+	}
+}
+
+func TestNewConsulProvider_InvalidType(t *testing.T) {
+	config := &ProviderConfig{
+		Type: ProviderTypeStatic,
+		Name: "test",
+	}
+
+	_, err := NewConsulProvider(config)
+	if err == nil {
+		t.Error("Expected error for invalid provider type")
+	}
+}
+
+func TestNewConsulProvider_DefaultAddress(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+
+	provider, err := NewConsulProvider(config)
+	if err != nil {
+		t.Fatalf("NewConsulProvider error: %v", err)
+	}
+
+	if provider.address != "127.0.0.1:8500" {
+		t.Errorf("address = %q, want 127.0.0.1:8500", provider.address)
+	}
+}
+
+func TestConsulProvider_BuildURL(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "consul.example.com:8500",
+			"token":   "my-token",
+		},
+	}
+
+	provider, _ := NewConsulProvider(config)
+
+	u := provider.buildURL("/v1/catalog/services", nil)
+	if !hasSubstr(u, "consul.example.com:8500") {
+		t.Errorf("URL should contain host: %s", u)
+	}
+	if !hasSubstr(u, "token=my-token") {
+		t.Errorf("URL should contain token: %s", u)
+	}
+}
+
+func TestConsulProvider_ShouldWatchService(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"service": "web",
+		},
+	}
+
+	provider, _ := NewConsulProvider(config)
+
+	if !provider.shouldWatchService("web") {
+		t.Error("Should watch service 'web'")
+	}
+	if provider.shouldWatchService("api") {
+		t.Error("Should not watch service 'api'")
+	}
+}
+
+func TestConsulProvider_ShouldWatchService_NoFilter(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+
+	provider, _ := NewConsulProvider(config)
+
+	if !provider.shouldWatchService("anything") {
+		t.Error("Should watch any service when no filter is set")
+	}
+}
+
+func TestConsulProvider_ConvertService(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+
+	provider, _ := NewConsulProvider(config)
+
+	entry := consulServiceEntry{
+		ServiceAddress: "10.0.0.1",
+		ServicePort:    8080,
+		ServiceTags:    []string{"v1", "http"},
+		ServiceMeta:    map[string]string{"version": "1.0"},
+		ServiceName:    "web",
+		ServiceID:      "web-1",
+		Node:           "node-1",
+		Datacenter:     "dc1",
+	}
+
+	svc := provider.convertService(entry)
+	if svc == nil {
+		t.Fatal("convertService returned nil")
+	}
+	if svc.Address != "10.0.0.1" {
+		t.Errorf("Address = %q, want 10.0.0.1", svc.Address)
+	}
+	if svc.Port != 8080 {
+		t.Errorf("Port = %d, want 8080", svc.Port)
+	}
+	if svc.Name != "web" {
+		t.Errorf("Name = %q, want web", svc.Name)
+	}
+	if svc.Meta["datacenter"] != "dc1" {
+		t.Errorf("Meta[datacenter] = %q, want dc1", svc.Meta["datacenter"])
+	}
+}
+
+func TestConsulProvider_ConvertService_FallbackToNode(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+
+	provider, _ := NewConsulProvider(config)
+
+	entry := consulServiceEntry{
+		ServiceAddress: "", // empty
+		ServicePort:    8080,
+		Node:           "node-1",
+	}
+
+	svc := provider.convertService(entry)
+	if svc.Address != "node-1" {
+		t.Errorf("Address = %q, want node-1 (fallback to Node)", svc.Address)
+	}
+}
+
+func TestConsulProvider_GetServices_MockServer(t *testing.T) {
+	server := newMockConsulServer()
+	defer server.Close()
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": server.Listener.Addr().String(),
+			"scheme":  "http",
+		},
+	}
+
+	provider, err := NewConsulProvider(config)
+	if err != nil {
+		t.Fatalf("NewConsulProvider error: %v", err)
+	}
+
+	services, err := provider.getServices()
+	if err != nil {
+		t.Fatalf("getServices error: %v", err)
+	}
+
+	if len(services) != 2 {
+		t.Errorf("Expected 2 services, got %d", len(services))
+	}
+}
+
+func TestConsulProvider_StartStop_MockServer(t *testing.T) {
+	server := newMockConsulServer()
+	defer server.Close()
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 100 * time.Millisecond,
+		Options: map[string]string{
+			"address": server.Listener.Addr().String(),
+			"scheme":  "http",
+			"service": "web",
+		},
+	}
+
+	provider, _ := NewConsulProvider(config)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := provider.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Wait for initial refresh
+	time.Sleep(200 * time.Millisecond)
+
+	services := provider.Services()
+	if len(services) == 0 {
+		t.Error("Expected services to be discovered")
+	}
+
+	err = provider.Stop()
+	if err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+func TestParseWeight(t *testing.T) {
+	tests := []struct {
+		meta map[string]string
+		want int
+	}{
+		{map[string]string{"weight": "5"}, 5},
+		{map[string]string{"weight": "invalid"}, 1},
+		{map[string]string{}, 1},
+		{nil, 1},
+	}
+
+	for _, tt := range tests {
+		got := parseWeight(tt.meta)
+		if got != tt.want {
+			t.Errorf("parseWeight(%v) = %d, want %d", tt.meta, got, tt.want)
+		}
+	}
+}
+
+// Ensure unused imports are consumed.
+var _ = json.Marshal

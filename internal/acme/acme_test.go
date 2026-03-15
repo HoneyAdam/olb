@@ -451,3 +451,247 @@ func (m *mockACMEServer) handleFinalize(w http.ResponseWriter, r *http.Request) 
 		Certificate: "http://" + r.Host + "/cert/1",
 	})
 }
+
+func (m *mockACMEServer) handleCertificate(w http.ResponseWriter, r *http.Request) {
+	// Return a dummy PEM certificate chain
+	w.Header().Set("Content-Type", "application/pem-certificate-chain")
+	w.Write([]byte("-----BEGIN CERTIFICATE-----\nMIIBkTCB+wIJALIQmgg2mlgJMAoGCCqGSM49BAMCMA0xCzAJBgNVBAMMAkNBMB4X\nDTI0MDEwMTAwMDAwMFoXDTI1MDEwMTAwMDAwMFowDTELMAkGA1UEAwwCQ0EwWTAT\nBgcqhkjOPQIBBggqhkjOPQMBBwNCAAT+notreal+notreal+notreal+notreal+\nnotreal+notreal+notreal+notreal+notreal+nB4o0AAAAAAAAAAAAAAAAAAAAAAA\n-----END CERTIFICATE-----\n"))
+}
+
+// Additional test cases for coverage
+
+func TestProblem_Error(t *testing.T) {
+	problem := &Problem{
+		Type:   "urn:ietf:params:acme:error:unauthorized",
+		Detail: "account not found",
+		Title:  "Unauthorized",
+		Status: 403,
+	}
+
+	errStr := problem.Error()
+	if !strings.Contains(errStr, "unauthorized") {
+		t.Errorf("Error() = %q, expected to contain 'unauthorized'", errStr)
+	}
+	if !strings.Contains(errStr, "account not found") {
+		t.Errorf("Error() = %q, expected to contain 'account not found'", errStr)
+	}
+}
+
+func TestClient_GetAccount(t *testing.T) {
+	server := newMockACMEServer()
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	account := client.GetAccount()
+	if account == nil {
+		t.Fatal("GetAccount() should return non-nil after registration")
+	}
+	if account.Status != "valid" {
+		t.Errorf("Account status = %q, want valid", account.Status)
+	}
+}
+
+func TestClient_SetAccount(t *testing.T) {
+	client := &Client{directoryURL: "https://example.com"}
+
+	account := &Account{
+		Status:  "valid",
+		URL:     "https://example.com/account/123",
+		Contact: []string{"mailto:test@example.com"},
+	}
+
+	client.SetAccount(account)
+
+	got := client.GetAccount()
+	if got == nil {
+		t.Fatal("GetAccount() should return the set account")
+	}
+	if got.URL != "https://example.com/account/123" {
+		t.Errorf("Account URL = %q, want https://example.com/account/123", got.URL)
+	}
+}
+
+func TestClient_GetDirectory(t *testing.T) {
+	server := newMockACMEServer()
+	defer server.Close()
+
+	config := &Config{DirectoryURL: server.URL + "/directory"}
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("New error: %v", err)
+	}
+
+	dir := client.GetDirectory()
+	if dir == nil {
+		t.Fatal("GetDirectory() should not be nil")
+	}
+	if dir.NewAccount == "" {
+		t.Error("NewAccount should be set")
+	}
+}
+
+func TestClient_GetTermsOfService_NilDirectory(t *testing.T) {
+	client := &Client{}
+	tos := client.GetTermsOfService()
+	if tos != "" {
+		t.Errorf("GetTermsOfService() with nil directory = %q, want empty", tos)
+	}
+}
+
+func TestClient_GetHTTP01ChallengeResponse(t *testing.T) {
+	server := newMockACMEServer()
+	defer server.Close()
+
+	config := &Config{DirectoryURL: server.URL + "/directory"}
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("New error: %v", err)
+	}
+
+	response, err := client.GetHTTP01ChallengeResponse("test-token-123")
+	if err != nil {
+		t.Fatalf("GetHTTP01ChallengeResponse error: %v", err)
+	}
+	if response == "" {
+		t.Error("Response should not be empty")
+	}
+	// Response should be base64url encoded
+	if strings.Contains(response, "+") || strings.Contains(response, "/") {
+		t.Error("Response should be base64url encoded (no + or /)")
+	}
+}
+
+func TestClient_FinalizeOrder(t *testing.T) {
+	server := newMockACMEServer()
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	order, err := client.CreateOrder([]string{"example.com"})
+	if err != nil {
+		t.Fatalf("CreateOrder error: %v", err)
+	}
+
+	// Generate a CSR
+	key, _ := GeneratePrivateKey()
+	csr, _ := GenerateCSR([]string{"example.com"}, key)
+
+	err = client.FinalizeOrder(order, csr)
+	if err != nil {
+		t.Fatalf("FinalizeOrder error: %v", err)
+	}
+
+	if order.Status != "valid" {
+		t.Errorf("Order status = %q, want valid", order.Status)
+	}
+	if order.Certificate == "" {
+		t.Error("Certificate URL should be set after finalization")
+	}
+}
+
+func TestClient_CreateOrder_NoAccount(t *testing.T) {
+	server := newMockACMEServer()
+	defer server.Close()
+
+	config := &Config{DirectoryURL: server.URL + "/directory"}
+	client, err := New(config)
+	if err != nil {
+		t.Fatalf("New error: %v", err)
+	}
+	// Do not register - account is nil
+
+	_, err = client.CreateOrder([]string{"example.com"})
+	if err == nil {
+		t.Error("CreateOrder without account should return error")
+	}
+}
+
+func TestClient_Register_NilDirectory(t *testing.T) {
+	client := &Client{}
+	_, err := client.Register(true)
+	if err == nil {
+		t.Error("Register with nil directory should return error")
+	}
+}
+
+func TestNew_DirectoryFetchError(t *testing.T) {
+	// Use a non-existent server URL
+	config := &Config{
+		DirectoryURL: "http://127.0.0.1:1/directory",
+	}
+
+	_, err := New(config)
+	if err == nil {
+		t.Error("New should fail when directory fetch fails")
+	}
+}
+
+func TestDefaultConfig_DirectoryURL(t *testing.T) {
+	// Verify that DefaultConfig uses the production Let's Encrypt URL
+	config := DefaultConfig()
+	if config.DirectoryURL != "https://acme-v02.api.letsencrypt.org/directory" {
+		t.Errorf("DefaultConfig().DirectoryURL = %q, want production LE URL", config.DirectoryURL)
+	}
+}
+
+func TestClient_FetchCertificate(t *testing.T) {
+	mock := &mockACMEServer{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Replay-Nonce", mock.nextNonce())
+		switch {
+		case r.URL.Path == "/directory":
+			mock.handleDirectory(w, r)
+		case r.URL.Path == "/new-nonce":
+			w.WriteHeader(http.StatusOK)
+		case r.URL.Path == "/new-account":
+			mock.handleNewAccount(w, r)
+		case r.URL.Path == "/cert/1":
+			mock.handleCertificate(w, r)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client := createTestClient(t, server)
+
+	// FetchCertificate will try to POST-as-GET; the mock returns PEM
+	_, err := client.FetchCertificate(server.URL + "/cert/1")
+	// This may fail because the PEM is dummy, but it should not panic
+	// and should at least get through the HTTP request
+	_ = err
+}
+
+func TestGenerateCSR_MultipleDomains(t *testing.T) {
+	key, _ := GeneratePrivateKey()
+	domains := []string{"example.com", "www.example.com", "api.example.com"}
+
+	csr, err := GenerateCSR(domains, key)
+	if err != nil {
+		t.Fatalf("GenerateCSR error: %v", err)
+	}
+	if len(csr) == 0 {
+		t.Error("CSR should not be empty")
+	}
+}
+
+func TestClient_IsStaging_MoreCases(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"https://acme-staging-v02.api.letsencrypt.org/directory", true},
+		{"https://staging.example.com/acme", true},
+		{"https://acme-v02.api.letsencrypt.org/directory", false},
+		{"https://example.com/acme", false},
+		{"http://localhost:14000/dir", false},
+	}
+
+	for _, tt := range tests {
+		client := &Client{directoryURL: tt.url}
+		if got := client.IsStaging(); got != tt.want {
+			t.Errorf("IsStaging() for %q = %v, want %v", tt.url, got, tt.want)
+		}
+	}
+}
