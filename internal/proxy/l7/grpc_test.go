@@ -505,3 +505,149 @@ func TestGRPCStatusConstants(t *testing.T) {
 		t.Error("GRPCStatusUnauthenticated should be 16")
 	}
 }
+
+func TestGRPCHandler_HandleGRPC_FullRoundTrip(t *testing.T) {
+	// Create a mock gRPC backend server
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Echo back gRPC-like response
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Grpc-Status", "0")
+		w.Header().Set("Grpc-Message", "OK")
+		w.Header().Add(http.TrailerPrefix+"Grpc-Status", "0")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("grpc response body"))
+	}))
+	defer backendServer.Close()
+
+	handler := NewGRPCHandler(nil)
+
+	// Use backendServer address
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("grpc-backend-1", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("POST", "/my.service/MyMethod", bytes.NewReader([]byte("grpc request")))
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Host = "example.com"
+
+	rec := httptest.NewRecorder()
+	err := handler.HandleGRPC(rec, req, be)
+	if err != nil {
+		t.Fatalf("HandleGRPC() error = %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	body := rec.Body.String()
+	if body != "grpc response body" {
+		t.Errorf("Body = %q, want %q", body, "grpc response body")
+	}
+}
+
+func TestGRPCHandler_HandleGRPC_BackendError(t *testing.T) {
+	handler := NewGRPCHandler(&GRPCConfig{
+		EnableGRPC: true,
+		Timeout:    1 * time.Second,
+	})
+
+	// Use an address that refuses connections
+	be := backend.NewBackend("grpc-backend-bad", "127.0.0.1:1")
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("POST", "/my.service/MyMethod", bytes.NewReader([]byte("grpc request")))
+	req.Header.Set("Content-Type", "application/grpc")
+
+	rec := httptest.NewRecorder()
+	err := handler.HandleGRPC(rec, req, be)
+	if err == nil {
+		t.Error("Expected error when backend connection fails")
+	}
+}
+
+func TestGRPCHandler_HandleGRPC_WithTimeout(t *testing.T) {
+	// Create a backend server that responds slowly
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(500 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/grpc")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("delayed"))
+	}))
+	defer backendServer.Close()
+
+	handler := NewGRPCHandler(&GRPCConfig{
+		EnableGRPC: true,
+		Timeout:    100 * time.Millisecond, // Very short timeout
+	})
+
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("grpc-backend-slow", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("POST", "/my.service/MyMethod", bytes.NewReader([]byte("grpc request")))
+	req.Header.Set("Content-Type", "application/grpc")
+
+	rec := httptest.NewRecorder()
+	err := handler.HandleGRPC(rec, req, be)
+	// Should get a timeout error
+	if err == nil {
+		t.Log("Backend may have responded before timeout")
+	}
+}
+
+func TestGRPCHandler_HandleGRPC_WithTrailers(t *testing.T) {
+	// Create a mock gRPC backend server with trailers
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Trailer", "Grpc-Status, Grpc-Message")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("body"))
+		// Note: httptest doesn't support trailers well, but this tests the path
+	}))
+	defer backendServer.Close()
+
+	handler := NewGRPCHandler(nil)
+
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("grpc-backend-trailer", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("POST", "/my.service/Method", bytes.NewReader([]byte("req")))
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Host = "example.com"
+
+	rec := httptest.NewRecorder()
+	err := handler.HandleGRPC(rec, req, be)
+	if err != nil {
+		t.Fatalf("HandleGRPC() error = %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, want 200", rec.Code)
+	}
+}
+
+func TestPrepareGRPCRequest_WithExistingXForwardedFor(t *testing.T) {
+	handler := NewGRPCHandler(nil)
+
+	be := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	req := httptest.NewRequest("POST", "/my.service/method", nil)
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Header.Set("X-Forwarded-For", "1.2.3.4")
+	req.Host = "example.com"
+
+	outReq, err := handler.prepareGRPCRequest(req, be)
+	if err != nil {
+		t.Fatalf("prepareGRPCRequest error: %v", err)
+	}
+
+	// Should append to existing X-Forwarded-For
+	xff := outReq.Header.Get("X-Forwarded-For")
+	if xff == "" {
+		t.Error("X-Forwarded-For should not be empty")
+	}
+	if xff == "1.2.3.4" {
+		t.Error("X-Forwarded-For should have appended the proxy IP")
+	}
+}

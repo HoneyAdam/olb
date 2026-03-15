@@ -1214,6 +1214,376 @@ resource "aws" "main" {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Test: decodeScalar coverage - duration, uint, float, bool from string, ptr
+// ---------------------------------------------------------------------------
+
+func TestDecodeScalar_Duration(t *testing.T) {
+	input := `
+timeout  = "30s"
+interval = "250ms"
+idle     = "1h30m"
+`
+	type Config struct {
+		Timeout  time.Duration `hcl:"timeout"`
+		Interval time.Duration `hcl:"interval"`
+		Idle     time.Duration `hcl:"idle"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+
+	if cfg.Timeout != 30*time.Second {
+		t.Errorf("Timeout = %v, want 30s", cfg.Timeout)
+	}
+	if cfg.Interval != 250*time.Millisecond {
+		t.Errorf("Interval = %v, want 250ms", cfg.Interval)
+	}
+	if cfg.Idle != 90*time.Minute {
+		t.Errorf("Idle = %v, want 1h30m", cfg.Idle)
+	}
+}
+
+func TestDecodeScalar_InvalidDuration(t *testing.T) {
+	input := `timeout = "not-a-duration"`
+	type Config struct {
+		Timeout time.Duration `hcl:"timeout"`
+	}
+	var cfg Config
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for invalid duration string")
+	}
+}
+
+func TestDecodeScalar_UintTypes(t *testing.T) {
+	input := `
+port     = 8080
+max_size = 65535
+`
+	type Config struct {
+		Port    uint16 `hcl:"port"`
+		MaxSize uint   `hcl:"max_size"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+
+	if cfg.Port != 8080 {
+		t.Errorf("Port = %d, want 8080", cfg.Port)
+	}
+	if cfg.MaxSize != 65535 {
+		t.Errorf("MaxSize = %d, want 65535", cfg.MaxSize)
+	}
+}
+
+func TestDecodeScalar_UintFromString(t *testing.T) {
+	input := `port = "9090"`
+	type Config struct {
+		Port uint16 `hcl:"port"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Port != 9090 {
+		t.Errorf("Port = %d, want 9090", cfg.Port)
+	}
+}
+
+func TestDecodeScalar_UintFromFloat(t *testing.T) {
+	input := `count = 42.0`
+	type Config struct {
+		Count uint32 `hcl:"count"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Count != 42 {
+		t.Errorf("Count = %d, want 42", cfg.Count)
+	}
+}
+
+func TestDecodeScalar_FloatFromInt(t *testing.T) {
+	input := `ratio = 42`
+	type Config struct {
+		Ratio float64 `hcl:"ratio"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Ratio != 42.0 {
+		t.Errorf("Ratio = %f, want 42.0", cfg.Ratio)
+	}
+}
+
+func TestDecodeScalar_FloatFromString(t *testing.T) {
+	input := `ratio = "2.718"`
+	type Config struct {
+		Ratio float64 `hcl:"ratio"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Ratio != 2.718 {
+		t.Errorf("Ratio = %f, want 2.718", cfg.Ratio)
+	}
+}
+
+func TestDecodeScalar_InvalidFloatString(t *testing.T) {
+	input := `ratio = "not-a-float"`
+	type Config struct {
+		Ratio float64 `hcl:"ratio"`
+	}
+	var cfg Config
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for invalid float string")
+	}
+}
+
+func TestDecodeScalar_BoolFromString(t *testing.T) {
+	input := `
+enabled  = "true"
+disabled = "false"
+`
+	type Config struct {
+		Enabled  bool `hcl:"enabled"`
+		Disabled bool `hcl:"disabled"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Enabled != true {
+		t.Errorf("Enabled = %v, want true", cfg.Enabled)
+	}
+	if cfg.Disabled != false {
+		t.Errorf("Disabled = %v, want false", cfg.Disabled)
+	}
+}
+
+func TestDecodeScalar_InvalidBoolString(t *testing.T) {
+	input := `enabled = "not-a-bool"`
+	type Config struct {
+		Enabled bool `hcl:"enabled"`
+	}
+	var cfg Config
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for invalid bool string")
+	}
+}
+
+func TestDecodeScalar_IntFromFloat(t *testing.T) {
+	input := `count = 3.14`
+	type Config struct {
+		Count int `hcl:"count"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Count != 3 {
+		t.Errorf("Count = %d, want 3", cfg.Count)
+	}
+}
+
+func TestDecodeScalar_IntFromString(t *testing.T) {
+	input := `count = "99"`
+	type Config struct {
+		Count int `hcl:"count"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Count != 99 {
+		t.Errorf("Count = %d, want 99", cfg.Count)
+	}
+}
+
+func TestDecodeScalar_InvalidIntString(t *testing.T) {
+	input := `count = "not-a-number"`
+	type Config struct {
+		Count int `hcl:"count"`
+	}
+	var cfg Config
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for invalid int string")
+	}
+}
+
+func TestDecodeScalar_InvalidUintString(t *testing.T) {
+	input := `count = "not-a-number"`
+	type Config struct {
+		Count uint `hcl:"count"`
+	}
+	var cfg Config
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for invalid uint string")
+	}
+}
+
+func TestDecodeScalar_IntToString(t *testing.T) {
+	// When dest is string, any source value is formatted via %v
+	input := `count = 42`
+	type Config struct {
+		Count string `hcl:"count"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Count != "42" {
+		t.Errorf("Count = %q, want %q", cfg.Count, "42")
+	}
+}
+
+func TestDecodeScalar_PointerField(t *testing.T) {
+	input := `name = "test"`
+	type Config struct {
+		Name *string `hcl:"name"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Name == nil {
+		t.Fatal("Name should not be nil")
+	}
+	if *cfg.Name != "test" {
+		t.Errorf("*Name = %q, want %q", *cfg.Name, "test")
+	}
+}
+
+func TestDecodeScalar_InterfaceField(t *testing.T) {
+	input := `value = 42`
+	type Config struct {
+		Value interface{} `hcl:"value"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Value == nil {
+		t.Fatal("Value should not be nil")
+	}
+}
+
+func TestDecodeScalar_Float32(t *testing.T) {
+	input := `ratio = 1.5`
+	type Config struct {
+		Ratio float32 `hcl:"ratio"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Ratio != 1.5 {
+		t.Errorf("Ratio = %f, want 1.5", cfg.Ratio)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: decodeSlice coverage - single value to one-element slice
+// ---------------------------------------------------------------------------
+
+func TestDecodeSlice_SingleValueToSlice(t *testing.T) {
+	input := `domain = "example.com"`
+	type Config struct {
+		Domain []string `hcl:"domain"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+
+	if len(cfg.Domain) != 1 {
+		t.Fatalf("len(Domain) = %d, want 1", len(cfg.Domain))
+	}
+	if cfg.Domain[0] != "example.com" {
+		t.Errorf("Domain[0] = %q, want %q", cfg.Domain[0], "example.com")
+	}
+}
+
+func TestDecodeSlice_IntSlice(t *testing.T) {
+	input := `ports = [80, 443, 8080]`
+	type Config struct {
+		Ports []int `hcl:"ports"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+
+	if len(cfg.Ports) != 3 {
+		t.Fatalf("len(Ports) = %d, want 3", len(cfg.Ports))
+	}
+	if cfg.Ports[0] != 80 {
+		t.Errorf("Ports[0] = %d, want 80", cfg.Ports[0])
+	}
+}
+
+func TestDecodeScalar_UintFromUint(t *testing.T) {
+	// Test uint from uint source (exercised indirectly when parsed values are uint)
+	input := `count = 42`
+	type Config struct {
+		Count uint32 `hcl:"count"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+	if cfg.Count != 42 {
+		t.Errorf("Count = %d, want 42", cfg.Count)
+	}
+}
+
+func TestDecodeScalar_MapFromMap(t *testing.T) {
+	input := `
+labels = { env = "prod", team = "infra", version = "1.0" }
+`
+	type Config struct {
+		Labels map[string]string `hcl:"labels"`
+	}
+
+	var cfg Config
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatalf("decode error: %v", err)
+	}
+
+	if cfg.Labels["env"] != "prod" {
+		t.Errorf("Labels[env] = %q, want %q", cfg.Labels["env"], "prod")
+	}
+	if cfg.Labels["team"] != "infra" {
+		t.Errorf("Labels[team] = %q, want %q", cfg.Labels["team"], "infra")
+	}
+}
+
 func BenchmarkParse(b *testing.B) {
 	input := []byte(`
 version = "1"

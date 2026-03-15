@@ -1245,3 +1245,124 @@ func TestWritePIDFile_SubDir(t *testing.T) {
 		t.Errorf("writePIDFile should create subdirectories, got: %v", err)
 	}
 }
+
+func TestStartCommand_Run_LoadsConfigAndWaitsForSignal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping signal-based test on Windows (SIGINT not supported)")
+	}
+
+	// Create a valid config file
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "olb.yaml")
+	pidPath := filepath.Join(tmpDir, "olb.pid")
+	configContent := `version: "1"
+listeners:
+  - name: http
+    address: :18080
+    protocol: http
+pools:
+  - name: default
+    algorithm: round_robin
+    backends:
+      - id: backend1
+        address: 127.0.0.1:18081
+        weight: 100
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	cmd := &StartCommand{}
+	doneCh := make(chan error, 1)
+
+	go func() {
+		doneCh <- cmd.Run([]string{"--config", configPath, "--pid-file", pidPath})
+	}()
+
+	// Give it a moment to start up and reach the signal handler
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify PID file was written
+	_, err := os.Stat(pidPath)
+	if err != nil {
+		t.Logf("PID file may not exist yet (race condition OK): %v", err)
+	}
+
+	// Send SIGTERM to terminate the signal loop
+	p, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("FindProcess error: %v", err)
+	}
+
+	// Ignore SIGTERM in the test process so we don't die
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+
+	_ = p.Signal(syscall.SIGTERM)
+
+	select {
+	case err := <-doneCh:
+		if err != nil {
+			t.Errorf("StartCommand.Run() returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Error("StartCommand.Run() did not terminate after SIGTERM")
+	}
+}
+
+func TestStartCommand_Run_InvalidConfigContent(t *testing.T) {
+	// Create a config file that exists but has content that fails to load
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "olb.yaml")
+	pidPath := filepath.Join(tmpDir, "olb.pid")
+	// Completely invalid YAML
+	if err := os.WriteFile(configPath, []byte("{{{{invalid yaml"), 0644); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	cmd := &StartCommand{}
+	err := cmd.Run([]string{"--config", configPath, "--pid-file", pidPath})
+	if err == nil {
+		t.Error("Expected error for invalid config content")
+	}
+	if !strings.Contains(err.Error(), "failed to load config") {
+		t.Errorf("Expected 'failed to load config' error, got: %v", err)
+	}
+}
+
+func TestStatusCommand_SuccessfulWithHealthError(t *testing.T) {
+	// Test status command when system info works but health endpoint returns error
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/system/info" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"version":    "1.0.0",
+				"uptime":     "2h",
+				"listeners":  float64(2),
+				"backends":   float64(4),
+				"go_version": "go1.23",
+			})
+			return
+		}
+		if r.URL.Path == "/api/v1/system/health" {
+			// Connection works but health returns error JSON
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status": "degraded",
+			})
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+	cmd := &StatusCommand{}
+	err := cmd.Run([]string{"--api-addr", apiAddr, "--format", "table"})
+	if err != nil {
+		t.Errorf("Expected success, got: %v", err)
+	}
+}

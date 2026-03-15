@@ -864,6 +864,81 @@ func TestHTTP2BackendTransport_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestHandleHTTP2Proxy_NilConfig(t *testing.T) {
+	be := backend.NewBackend("backend-1", "127.0.0.1:8080")
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+
+	err := HandleHTTP2Proxy(rec, req, be, nil)
+	if err == nil {
+		t.Error("Expected error when config is nil")
+	}
+}
+
+func TestHandleHTTP2Proxy_FullRoundTrip(t *testing.T) {
+	// Create an h2c test backend
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Backend", "h2c")
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("HTTP/2 response from backend"))
+	})
+
+	h2s := &http2.Server{}
+	server := httptest.NewServer(h2c.NewHandler(handler, h2s))
+	defer server.Close()
+
+	// Extract host:port from server URL
+	addr := strings.TrimPrefix(server.URL, "http://")
+	be := backend.NewBackend("h2-backend", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Proto = "HTTP/2.0"
+	req.ProtoMajor = 2
+	rec := httptest.NewRecorder()
+
+	config := DefaultHTTP2Config()
+	err := HandleHTTP2Proxy(rec, req, be, config)
+	if err != nil {
+		t.Fatalf("HandleHTTP2Proxy() error = %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	body := rec.Body.String()
+	if body != "HTTP/2 response from backend" {
+		t.Errorf("Body = %q, want %q", body, "HTTP/2 response from backend")
+	}
+
+	// Check headers were copied
+	if rec.Header().Get("X-Backend") != "h2c" {
+		t.Errorf("X-Backend header = %q, want %q", rec.Header().Get("X-Backend"), "h2c")
+	}
+}
+
+func TestHandleHTTP2Proxy_BackendConnectionError(t *testing.T) {
+	// Use an address that refuses connections
+	be := backend.NewBackend("h2-backend-bad", "127.0.0.1:1")
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rec := httptest.NewRecorder()
+
+	config := DefaultHTTP2Config()
+	err := HandleHTTP2Proxy(rec, req, be, config)
+	if err == nil {
+		t.Error("Expected error when backend connection fails")
+	}
+	if err != nil && !strings.Contains(err.Error(), "backend request failed") {
+		t.Errorf("Expected 'backend request failed' error, got: %v", err)
+	}
+}
+
 // Test with real HTTP/2 server using h2c
 func TestHTTP2Handler_Integration(t *testing.T) {
 	// Create a simple handler

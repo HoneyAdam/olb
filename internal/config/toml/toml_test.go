@@ -1452,5 +1452,255 @@ func TestTOML_SkipWhitespace_Explicit(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Test: decodeInt coverage - all branches
+// ---------------------------------------------------------------------------
+
+func TestDecodeInt_ToFloat(t *testing.T) {
+	input := `count = 42`
+	type Cfg struct {
+		Count float64 `toml:"count"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Count != 42.0 {
+		t.Errorf("Count = %f, want 42.0", cfg.Count)
+	}
+}
+
+func TestDecodeInt_ToString(t *testing.T) {
+	input := `count = 42`
+	type Cfg struct {
+		Count string `toml:"count"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Count != "42" {
+		t.Errorf("Count = %q, want %q", cfg.Count, "42")
+	}
+}
+
+func TestDecodeInt_ToBool(t *testing.T) {
+	input := `
+flag_on  = 1
+flag_off = 0
+`
+	type Cfg struct {
+		FlagOn  bool `toml:"flag_on"`
+		FlagOff bool `toml:"flag_off"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.FlagOn {
+		t.Error("FlagOn should be true for 1")
+	}
+	if cfg.FlagOff {
+		t.Error("FlagOff should be false for 0")
+	}
+}
+
+func TestDecodeInt_ToInterface(t *testing.T) {
+	input := `count = 42`
+	var result interface{}
+	if err := Decode([]byte(input), &result); err != nil {
+		t.Fatal(err)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("result is %T, want map", result)
+	}
+	if m["count"] != int64(42) {
+		t.Errorf("count = %v (%T), want int64(42)", m["count"], m["count"])
+	}
+}
+
+func TestDecodeInt_NegativeToUint(t *testing.T) {
+	input := `port = -1`
+	type Cfg struct {
+		Port uint16 `toml:"port"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for negative value to unsigned type")
+	}
+}
+
+func TestDecodeInt_ToFloat32(t *testing.T) {
+	input := `value = 100`
+	type Cfg struct {
+		Value float32 `toml:"value"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Value != 100.0 {
+		t.Errorf("Value = %f, want 100.0", cfg.Value)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: decodeFloat coverage
+// ---------------------------------------------------------------------------
+
+func TestDecodeFloat_ToInt(t *testing.T) {
+	input := `value = 3.14`
+	type Cfg struct {
+		Value int `toml:"value"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Value != 3 {
+		t.Errorf("Value = %d, want 3", cfg.Value)
+	}
+}
+
+func TestDecodeFloat_ToString(t *testing.T) {
+	input := `value = 2.5`
+	type Cfg struct {
+		Value string `toml:"value"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Value != "2.5" {
+		t.Errorf("Value = %q, want %q", cfg.Value, "2.5")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: decodeBool coverage
+// ---------------------------------------------------------------------------
+
+func TestDecodeBool_ToString(t *testing.T) {
+	input := `
+yes = true
+no  = false
+`
+	type Cfg struct {
+		Yes string `toml:"yes"`
+		No  string `toml:"no"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Yes != "true" {
+		t.Errorf("Yes = %q, want %q", cfg.Yes, "true")
+	}
+	if cfg.No != "false" {
+		t.Errorf("No = %q, want %q", cfg.No, "false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test: Integer format variations in parsing
+// ---------------------------------------------------------------------------
+
+func TestIntegerFormatVariations(t *testing.T) {
+	// Test all integer format types: hex, octal, binary, underscore-separated
+	input := `
+hex_upper  = 0xCAFE
+hex_lower  = 0xcafe
+oct_val    = 0o777
+bin_val    = 0b10101010
+underscore = 1_000_000
+hex_under  = 0xFF_FF
+`
+	m := mustParse(t, input)
+
+	tests := map[string]int64{
+		"hex_upper":  0xCAFE,
+		"hex_lower":  0xcafe,
+		"oct_val":    0o777,
+		"bin_val":    0b10101010,
+		"underscore": 1_000_000,
+		"hex_under":  0xFFFF,
+	}
+
+	for key, want := range tests {
+		got, ok := m[key].(int64)
+		if !ok {
+			t.Errorf("%s is %T, not int64", key, m[key])
+			continue
+		}
+		if got != want {
+			t.Errorf("%s = %d, want %d", key, got, want)
+		}
+	}
+}
+
+func TestDecodeInt_AllUintSizes(t *testing.T) {
+	input := `
+u8  = 200
+u16 = 40000
+u32 = 3000000000
+u64 = 9000000000000000000
+`
+	type Cfg struct {
+		U8  uint8  `toml:"u8"`
+		U16 uint16 `toml:"u16"`
+		U32 uint32 `toml:"u32"`
+		U64 uint64 `toml:"u64"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.U8 != 200 {
+		t.Errorf("U8 = %d, want 200", cfg.U8)
+	}
+	if cfg.U16 != 40000 {
+		t.Errorf("U16 = %d, want 40000", cfg.U16)
+	}
+	if cfg.U32 != 3000000000 {
+		t.Errorf("U32 = %d, want 3000000000", cfg.U32)
+	}
+	if cfg.U64 != 9000000000000000000 {
+		t.Errorf("U64 = %d, want 9000000000000000000", cfg.U64)
+	}
+}
+
+func TestDecodeInt_AllIntSizes(t *testing.T) {
+	input := `
+i8  = -100
+i16 = -30000
+i32 = -2000000000
+i64 = -8000000000000000000
+`
+	type Cfg struct {
+		I8  int8  `toml:"i8"`
+		I16 int16 `toml:"i16"`
+		I32 int32 `toml:"i32"`
+		I64 int64 `toml:"i64"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.I8 != -100 {
+		t.Errorf("I8 = %d, want -100", cfg.I8)
+	}
+	if cfg.I16 != -30000 {
+		t.Errorf("I16 = %d, want -30000", cfg.I16)
+	}
+	if cfg.I32 != -2000000000 {
+		t.Errorf("I32 = %d, want -2000000000", cfg.I32)
+	}
+	if cfg.I64 != -8000000000000000000 {
+		t.Errorf("I64 = %d, want -8000000000000000000", cfg.I64)
+	}
+}
+
 // Ensure reflect is used (compiler sometimes complains if not referenced)
 var _ = reflect.TypeOf(nil)

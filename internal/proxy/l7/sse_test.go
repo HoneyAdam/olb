@@ -622,3 +622,134 @@ func TestSSEHandler_copyRegularResponse(t *testing.T) {
 		t.Errorf("Body = %q, want %q", body, bodyData)
 	}
 }
+
+func TestSSEHandler_HandleSSE_FullRoundTrip(t *testing.T) {
+	// Create a mock SSE backend server
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+
+		// Send a few events then close
+		for i := 0; i < 3; i++ {
+			w.Write([]byte("data: message " + string(rune('1'+i)) + "\n\n"))
+			flusher.Flush()
+		}
+	}))
+	defer backendServer.Close()
+
+	handler := NewSSEHandler(nil)
+
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("sse-backend-1", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+
+	rec := &mockFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	err := handler.HandleSSE(rec, req, be)
+	if err != nil {
+		t.Fatalf("HandleSSE() error = %v", err)
+	}
+
+	// Check Content-Type was set
+	if rec.Header().Get("Content-Type") != "text/event-stream" {
+		t.Errorf("Content-Type = %q, want text/event-stream", rec.Header().Get("Content-Type"))
+	}
+
+	// Check body contains SSE data
+	body := rec.Body.String()
+	if body == "" {
+		t.Error("Expected non-empty response body")
+	}
+}
+
+func TestSSEHandler_HandleSSE_NonSSEBackendResponse(t *testing.T) {
+	// Create a backend that returns regular HTTP (not SSE)
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"error": "not an SSE endpoint"}`))
+	}))
+	defer backendServer.Close()
+
+	handler := NewSSEHandler(nil)
+
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("sse-backend-json", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+
+	rec := httptest.NewRecorder()
+
+	err := handler.HandleSSE(rec, req, be)
+	if err != nil {
+		t.Fatalf("HandleSSE() error = %v", err)
+	}
+
+	// Should fall back to regular response copy
+	if rec.Header().Get("Content-Type") != "application/json" {
+		t.Errorf("Content-Type = %q, want application/json", rec.Header().Get("Content-Type"))
+	}
+}
+
+func TestSSEHandler_HandleSSE_BackendError(t *testing.T) {
+	handler := NewSSEHandler(nil)
+
+	// Use an address that refuses connections
+	be := backend.NewBackend("sse-backend-bad", "127.0.0.1:1")
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+
+	rec := httptest.NewRecorder()
+	err := handler.HandleSSE(rec, req, be)
+	if err == nil {
+		t.Error("Expected error when backend connection fails")
+	}
+	if err != nil && !bytes.Contains([]byte(err.Error()), []byte("backend request failed")) {
+		t.Errorf("Expected 'backend request failed' error, got: %v", err)
+	}
+}
+
+func TestSSEHandler_streamSSEResponse_NoFlusher(t *testing.T) {
+	handler := NewSSEHandler(nil)
+
+	sseData := "data: hello\n\n"
+	resp := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(bytes.NewReader([]byte(sseData))),
+	}
+
+	// Use a regular ResponseRecorder which does NOT implement http.Flusher
+	rec := httptest.NewRecorder()
+
+	be := backend.NewBackend("sse-backend-nf", "127.0.0.1:8080")
+	err := handler.streamSSEResponse(rec, resp, be)
+
+	// Should still work but just copy the body without flushing
+	if err != nil {
+		t.Errorf("streamSSEResponse error: %v", err)
+	}
+
+	body := rec.Body.String()
+	if body != sseData {
+		t.Errorf("Body = %q, want %q", body, sseData)
+	}
+}

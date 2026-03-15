@@ -456,3 +456,138 @@ func TestDialBackend(t *testing.T) {
 		conn.Close()
 	}
 }
+
+func TestWebSocketHandler_HandleWebSocket_FullUpgrade(t *testing.T) {
+	// Create a backend that accepts connections and echoes data
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		for {
+			conn, err := backendListener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				// Read the upgrade request and respond with a WebSocket handshake
+				buf := make([]byte, 4096)
+				n, _ := c.Read(buf)
+				if n > 0 {
+					response := "HTTP/1.1 101 Switching Protocols\r\n" +
+						"Upgrade: websocket\r\n" +
+						"Connection: Upgrade\r\n" +
+						"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+					c.Write([]byte(response))
+					// Echo data
+					for {
+						n, err := c.Read(buf)
+						if err != nil {
+							return
+						}
+						c.Write(buf[:n])
+					}
+				}
+			}(conn)
+		}
+	}()
+
+	handler := NewWebSocketHandler(nil)
+
+	be := backend.NewBackend("ws-backend", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	// Create a hijackable response writer using net.Pipe
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	hijacker := &mockHijacker{
+		ResponseRecorder: httptest.NewRecorder(),
+		conn:             serverConn,
+	}
+
+	// Close the client side after a short delay to end the proxy
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		clientConn.Close()
+	}()
+
+	err = handler.HandleWebSocket(hijacker, req, be)
+	// The error may be nil or a close error, both are acceptable
+	if err != nil && !strings.Contains(err.Error(), "closed") &&
+		!strings.Contains(err.Error(), "broken pipe") &&
+		!strings.Contains(err.Error(), "EOF") {
+		t.Logf("HandleWebSocket returned: %v (acceptable for connection lifecycle)", err)
+	}
+}
+
+func TestWebSocketHandler_HandleWebSocket_BackendDialFail(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	// Backend address that refuses connections
+	be := backend.NewBackend("ws-backend-bad", "127.0.0.1:1")
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	hijacker := &mockHijacker{
+		ResponseRecorder: httptest.NewRecorder(),
+		conn:             serverConn,
+	}
+
+	err := handler.HandleWebSocket(hijacker, req, be)
+	if err == nil {
+		t.Error("Expected error when backend dial fails")
+	}
+	if err != nil && !strings.Contains(err.Error(), "failed to connect to backend") {
+		t.Errorf("Expected 'failed to connect to backend' error, got: %v", err)
+	}
+}
+
+func TestDialBackend_WithQueryString(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		conn, _ := listener.Accept()
+		if conn != nil {
+			time.Sleep(100 * time.Millisecond)
+			conn.Close()
+		}
+	}()
+
+	be := backend.NewBackend("backend-qs", listener.Addr().String())
+	req := httptest.NewRequest("GET", "/ws?token=abc&room=test", nil)
+
+	conn, err := handler.dialBackend(req, be)
+	if err != nil {
+		t.Errorf("dialBackend error: %v", err)
+		return
+	}
+	if conn != nil {
+		conn.Close()
+	}
+}

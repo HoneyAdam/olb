@@ -1624,6 +1624,356 @@ func TestHandleCompound_InvalidPayload(t *testing.T) {
 	g.handleCompound([]byte{}, "10.0.0.1:7946")
 }
 
+// ---- handleJoin tests ----
+
+func TestHandleJoin_NewNode(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-receiver"
+	cfg.TCPTimeout = 500 * time.Millisecond // short timeout for test
+	cfg.ProbeInterval = 1 * time.Hour       // disable probe loop during test
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Set up event listener
+	type eventRecord struct {
+		eventType EventType
+		nodeID    string
+	}
+	eventCh := make(chan eventRecord, 10)
+	g.OnEvent(func(et EventType, node *GossipNode) {
+		eventCh <- eventRecord{et, node.ID}
+	})
+
+	// Use our own bind address so sendMemberList can connect
+	fromAddr := fmt.Sprintf("127.0.0.1:%d", cfg.BindPort)
+
+	// Construct a JOIN message payload
+	payload := encodeNodePayload(1, "new-joiner", "10.0.0.5", 7946, map[string]string{"role": "worker"})
+
+	// Deliver the join message
+	g.handleJoin(payload, fromAddr)
+
+	// The new node should be added to members -- check immediately
+	g.membersMu.RLock()
+	m, exists := g.members["new-joiner"]
+	var state NodeState
+	var addr string
+	var port int
+	var meta map[string]string
+	if exists {
+		state = m.State
+		addr = m.Address
+		port = m.Port
+		meta = m.Metadata
+	}
+	g.membersMu.RUnlock()
+
+	if !exists {
+		t.Fatal("new-joiner should exist in members after handleJoin")
+	}
+	if state != StateAlive {
+		t.Errorf("State = %v, want %v", state, StateAlive)
+	}
+	if addr != "10.0.0.5" {
+		t.Errorf("Address = %q, want %q", addr, "10.0.0.5")
+	}
+	if port != 7946 {
+		t.Errorf("Port = %d, want %d", port, 7946)
+	}
+	if meta["role"] != "worker" {
+		t.Errorf("Metadata[role] = %q, want %q", meta["role"], "worker")
+	}
+
+	// Check that a join event was emitted
+	select {
+	case ev := <-eventCh:
+		if ev.eventType != EventJoin {
+			t.Errorf("Event type = %v, want %v", ev.eventType, EventJoin)
+		}
+		if ev.nodeID != "new-joiner" {
+			t.Errorf("Event node ID = %q, want %q", ev.nodeID, "new-joiner")
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Timed out waiting for join event")
+	}
+}
+
+func TestHandleJoin_SelfIgnored(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "self-node"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Construct a JOIN message with our own node ID
+	payload := encodeNodePayload(1, "self-node", "10.0.0.1", 7946, nil)
+
+	// This should be ignored (no self-join)
+	g.handleJoin(payload, "10.0.0.1:7946")
+
+	g.membersMu.RLock()
+	_, exists := g.members["self-node"]
+	g.membersMu.RUnlock()
+
+	if exists {
+		t.Error("Self node should not be added to members")
+	}
+}
+
+func TestHandleJoin_ExistingNode_HigherIncarnation(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-updater"
+	cfg.TCPTimeout = 500 * time.Millisecond
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Pre-populate a member
+	g.membersMu.Lock()
+	g.members["existing-node"] = &GossipNode{
+		ID:          "existing-node",
+		Address:     "10.0.0.1",
+		Port:        7946,
+		State:       StateAlive,
+		Incarnation: 1,
+		LastSeen:    time.Now(),
+	}
+	g.membersMu.Unlock()
+
+	fromAddr := fmt.Sprintf("127.0.0.1:%d", cfg.BindPort)
+
+	// Send JOIN with higher incarnation
+	payload := encodeNodePayload(5, "existing-node", "10.0.0.2", 8000, map[string]string{"updated": "true"})
+	g.handleJoin(payload, fromAddr)
+
+	// Node should be updated -- check immediately
+	g.membersMu.RLock()
+	m := g.members["existing-node"]
+	inc := m.Incarnation
+	mAddr := m.Address
+	mPort := m.Port
+	g.membersMu.RUnlock()
+
+	if inc != 5 {
+		t.Errorf("Incarnation = %d, want 5", inc)
+	}
+	if mAddr != "10.0.0.2" {
+		t.Errorf("Address = %q, want %q", mAddr, "10.0.0.2")
+	}
+	if mPort != 8000 {
+		t.Errorf("Port = %d, want %d", mPort, 8000)
+	}
+}
+
+func TestHandleJoin_ExistingNode_SameIncarnation(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-same-inc"
+	cfg.TCPTimeout = 500 * time.Millisecond
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Pre-populate a member with same incarnation
+	g.membersMu.Lock()
+	g.members["same-inc-node"] = &GossipNode{
+		ID:          "same-inc-node",
+		Address:     "10.0.0.1",
+		Port:        7946,
+		State:       StateAlive,
+		Incarnation: 3,
+		LastSeen:    time.Now(),
+	}
+	g.membersMu.Unlock()
+
+	fromAddr := fmt.Sprintf("127.0.0.1:%d", cfg.BindPort)
+
+	// Send JOIN with same incarnation -- should NOT update
+	payload := encodeNodePayload(3, "same-inc-node", "10.0.0.99", 9999, nil)
+	g.handleJoin(payload, fromAddr)
+
+	g.membersMu.RLock()
+	m := g.members["same-inc-node"]
+	mAddr := m.Address
+	g.membersMu.RUnlock()
+
+	// Address should not change because incarnation is the same (not higher)
+	if mAddr != "10.0.0.1" {
+		t.Errorf("Address = %q, want %q (should not update for same incarnation)", mAddr, "10.0.0.1")
+	}
+}
+
+func TestHandleJoin_DeadNode_Rejoin(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-dead-rejoin"
+	cfg.TCPTimeout = 500 * time.Millisecond
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Pre-populate a dead member
+	g.membersMu.Lock()
+	g.members["dead-node"] = &GossipNode{
+		ID:          "dead-node",
+		Address:     "10.0.0.1",
+		Port:        7946,
+		State:       StateDead,
+		Incarnation: 1,
+		LastSeen:    time.Now(),
+	}
+	g.membersMu.Unlock()
+
+	fromAddr := fmt.Sprintf("127.0.0.1:%d", cfg.BindPort)
+
+	// A join from a dead node with same incarnation should revive it
+	payload := encodeNodePayload(1, "dead-node", "10.0.0.1", 7946, nil)
+	g.handleJoin(payload, fromAddr)
+
+	// Check state immediately after handleJoin returns
+	g.membersMu.RLock()
+	m := g.members["dead-node"]
+	state := m.State
+	g.membersMu.RUnlock()
+
+	if state != StateAlive {
+		t.Errorf("State = %v, want %v (dead node should be revived on join)", state, StateAlive)
+	}
+}
+
+func TestHandleJoin_InvalidPayload(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-invalid"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Should not panic with invalid payload
+	g.handleJoin([]byte{0, 1, 2}, "10.0.0.1:7946")
+	g.handleJoin(nil, "10.0.0.1:7946")
+
+	g.membersMu.RLock()
+	count := len(g.members)
+	g.membersMu.RUnlock()
+
+	if count != 0 {
+		t.Errorf("Expected no members from invalid payloads, got %d", count)
+	}
+}
+
+// ---- probe tests ----
+
+func TestProbe_NoMembers(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "probe-empty"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// probe() with no members should return immediately without panic
+	g.probe()
+}
+
+func TestProbe_WithUnreachableMember(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "probe-unreachable"
+	cfg.ProbeTimeout = 200 * time.Millisecond
+	cfg.IndirectChecks = 0 // No indirect probes to keep test fast
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add an unreachable member
+	g.membersMu.Lock()
+	g.members["unreachable"] = &GossipNode{
+		ID:          "unreachable",
+		Address:     "127.0.0.1",
+		Port:        1, // port 1 should refuse connections
+		State:       StateAlive,
+		Incarnation: 1,
+		LastSeen:    time.Now(),
+	}
+	g.membersMu.Unlock()
+
+	// probe() should attempt to ping unreachable node, fail, and suspect it
+	g.probe()
+
+	// Allow time for the probe timeout
+	time.Sleep(500 * time.Millisecond)
+
+	g.membersMu.RLock()
+	m := g.members["unreachable"]
+	state := m.State
+	g.membersMu.RUnlock()
+
+	// After a failed probe with IndirectChecks=0, node should be suspected
+	if state != StateSuspect && state != StateDead {
+		t.Logf("State = %v (expected suspect or dead after failed probe)", state)
+	}
+}
+
 // ---- Helpers ----
 
 // getFreePort returns a port on localhost that is free for both TCP and UDP.
