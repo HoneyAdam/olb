@@ -3,16 +3,29 @@ package engine
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"math/big"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openloadbalancer/olb/internal/backend"
+	"github.com/openloadbalancer/olb/internal/balancer"
 	"github.com/openloadbalancer/olb/internal/config"
+	olbListener "github.com/openloadbalancer/olb/internal/listener"
 	"github.com/openloadbalancer/olb/internal/router"
+	"github.com/openloadbalancer/olb/internal/waf"
 )
 
 // createTestConfig creates a minimal valid configuration for testing.
@@ -2545,4 +2558,893 @@ func TestEngineCertLister_ListCertificates(t *testing.T) {
 	if len(certs) != 0 {
 		t.Errorf("ListCertificates() returned %d certs, want 0", len(certs))
 	}
+}
+
+// ============================================================================
+// Tests for 0% coverage functions — engine coverage improvement
+// ============================================================================
+
+// TestInitCluster tests the initCluster method with a valid ClusterConfig.
+func TestInitCluster(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	tmpDir := t.TempDir()
+	clusterCfg := &config.ClusterConfig{
+		Enabled:  true,
+		NodeID:   "node-1",
+		BindAddr: "127.0.0.1",
+		BindPort: 0,
+		DataDir:  tmpDir,
+		Peers:    []string{"peer-2", "peer-3"},
+	}
+
+	err = engine.initCluster(clusterCfg, engine.logger)
+	if err != nil {
+		t.Fatalf("initCluster() error = %v", err)
+	}
+
+	if engine.raftCluster == nil {
+		t.Error("raftCluster should not be nil after initCluster")
+	}
+	if engine.clusterMgr == nil {
+		t.Error("clusterMgr should not be nil after initCluster")
+	}
+}
+
+// TestInitClusterInvalidConfig tests initCluster with a config that fails validation.
+func TestInitClusterInvalidConfig(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Empty NodeID should cause cluster.New to fail validation
+	clusterCfg := &config.ClusterConfig{
+		Enabled:  true,
+		NodeID:   "",
+		BindAddr: "",
+		BindPort: 0,
+	}
+
+	err = engine.initCluster(clusterCfg, engine.logger)
+	if err == nil {
+		t.Error("initCluster() expected error for invalid cluster config")
+	}
+}
+
+// TestEngineStateMachine tests the Apply, Snapshot, and Restore methods.
+func TestEngineStateMachine(t *testing.T) {
+	sm := &engineStateMachine{}
+
+	t.Run("Apply", func(t *testing.T) {
+		input := []byte("test-command")
+		result, err := sm.Apply(input)
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		if string(result) != string(input) {
+			t.Errorf("Apply() = %q, want %q", string(result), string(input))
+		}
+	})
+
+	t.Run("Apply empty", func(t *testing.T) {
+		result, err := sm.Apply([]byte{})
+		if err != nil {
+			t.Fatalf("Apply() error = %v", err)
+		}
+		if len(result) != 0 {
+			t.Errorf("Apply() = %q, want empty", string(result))
+		}
+	})
+
+	t.Run("Snapshot", func(t *testing.T) {
+		result, err := sm.Snapshot()
+		if err != nil {
+			t.Fatalf("Snapshot() error = %v", err)
+		}
+		if string(result) != "{}" {
+			t.Errorf("Snapshot() = %q, want %q", string(result), "{}")
+		}
+	})
+
+	t.Run("Restore", func(t *testing.T) {
+		err := sm.Restore([]byte(`{"key":"value"}`))
+		if err != nil {
+			t.Fatalf("Restore() error = %v", err)
+		}
+	})
+
+	t.Run("Restore empty", func(t *testing.T) {
+		err := sm.Restore(nil)
+		if err != nil {
+			t.Fatalf("Restore(nil) error = %v", err)
+		}
+	})
+}
+
+// TestStartTCPListener tests the startTCPListener method with a real TCP listener.
+func TestStartTCPListener(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Initialize a pool so the TCP listener can find it
+	pool := backend.NewPool("tcp-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("tcp-b1", "127.0.0.1:9999")
+	b.SetState(backend.StateUp)
+	pool.AddBackend(b)
+	engine.poolManager.AddPool(pool)
+
+	t.Run("valid TCP listener", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-tcp",
+			Address:  "127.0.0.1:0",
+			Protocol: "tcp",
+			Pool:     "tcp-pool",
+		}
+
+		err := engine.startTCPListener(listenerCfg)
+		if err != nil {
+			t.Fatalf("startTCPListener() error = %v", err)
+		}
+
+		if len(engine.listeners) == 0 {
+			t.Fatal("Expected at least one listener to be added")
+		}
+
+		// Verify the listener is running
+		lastListener := engine.listeners[len(engine.listeners)-1]
+		if !lastListener.IsRunning() {
+			t.Error("TCP listener should be running")
+		}
+
+		// Clean up
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		lastListener.Stop(ctx)
+	})
+
+	t.Run("pool from routes fallback", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-tcp-routes",
+			Address:  "127.0.0.1:0",
+			Protocol: "tcp",
+			Pool:     "", // empty pool, should fallback to first route
+			Routes: []*config.Route{
+				{Pool: "tcp-pool"},
+			},
+		}
+
+		initialLen := len(engine.listeners)
+		err := engine.startTCPListener(listenerCfg)
+		if err != nil {
+			t.Fatalf("startTCPListener() with route fallback error = %v", err)
+		}
+
+		if len(engine.listeners) != initialLen+1 {
+			t.Error("Expected a new listener to be added")
+		}
+
+		// Clean up
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		engine.listeners[len(engine.listeners)-1].Stop(ctx)
+	})
+
+	t.Run("missing pool", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-tcp-nopool",
+			Address:  "127.0.0.1:0",
+			Protocol: "tcp",
+			Pool:     "nonexistent-pool",
+		}
+
+		err := engine.startTCPListener(listenerCfg)
+		if err == nil {
+			t.Error("startTCPListener() expected error for missing pool")
+		}
+	})
+}
+
+// TestStartUDPListener tests the startUDPListener method.
+func TestStartUDPListener(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Initialize a pool
+	pool := backend.NewPool("udp-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("udp-b1", "127.0.0.1:9998")
+	b.SetState(backend.StateUp)
+	pool.AddBackend(b)
+	engine.poolManager.AddPool(pool)
+
+	t.Run("valid UDP listener", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-udp",
+			Address:  "127.0.0.1:0",
+			Protocol: "udp",
+			Pool:     "udp-pool",
+		}
+
+		err := engine.startUDPListener(listenerCfg)
+		if err != nil {
+			t.Fatalf("startUDPListener() error = %v", err)
+		}
+
+		if len(engine.udpProxies) == 0 {
+			t.Fatal("Expected at least one UDP proxy to be added")
+		}
+
+		// Clean up
+		engine.udpProxies[len(engine.udpProxies)-1].Stop()
+	})
+
+	t.Run("pool from routes fallback", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-udp-routes",
+			Address:  "127.0.0.1:0",
+			Protocol: "udp",
+			Pool:     "",
+			Routes: []*config.Route{
+				{Pool: "udp-pool"},
+			},
+		}
+
+		initialLen := len(engine.udpProxies)
+		err := engine.startUDPListener(listenerCfg)
+		if err != nil {
+			t.Fatalf("startUDPListener() with route fallback error = %v", err)
+		}
+
+		if len(engine.udpProxies) != initialLen+1 {
+			t.Error("Expected a new UDP proxy to be added")
+		}
+
+		// Clean up
+		engine.udpProxies[len(engine.udpProxies)-1].Stop()
+	})
+
+	t.Run("missing pool", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-udp-nopool",
+			Address:  "127.0.0.1:0",
+			Protocol: "udp",
+			Pool:     "nonexistent-pool",
+		}
+
+		err := engine.startUDPListener(listenerCfg)
+		if err == nil {
+			t.Error("startUDPListener() expected error for missing pool")
+		}
+	})
+}
+
+// TestMTLSHTTPSListenerLifecycle tests the mtlsHTTPSListener Start/Stop/Name/Address/IsRunning.
+func TestMTLSHTTPSListenerLifecycle(t *testing.T) {
+	t.Run("creation and basic properties", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		tlsCfg := &tls.Config{
+			GetCertificate: func(info *tls.ClientHelloInfo) (*tls.Certificate, error) {
+				return nil, fmt.Errorf("no cert")
+			},
+		}
+
+		listener, err := newMTLSHTTPSListener(&olbListener.Options{
+			Name:    "test-mtls",
+			Address: "127.0.0.1:0",
+			Handler: handler,
+		}, tlsCfg)
+		if err != nil {
+			t.Fatalf("newMTLSHTTPSListener() error = %v", err)
+		}
+
+		if listener.Name() != "test-mtls" {
+			t.Errorf("Name() = %q, want %q", listener.Name(), "test-mtls")
+		}
+
+		if listener.IsRunning() {
+			t.Error("IsRunning() should be false before Start()")
+		}
+	})
+
+	t.Run("start and stop lifecycle", func(t *testing.T) {
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		})
+
+		// Create a TLS config with a self-signed cert for testing
+		cert := generateTestCert(t)
+
+		tlsCfg := &tls.Config{
+			Certificates: []tls.Certificate{cert},
+		}
+
+		l, err := newMTLSHTTPSListener(&olbListener.Options{
+			Name:    "test-mtls-lifecycle",
+			Address: "127.0.0.1:0",
+			Handler: handler,
+		}, tlsCfg)
+		if err != nil {
+			t.Fatalf("newMTLSHTTPSListener() error = %v", err)
+		}
+
+		// Start
+		err = l.Start()
+		if err != nil {
+			t.Fatalf("Start() error = %v", err)
+		}
+
+		if !l.IsRunning() {
+			t.Error("IsRunning() should be true after Start()")
+		}
+
+		addr := l.Address()
+		if addr == "" {
+			t.Error("Address() should not be empty after Start()")
+		}
+
+		// Double start should fail
+		err = l.Start()
+		if err == nil {
+			t.Error("Start() should fail when already running")
+		}
+
+		// Stop
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		err = l.Stop(ctx)
+		if err != nil {
+			t.Errorf("Stop() error = %v", err)
+		}
+
+		if l.IsRunning() {
+			t.Error("IsRunning() should be false after Stop()")
+		}
+
+		// Double stop should fail
+		ctx2, cancel2 := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel2()
+		err = l.Stop(ctx2)
+		if err == nil {
+			t.Error("Stop() should fail when not running")
+		}
+	})
+}
+
+// TestWAFMiddlewareAdapter tests the wafMiddlewareAdapter Name, Priority, and Wrap methods.
+func TestWAFMiddlewareAdapter(t *testing.T) {
+	wafCfg := waf.DefaultConfig()
+	w, err := waf.New(wafCfg)
+	if err != nil {
+		t.Fatalf("Failed to create WAF: %v", err)
+	}
+
+	adapter := &wafMiddlewareAdapter{waf: w}
+
+	t.Run("Name", func(t *testing.T) {
+		if adapter.Name() != "waf" {
+			t.Errorf("Name() = %q, want %q", adapter.Name(), "waf")
+		}
+	})
+
+	t.Run("Priority", func(t *testing.T) {
+		if adapter.Priority() != 100 {
+			t.Errorf("Priority() = %d, want %d", adapter.Priority(), 100)
+		}
+	})
+
+	t.Run("Wrap allows clean request", func(t *testing.T) {
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nextCalled = true
+			w.WriteHeader(http.StatusOK)
+		})
+
+		handler := adapter.Wrap(next)
+
+		req := httptest.NewRequest("GET", "http://example.com/safe", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if !nextCalled {
+			t.Error("Expected next handler to be called for clean request")
+		}
+		if rr.Code != http.StatusOK {
+			t.Errorf("Expected status 200 for clean request, got %d", rr.Code)
+		}
+	})
+
+	t.Run("Wrap blocks SQL injection", func(t *testing.T) {
+		nextCalled := false
+		next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nextCalled = true
+		})
+
+		handler := adapter.Wrap(next)
+
+		// SQL injection attempt
+		req := httptest.NewRequest("GET", "http://example.com/?id=1'+OR+'1'='1", nil)
+		rr := httptest.NewRecorder()
+
+		handler.ServeHTTP(rr, req)
+
+		if nextCalled {
+			t.Error("Expected next handler NOT to be called for SQLi request")
+		}
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("Expected status 403 for SQLi request, got %d", rr.Code)
+		}
+		if !strings.Contains(rr.Body.String(), "blocked by WAF") {
+			t.Errorf("Expected 'blocked by WAF' in response body, got %q", rr.Body.String())
+		}
+	})
+}
+
+// TestStartConfigWatcher tests the startConfigWatcher method.
+func TestStartConfigWatcher(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Start the config watcher
+	engine.startConfigWatcher()
+
+	if engine.configWatcher == nil {
+		t.Error("configWatcher should not be nil after startConfigWatcher()")
+	}
+
+	// Stop the watcher
+	engine.configWatcher.Stop()
+}
+
+// TestStartConfigWatcherInvalidPath tests startConfigWatcher with a non-existent path.
+func TestStartConfigWatcherInvalidPath(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Set a non-existent config path
+	engine.configPath = "/nonexistent/path/config.yaml"
+
+	// Should not panic, just log a warning
+	engine.startConfigWatcher()
+
+	// The watcher may or may not be nil depending on implementation
+	// The main assertion is that it doesn't panic
+}
+
+// TestInitializePoolsAllAlgorithms tests initializePools with all supported algorithms.
+func TestInitializePoolsAllAlgorithms(t *testing.T) {
+	algorithms := []struct {
+		name      string
+		algorithm string
+	}{
+		{"least_connections", "least_connections"},
+		{"lc shorthand", "lc"},
+		{"weighted_least_connections", "weighted_least_connections"},
+		{"wlc shorthand", "wlc"},
+		{"least_response_time", "least_response_time"},
+		{"lrt shorthand", "lrt"},
+		{"weighted_least_response_time", "weighted_least_response_time"},
+		{"wlrt shorthand", "wlrt"},
+		{"ip_hash", "ip_hash"},
+		{"iphash shorthand", "iphash"},
+		{"consistent_hash", "consistent_hash"},
+		{"ch shorthand", "ch"},
+		{"ketama shorthand", "ketama"},
+		{"maglev", "maglev"},
+		{"power_of_two", "power_of_two"},
+		{"p2c shorthand", "p2c"},
+		{"random", "random"},
+		{"weighted_random", "weighted_random"},
+		{"wrandom shorthand", "wrandom"},
+		{"ring_hash", "ring_hash"},
+		{"ringhash shorthand", "ringhash"},
+		{"unknown defaults to round_robin", "some_unknown_algo"},
+	}
+
+	for _, tt := range algorithms {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Version: "1",
+				Listeners: []*config.Listener{
+					{
+						Name:     "test",
+						Address:  "127.0.0.1:0",
+						Protocol: "http",
+						Routes:   []*config.Route{{Path: "/", Pool: "pool1"}},
+					},
+				},
+				Pools: []*config.Pool{
+					{
+						Name:      "pool1",
+						Algorithm: tt.algorithm,
+						HealthCheck: &config.HealthCheck{
+							Type:     "http",
+							Path:     "/health",
+							Interval: "10s",
+							Timeout:  "5s",
+						},
+						Backends: []*config.Backend{
+							{ID: "b1", Address: "127.0.0.1:8081", Weight: 100},
+						},
+					},
+				},
+				Admin: &config.Admin{Enabled: true, Address: "127.0.0.1:0"},
+			}
+
+			configPath := createTempConfigFile(t, cfg)
+			engine, err := New(cfg, configPath)
+			if err != nil {
+				t.Fatalf("Failed to create engine: %v", err)
+			}
+
+			err = engine.initializePools()
+			if err != nil {
+				t.Fatalf("initializePools() error = %v", err)
+			}
+
+			pool := engine.poolManager.GetPool("pool1")
+			if pool == nil {
+				t.Fatal("pool1 should exist")
+			}
+			if pool.GetBalancer() == nil {
+				t.Error("pool should have a balancer set")
+			}
+		})
+	}
+}
+
+// TestInitializePoolsBackendWithoutID tests backends with empty ID get auto-generated IDs.
+func TestInitializePoolsBackendWithoutID(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Listeners: []*config.Listener{
+			{
+				Name:     "test",
+				Address:  "127.0.0.1:0",
+				Protocol: "http",
+				Routes:   []*config.Route{{Path: "/", Pool: "pool1"}},
+			},
+		},
+		Pools: []*config.Pool{
+			{
+				Name:      "pool1",
+				Algorithm: "round_robin",
+				HealthCheck: &config.HealthCheck{
+					Type:     "http",
+					Path:     "/health",
+					Interval: "10s",
+					Timeout:  "5s",
+				},
+				Backends: []*config.Backend{
+					{ID: "", Address: "127.0.0.1:8081", Weight: 100}, // empty ID
+				},
+			},
+		},
+		Admin: &config.Admin{Enabled: true, Address: "127.0.0.1:0"},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	err = engine.initializePools()
+	if err != nil {
+		t.Fatalf("initializePools() error = %v", err)
+	}
+
+	pool := engine.poolManager.GetPool("pool1")
+	if pool == nil {
+		t.Fatal("pool1 should exist")
+	}
+	if pool.BackendCount() != 1 {
+		t.Errorf("BackendCount() = %d, want 1", pool.BackendCount())
+	}
+}
+
+// TestStartListenersWithTCPAndUDP tests startListeners dispatches TCP and UDP protocols.
+func TestStartListenersWithTCPAndUDP(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Listeners: []*config.Listener{
+			{
+				Name:     "test-tcp",
+				Address:  "127.0.0.1:0",
+				Protocol: "tcp",
+				Pool:     "test-pool",
+			},
+		},
+		Pools: []*config.Pool{
+			{
+				Name:      "test-pool",
+				Algorithm: "round_robin",
+				HealthCheck: &config.HealthCheck{
+					Type:     "http",
+					Path:     "/health",
+					Interval: "10s",
+					Timeout:  "5s",
+				},
+				Backends: []*config.Backend{
+					{ID: "b1", Address: "127.0.0.1:8081", Weight: 100},
+				},
+			},
+		},
+		Admin: &config.Admin{Enabled: true, Address: "127.0.0.1:0"},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Initialize pools first (required by startListeners)
+	if err := engine.initializePools(); err != nil {
+		t.Fatalf("initializePools() error = %v", err)
+	}
+
+	err = engine.startListeners()
+	if err != nil {
+		t.Fatalf("startListeners() error = %v", err)
+	}
+
+	if len(engine.listeners) == 0 {
+		t.Error("Expected at least one TCP listener")
+	}
+
+	// Clean up listeners
+	for _, l := range engine.listeners {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		l.Stop(ctx)
+		cancel()
+	}
+}
+
+// TestCreateMTLSListener tests the createMTLSListener helper.
+func TestCreateMTLSListener(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	t.Run("with request_client_cert policy", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-mtls",
+			Address:  "127.0.0.1:0",
+			Protocol: "https",
+			TLS:      true,
+			MTLS: &config.MTLSConfig{
+				Enabled:    true,
+				ClientAuth: "request", // does not require client_cas
+			},
+		}
+
+		opts := &olbListener.Options{
+			Name:    listenerCfg.Name,
+			Address: listenerCfg.Address,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		}
+
+		l, err := engine.createMTLSListener(opts, listenerCfg)
+		if err != nil {
+			t.Fatalf("createMTLSListener() error = %v", err)
+		}
+		if l == nil {
+			t.Fatal("createMTLSListener() returned nil")
+		}
+	})
+
+	t.Run("invalid client auth policy", func(t *testing.T) {
+		listenerCfg := &config.Listener{
+			Name:     "test-mtls-invalid",
+			Address:  "127.0.0.1:0",
+			Protocol: "https",
+			TLS:      true,
+			MTLS: &config.MTLSConfig{
+				Enabled:    true,
+				ClientAuth: "invalid_policy",
+			},
+		}
+
+		opts := &olbListener.Options{
+			Name:    listenerCfg.Name,
+			Address: listenerCfg.Address,
+			Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		}
+
+		_, err := engine.createMTLSListener(opts, listenerCfg)
+		if err == nil {
+			t.Error("createMTLSListener() expected error for invalid policy")
+		}
+	})
+}
+
+// TestNewWithClusterConfig tests engine creation with cluster config enabled.
+func TestNewWithClusterConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := createTestConfig()
+	cfg.Cluster = &config.ClusterConfig{
+		Enabled:       true,
+		NodeID:        "test-node",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		DataDir:       tmpDir,
+		Peers:         []string{},
+		ElectionTick:  "2s",
+		HeartbeatTick: "500ms",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with cluster config error = %v", err)
+	}
+
+	// With a valid cluster config, cluster manager should be set up
+	if engine.raftCluster == nil {
+		t.Error("raftCluster should not be nil when cluster is enabled")
+	}
+	if engine.clusterMgr == nil {
+		t.Error("clusterMgr should not be nil when cluster is enabled")
+	}
+}
+
+// TestCreateMiddlewareChainAllEnabled tests createMiddlewareChain with all middleware enabled.
+func TestCreateMiddlewareChainAllEnabled(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		RateLimit: &config.RateLimitConfig{
+			Enabled:           true,
+			RequestsPerSecond: 100,
+			BurstSize:         200,
+		},
+		CORS: &config.CORSConfig{
+			Enabled:          true,
+			AllowedOrigins:   []string{"*"},
+			AllowedMethods:   []string{"GET"},
+			AllowCredentials: true,
+			MaxAge:           3600,
+		},
+		Compression: &config.CompressionConfig{
+			Enabled: true,
+			MinSize: 1024,
+			Level:   5,
+		},
+		CircuitBreaker: &config.CircuitBreakerConfig{
+			Enabled:        true,
+			ErrorThreshold: 5,
+		},
+		Retry: &config.RetryConfig{
+			Enabled:    true,
+			MaxRetries: 3,
+		},
+		Cache: &config.CacheConfig{
+			Enabled: true,
+		},
+		IPFilter: &config.IPFilterConfig{
+			Enabled:   true,
+			AllowList: []string{"10.0.0.0/8"},
+		},
+		Headers: &config.HeadersConfig{
+			Enabled:    true,
+			RequestAdd: map[string]string{"X-Test": "test"},
+		},
+	}
+	cfg.WAF = &config.WAFConfig{
+		Enabled: true,
+		Mode:    "blocking",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with all middleware enabled error = %v", err)
+	}
+
+	if engine.middlewareChain == nil {
+		t.Fatal("middlewareChain should not be nil")
+	}
+}
+
+// TestCreateMiddlewareChainDefaults tests createMiddlewareChain with zero-value defaults.
+func TestCreateMiddlewareChainDefaults(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		RateLimit: &config.RateLimitConfig{
+			Enabled:           true,
+			RequestsPerSecond: 0, // should default to 100
+			BurstSize:         0, // should default to 200
+		},
+		CORS: &config.CORSConfig{
+			Enabled:        true,
+			AllowedOrigins: nil, // should default to ["*"]
+			AllowedMethods: nil, // should default to GET, POST, etc.
+		},
+		CircuitBreaker: &config.CircuitBreakerConfig{
+			Enabled:        true,
+			ErrorThreshold: 0, // should use default
+		},
+		Retry: &config.RetryConfig{
+			Enabled:    true,
+			MaxRetries: 0, // should use default
+		},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with default middleware error = %v", err)
+	}
+
+	if engine.middlewareChain == nil {
+		t.Fatal("middlewareChain should not be nil")
+	}
+}
+
+// generateTestCert creates a self-signed TLS certificate for testing.
+func generateTestCert(t *testing.T) tls.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("Failed to marshal key: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	cert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("Failed to create X509 key pair: %v", err)
+	}
+	return cert
 }

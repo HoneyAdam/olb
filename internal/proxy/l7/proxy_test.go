@@ -2004,3 +2004,73 @@ func TestContains_Extended(t *testing.T) {
 		}
 	}
 }
+
+// ============================================================================
+// Tests for selectBackend and protocol detection coverage
+// ============================================================================
+
+func TestSelectBackend(t *testing.T) {
+	proxy, poolManager, _ := setupTestProxy(t)
+
+	t.Run("returns nil for empty pool", func(t *testing.T) {
+		pool := backend.NewPool("empty-pool", "round_robin")
+		pool.SetBalancer(balancer.NewRoundRobin())
+		poolManager.AddPool(pool)
+
+		result := proxy.selectBackend(pool)
+		if result != nil {
+			t.Errorf("selectBackend() = %v, want nil for empty pool", result)
+		}
+	})
+
+	t.Run("returns nil when all backends down", func(t *testing.T) {
+		pool := backend.NewPool("down-pool", "round_robin")
+		pool.SetBalancer(balancer.NewRoundRobin())
+		b := backend.NewBackend("down-b1", "127.0.0.1:9001")
+		b.SetState(backend.StateDown)
+		pool.AddBackend(b)
+		poolManager.AddPool(pool)
+
+		result := proxy.selectBackend(pool)
+		if result != nil {
+			t.Errorf("selectBackend() = %v, want nil when all backends down", result)
+		}
+	})
+
+	t.Run("returns healthy backend", func(t *testing.T) {
+		pool := backend.NewPool("healthy-pool", "round_robin")
+		pool.SetBalancer(balancer.NewRoundRobin())
+		b := backend.NewBackend("healthy-b1", "127.0.0.1:9002")
+		b.SetState(backend.StateUp)
+		pool.AddBackend(b)
+		poolManager.AddPool(pool)
+
+		result := proxy.selectBackend(pool)
+		if result == nil {
+			t.Fatal("selectBackend() returned nil, want a backend")
+		}
+		if result.ID != "healthy-b1" {
+			t.Errorf("selectBackend().ID = %q, want %q", result.ID, "healthy-b1")
+		}
+	})
+
+	t.Run("selects from multiple backends", func(t *testing.T) {
+		pool := backend.NewPool("multi-pool", "round_robin")
+		pool.SetBalancer(balancer.NewRoundRobin())
+		b1 := backend.NewBackend("multi-b1", "127.0.0.1:9003")
+		b1.SetState(backend.StateUp)
+		b2 := backend.NewBackend("multi-b2", "127.0.0.1:9004")
+		b2.SetState(backend.StateUp)
+		pool.AddBackend(b1)
+		pool.AddBackend(b2)
+		poolManager.AddPool(pool)
+
+		result := proxy.selectBackend(pool)
+		if result == nil {
+			t.Fatal("selectBackend() returned nil")
+		}
+		if result.ID != "multi-b1" && result.ID != "multi-b2" {
+			t.Errorf("selectBackend().ID = %q, want multi-b1 or multi-b2", result.ID)
+		}
+	})
+}
