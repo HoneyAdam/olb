@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openloadbalancer/olb/internal/acme"
 	"github.com/openloadbalancer/olb/internal/admin"
 	"github.com/openloadbalancer/olb/internal/backend"
 	"github.com/openloadbalancer/olb/internal/balancer"
@@ -85,6 +86,9 @@ type Engine struct {
 	raftCluster  *cluster.Cluster        // optional, nil if not configured
 	discoveryMgr *discovery.Manager
 	webUIHandler *webui.Handler
+
+	// ACME/Let's Encrypt client
+	acmeClient *acme.Client
 
 	// Config file watcher
 	configWatcher *config.Watcher
@@ -255,6 +259,23 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		if err := e.initCluster(cfg.Cluster, logger); err != nil {
 			logger.Warn("Failed to initialize cluster, running standalone",
 				logging.Error(err),
+			)
+		}
+	}
+
+	// Initialize ACME/Let's Encrypt client if configured
+	if cfg.TLS != nil && cfg.TLS.ACME != nil && cfg.TLS.ACME.Enabled {
+		acmeCfg := acme.DefaultConfig()
+		if cfg.TLS.ACME.Email != "" {
+			acmeCfg.Contact = []string{"mailto:" + cfg.TLS.ACME.Email}
+		}
+		acmeClient, err := acme.New(acmeCfg)
+		if err != nil {
+			logger.Warn("Failed to initialize ACME client", logging.Error(err))
+		} else {
+			e.acmeClient = acmeClient
+			logger.Info("ACME client initialized",
+				logging.String("directory", acmeCfg.DirectoryURL),
 			)
 		}
 	}
