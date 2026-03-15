@@ -57,13 +57,13 @@ Binary size: 9.1MB. Web UI: 441KB. Startup: <100ms.
 
 ```sh
 # Install
-curl -fsSL https://raw.githubusercontent.com/ersinkoc/OpenLoadBalancer/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/openloadbalancer/olb/main/scripts/install.sh | sh
 
 # Or with Homebrew
-brew tap ersinkoc/olb && brew install olb
+brew tap openloadbalancer/olb && brew install olb
 
 # Or with Docker
-docker pull ghcr.io/ersinkoc/openloadbalancer:v1.0.0
+docker pull ghcr.io/openloadbalancer/olb:v1.0.0
 
 # Create minimal config
 cat > olb.yaml << 'YAML'
@@ -96,10 +96,11 @@ olb start --config olb.yaml
 
 ## Links
 
-- **GitHub**: https://github.com/ersinkoc/OpenLoadBalancer
-- **Release**: https://github.com/ersinkoc/OpenLoadBalancer/releases/tag/v1.0.0
-- **Documentation**: https://github.com/ersinkoc/OpenLoadBalancer/tree/main/docs
-- **Homebrew**: `brew tap ersinkoc/olb && brew install olb`
+- **Website**: https://openloadbalancer.dev
+- **GitHub**: https://github.com/openloadbalancer/olb
+- **Release**: https://github.com/openloadbalancer/olb/releases/tag/v1.0.0
+- **Documentation**: https://openloadbalancer.dev/docs
+- **Homebrew**: `brew tap openloadbalancer/olb && brew install olb`
 
 ## License
 

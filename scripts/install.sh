@@ -329,7 +329,7 @@ main() {
     printf "  4. Check status:\n"
     printf "     ${BLUE}\$ olb status${RESET}\n"
     printf "\n"
-    printf "  Documentation: ${BLUE}https://github.com/${GITHUB_REPO}${RESET}\n"
+    printf "  Documentation: ${BLUE}https://openloadbalancer.dev${RESET}\n"
     printf "\n"
 
     # Warn if not in PATH

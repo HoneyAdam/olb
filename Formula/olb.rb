@@ -9,7 +9,7 @@
 
 class Olb < Formula
   desc "High-performance zero-dependency load balancer"
-  homepage "https://github.com/openloadbalancer/olb"
+  homepage "https://openloadbalancer.dev"
   url "https://github.com/openloadbalancer/olb/archive/refs/tags/v0.1.0.tar.gz"
   sha256 "PLACEHOLDER_SHA256"
   license "Apache-2.0"

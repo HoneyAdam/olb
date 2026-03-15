@@ -1,5 +1,6 @@
 # OpenLoadBalancer
 
+[![Website](https://img.shields.io/badge/website-openloadbalancer.dev-blue)](https://openloadbalancer.dev)
 [![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white)](https://golang.org)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-36%2F36_passing-brightgreen)](./)

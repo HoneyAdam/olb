@@ -2,11 +2,11 @@
 
 > A zero-dependency, production-grade Layer 4/Layer 7 load balancer and reverse proxy written in Go using only the standard library.
 
+- Website: https://openloadbalancer.dev
 - Repository: https://github.com/openloadbalancer/olb
 - Module: github.com/openloadbalancer/olb
-- Language: Go 1.23+ (stdlib only, zero external dependencies)
+- Language: Go 1.25+ (stdlib only, zero external dependencies)
 - License: Apache 2.0
-- Author: Ersin Koc / ECOSTACK TECHNOLOGY OU
 
 ## Purpose
 

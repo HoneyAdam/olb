@@ -14,7 +14,7 @@ env:
   GO_VERSION: '1.25'
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  DOCKERHUB_IMAGE: ersinkoc/olb
+  DOCKERHUB_IMAGE: openloadbalancer/olb
 
 jobs:
   # ─── Build release binaries ──────────────────────────────────────────
