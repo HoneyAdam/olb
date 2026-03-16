@@ -467,8 +467,8 @@ test/                 Integration tests
 - [REST API Reference](docs/api.md) -- Admin API endpoints
 - [Clustering Guide](docs/clustering.md) -- Multi-node setup and operation
 - [MCP / AI Integration](docs/mcp.md) -- AI agent integration guide
-- [Specification](SPECIFICATION.md) -- Full technical specification
-- [Implementation Guide](IMPLEMENTATION.md) -- Internal architecture details
+- [Specification](docs/SPECIFICATION.md) -- Full technical specification
+- [Implementation Guide](docs/IMPLEMENTATION.md) -- Internal architecture details
 - [Changelog](CHANGELOG.md) -- Release history
 
 ## Contributing
