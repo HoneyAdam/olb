@@ -2,6 +2,7 @@ package yaml
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,7 @@ type Node struct {
 type Parser struct {
 	tokens []Token
 	pos    int
+	indent int // current indent level (tracked via INDENT/DEDENT tokens)
 }
 
 // NewParser creates a new YAML parser.
@@ -67,11 +69,35 @@ func (p *Parser) peek() Token {
 	return p.tokens[p.pos+1]
 }
 
-// advance moves to the next token.
+// advance moves to the next token and updates indent tracking.
 func (p *Parser) advance() {
 	if p.pos < len(p.tokens) {
+		tok := p.tokens[p.pos]
+		switch tok.Type {
+		case TokenIndent:
+			if v, err := strconv.Atoi(tok.Value); err == nil {
+				p.indent = v
+			}
+		case TokenDedent:
+			if v, err := strconv.Atoi(tok.Value); err == nil {
+				p.indent = v
+			}
+		}
 		p.pos++
 	}
+}
+
+// consumeIndent consumes an INDENT token and returns the new indent level.
+func (p *Parser) consumeIndent() int {
+	if p.current().Type == TokenIndent {
+		level := 0
+		if v, err := strconv.Atoi(p.current().Value); err == nil {
+			level = v
+		}
+		p.advance()
+		return level
+	}
+	return p.indent
 }
 
 // skip skips specific token types.
@@ -91,6 +117,24 @@ func (p *Parser) expect(t TokenType) (Token, error) {
 	}
 	p.advance()
 	return curr, nil
+}
+
+// dedentLevel returns the indent level a DEDENT token returns to, or -1 if not a DEDENT.
+func (p *Parser) dedentLevel() int {
+	if p.current().Type != TokenDedent {
+		return -1
+	}
+	if v, err := strconv.Atoi(p.current().Value); err == nil {
+		return v
+	}
+	return -1
+}
+
+// skipNewlinesAndComments skips NEWLINE and COMMENT tokens.
+func (p *Parser) skipNewlinesAndComments() {
+	for p.current().Type == TokenNewline || p.current().Type == TokenComment {
+		p.advance()
+	}
 }
 
 // parseDocument parses the root document.
@@ -198,18 +242,31 @@ func (p *Parser) parseValue(minIndent int) (*Node, error) {
 }
 
 // parseSequence parses a sequence (list).
+// It parses all sequence items (dashes) at the current indent level.
 func (p *Parser) parseSequence(minIndent int) (*Node, error) {
 	seq := &Node{Type: NodeSequence}
 
+	// Record the indent level where the sequence dashes are
+	seqIndent := p.indent
+
 	for {
 		// Skip newlines and comments
-		for {
-			tok := p.current()
-			if tok.Type == TokenNewline || tok.Type == TokenComment {
+		p.skipNewlinesAndComments()
+
+		// After parsing a nested item, we may have DEDENT tokens that bring
+		// us back from deeper nesting to the sequence's indent level.
+		// Consume DEDENTs until we reach the sequence's indent level.
+		for p.current().Type == TokenDedent {
+			dl := p.dedentLevel()
+			if dl >= seqIndent {
+				// This DEDENT brings us back to or above the sequence level.
+				// Consume it.
 				p.advance()
-				continue
+				p.skipNewlinesAndComments()
+			} else {
+				// This DEDENT goes below our sequence level - stop.
+				break
 			}
-			break
 		}
 
 		// Check for sequence end
@@ -319,6 +376,9 @@ func (p *Parser) parseScalarOrMapping(minIndent int) (*Node, error) {
 		// It's a mapping key
 		p.advance() // consume colon
 
+		// Record the indent level of this mapping
+		mappingIndent := p.indent
+
 		// Skip whitespace but preserve the value if present on same line
 		if p.current().Type == TokenIndent {
 			p.advance()
@@ -381,7 +441,19 @@ func (p *Parser) parseScalarOrMapping(minIndent int) (*Node, error) {
 
 			// Check for dedent (end of mapping)
 			if p.current().Type == TokenDedent || p.current().Type == TokenEOF {
-				p.advance()
+				// Only consume this DEDENT if it returns us to or above our mapping level.
+				// If it goes below our level, don't consume it - let the caller handle it.
+				if p.current().Type == TokenDedent {
+					dl := p.dedentLevel()
+					if dl <= mappingIndent {
+						// This DEDENT takes us back to or past our mapping's level.
+						// Consume it so the parent sees we're done.
+						p.advance()
+					}
+					// If dl > mappingIndent, the DEDENT goes to a level deeper
+					// than our mapping started, which shouldn't happen, but
+					// just break anyway.
+				}
 				break
 			}
 
@@ -461,7 +533,13 @@ func (p *Parser) parseInlineSequence() (*Node, error) {
 }
 
 // parseInlineMapping parses an inline mapping {a: 1, b: 2}.
+// If the content doesn't look like a valid mapping (e.g., ${VAR}), it falls
+// back to collecting the tokens as a scalar string.
 func (p *Parser) parseInlineMapping() (*Node, error) {
+	// Save position so we can backtrack if this isn't a valid mapping.
+	savedPos := p.pos
+	savedIndent := p.indent
+
 	mapping := &Node{Type: NodeMapping}
 
 	p.advance() // consume {
@@ -480,13 +558,19 @@ func (p *Parser) parseInlineMapping() (*Node, error) {
 		// Expect key
 		keyTok := p.current()
 		if keyTok.Type != TokenString && keyTok.Type != TokenNumber {
-			return nil, fmt.Errorf("expected key in mapping at %d:%d", keyTok.Line, keyTok.Col)
+			// Not a valid mapping - backtrack and collect as scalar
+			p.pos = savedPos
+			p.indent = savedIndent
+			return p.collectBracedScalar()
 		}
 		p.advance()
 
 		// Expect colon
 		if p.current().Type != TokenColon {
-			return nil, fmt.Errorf("expected ':' after key at %d:%d", p.current().Line, p.current().Col)
+			// Not a valid mapping - backtrack and collect as scalar
+			p.pos = savedPos
+			p.indent = savedIndent
+			return p.collectBracedScalar()
 		}
 		p.advance()
 
@@ -507,11 +591,45 @@ func (p *Parser) parseInlineMapping() (*Node, error) {
 		if p.current().Type == TokenComma {
 			p.advance()
 		} else if p.current().Type != TokenRBrace {
-			return nil, fmt.Errorf("expected ',' or '}' in mapping at %d:%d", p.current().Line, p.current().Col)
+			// Not a valid mapping - backtrack and collect as scalar
+			p.pos = savedPos
+			p.indent = savedIndent
+			return p.collectBracedScalar()
 		}
 	}
 
 	return mapping, nil
+}
+
+// collectBracedScalar collects tokens between { and } as a scalar string.
+// Used when { } doesn't contain valid mapping content (e.g., ${VAR_NAME}).
+func (p *Parser) collectBracedScalar() (*Node, error) {
+	p.advance() // consume {
+
+	var result strings.Builder
+	result.WriteByte('{')
+
+	depth := 1
+	for depth > 0 && p.current().Type != TokenEOF && p.current().Type != TokenNewline {
+		tok := p.current()
+		if tok.Type == TokenLBrace {
+			depth++
+			result.WriteByte('{')
+		} else if tok.Type == TokenRBrace {
+			depth--
+			if depth == 0 {
+				result.WriteByte('}')
+				p.advance()
+				break
+			}
+			result.WriteByte('}')
+		} else {
+			result.WriteString(tok.Value)
+		}
+		p.advance()
+	}
+
+	return &Node{Type: NodeScalar, Value: result.String()}, nil
 }
 
 // parseInlineValue parses a value in inline context.

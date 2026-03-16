@@ -92,15 +92,28 @@ type WAFConfig struct {
 	Mode    string `yaml:"mode" json:"mode"`
 }
 
+// ListenerTLS represents TLS configuration for a listener.
+// Can be a simple bool (true/false) or a struct with cert/key paths.
+type ListenerTLS struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled"`
+	CertFile string `yaml:"cert_file" json:"cert_file"`
+	KeyFile  string `yaml:"key_file" json:"key_file"`
+}
+
 // Listener represents an L4/L7 listener.
 type Listener struct {
-	Name     string      `yaml:"name" json:"name"`
-	Address  string      `yaml:"address" json:"address"`
-	Protocol string      `yaml:"protocol" json:"protocol"`
-	TLS      bool        `yaml:"tls" json:"tls"`
-	Routes   []*Route    `yaml:"routes" json:"routes"`
-	MTLS     *MTLSConfig `yaml:"mtls" json:"mtls"`
-	Pool     string      `yaml:"pool" json:"pool"` // backend pool for L4 (tcp/udp) listeners
+	Name     string       `yaml:"name" json:"name"`
+	Address  string       `yaml:"address" json:"address"`
+	Protocol string       `yaml:"protocol" json:"protocol"`
+	TLS      *ListenerTLS `yaml:"tls" json:"tls"`
+	Routes   []*Route     `yaml:"routes" json:"routes"`
+	MTLS     *MTLSConfig  `yaml:"mtls" json:"mtls"`
+	Pool     string       `yaml:"pool" json:"pool"`
+}
+
+// IsTLS returns true if TLS is enabled for this listener.
+func (l *Listener) IsTLS() bool {
+	return l.TLS != nil && l.TLS.Enabled
 }
 
 // MTLSConfig represents mTLS configuration for a listener.

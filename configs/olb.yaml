@@ -1,87 +1,65 @@
 # OpenLoadBalancer Full Configuration Example
-# This is a comprehensive configuration demonstrating all features.
+# All fields are optional — sensible defaults are used.
 
-version: 1
+version: "1"
 
-# Global settings
-global:
-  # Worker settings
-  workers:
-    count: auto  # auto = number of CPUs
-
-  # Connection limits
-  limits:
-    max_connections: 10000
-    max_connections_per_source: 100
-    max_connections_per_backend: 1000
-
-  # Timeouts
-  timeouts:
-    read: 30s
-    write: 30s
-    idle: 120s
-    header: 10s
-    drain: 30s
-
-# Admin API configuration
+# Admin API
 admin:
-  enabled: true
   address: "127.0.0.1:8081"
-  auth:
-    type: basic
-    username: admin
-    # Password is "admin123" hashed with bcrypt
-    password: "$2a$10$N9qo8uLOickgx2ZMRZoMy.Mqrq3L3eA9XTO7ZlJ9ZPxQN0LBW4sXK"
 
-# Metrics configuration
-metrics:
+# Middleware configuration (all disabled by default)
+middleware:
+  rate_limit:
+    enabled: true
+    requests_per_second: 1000
+    burst_size: 2000
+  cors:
+    enabled: true
+    allowed_origins:
+      - "*"
+    allowed_methods:
+      - GET
+      - POST
+      - PUT
+      - DELETE
+      - OPTIONS
+  compression:
+    enabled: true
+    min_size: 256
+    level: 6
+  ip_filter:
+    enabled: false
+    default_action: allow
+  headers:
+    enabled: true
+    response_add:
+      X-Powered-By: OpenLoadBalancer
+
+# WAF (Web Application Firewall)
+waf:
   enabled: true
-  path: /metrics
+  mode: block
 
-# HTTP listener on port 80
+# TLS configuration
+tls:
+  cert_file: /etc/olb/certs/server.crt
+  key_file: /etc/olb/certs/server.key
+
+# Listeners
 listeners:
   - name: http
     protocol: http
     address: ":8080"
     routes:
-      # API routes with specific backend
       - name: api
-        host: api.example.com
-        path: /api/
-        methods: [GET, POST, PUT, DELETE]
+        path: /api
         pool: api-backend
-
-      # Static file serving (direct backend)
-      - name: static
-        host: static.example.com
-        path: /files/
-        pool: static-backend
-
-      # Default route for everything else
       - name: default
         path: /
         pool: web-backend
-        middleware:
-          - name: rate_limit
-            config:
-              requests_per_second: 100
-              burst_size: 200
 
-  # HTTPS listener on port 443
-  - name: https
-    protocol: https
-    address: ":8443"
-    tls:
-      cert_file: /etc/olb/certs/server.crt
-      key_file: /etc/olb/certs/server.key
-    routes:
-      - name: secure-api
-        path: /
-        pool: api-backend
-
-# Backend pools with different algorithms
+# Backend pools
 pools:
-  # Web pool - round robin for general traffic
   - name: web-backend
     algorithm: round_robin
     health_check:
@@ -89,8 +67,6 @@ pools:
       path: /health
       interval: 10s
       timeout: 5s
-      healthy_threshold: 2
-      unhealthy_threshold: 3
     backends:
       - id: web-1
         address: "10.0.1.10:8080"
@@ -101,99 +77,22 @@ pools:
       - id: web-3
         address: "10.0.1.12:8080"
         weight: 1
-
-  # API pool - weighted round robin for API servers
   - name: api-backend
-    algorithm: weighted_round_robin
+    algorithm: least_connections
     health_check:
       type: http
       path: /api/health
       interval: 5s
       timeout: 3s
-      expected_status: 200
     backends:
       - id: api-1
         address: "10.0.2.10:8080"
-        weight: 3  # More capacity
+        weight: 3
       - id: api-2
         address: "10.0.2.11:8080"
         weight: 2
 
-  # Static files pool - least connections for large files
-  - name: static-backend
-    algorithm: round_robin
-    health_check:
-      type: tcp
-      interval: 10s
-      timeout: 5s
-    backends:
-      - id: static-1
-        address: "10.0.3.10:8080"
-
-# Middleware configuration
-middleware:
-  # Request ID injection
-  - name: request_id
-    enabled: true
-    config:
-      header_name: X-Request-ID
-      trust_incoming: false
-
-  # Real IP extraction
-  - name: real_ip
-    enabled: true
-    config:
-      trusted_proxies:
-        - "10.0.0.0/8"
-        - "172.16.0.0/12"
-        - "192.168.0.0/16"
-
-  # CORS handling
-  - name: cors
-    enabled: true
-    config:
-      allowed_origins: ["*"]
-      allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-      allowed_headers: ["Content-Type", "Authorization", "X-Request-ID"]
-      max_age: 3600
-
-  # Security headers
-  - name: headers
-    enabled: true
-    config:
-      security_preset: strict
-      response_set:
-        X-Frame-Options: DENY
-        X-Content-Type-Options: nosniff
-
-  # Compression
-  - name: compression
-    enabled: true
-    config:
-      min_size: 1024
-      level: default  # -1 = default compression
-
-  # Access logging
-  - name: access_log
-    enabled: true
-    config:
-      format: json
-      output: /var/log/olb/access.log
-
-  # Metrics collection
-  - name: metrics
-    enabled: true
-
-# Logging configuration
+# Logging
 logging:
   level: info
-  output: stdout
   format: json
-
-  # File output (optional)
-  # file:
-  #   path: /var/log/olb/olb.log
-  #   max_size: 100MB
-  #   max_backups: 5
-  #   max_age: 30
-  #   compress: true

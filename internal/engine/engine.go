@@ -1041,7 +1041,7 @@ func (e *Engine) startHTTPListener(listenerCfg *config.Listener) error {
 	var l listener.Listener
 	var err error
 
-	if listenerCfg.TLS {
+	if listenerCfg.IsTLS() {
 		// Check for mTLS configuration
 		if listenerCfg.MTLS != nil && listenerCfg.MTLS.Enabled {
 			l, err = e.createMTLSListener(opts, listenerCfg)
@@ -1067,7 +1067,7 @@ func (e *Engine) startHTTPListener(listenerCfg *config.Listener) error {
 	e.logger.Info("Listener started",
 		logging.String("name", listenerCfg.Name),
 		logging.String("address", l.Address()),
-		logging.Bool("tls", listenerCfg.TLS),
+		logging.Bool("tls", listenerCfg.IsTLS()),
 		logging.Bool("mtls", listenerCfg.MTLS != nil && listenerCfg.MTLS.Enabled),
 	)
 
