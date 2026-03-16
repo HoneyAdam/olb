@@ -524,6 +524,21 @@ func (s *Server) getCertificates(w http.ResponseWriter, r *http.Request) {
 	writeSuccess(w, certs)
 }
 
+// getWAFStatus handles GET /api/v1/waf/status
+func (s *Server) getWAFStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "only GET is allowed")
+		return
+	}
+
+	if s.wafStatus == nil {
+		writeSuccess(w, map[string]any{"enabled": false})
+		return
+	}
+
+	writeSuccess(w, s.wafStatus())
+}
+
 // Helper functions
 
 // poolToInfo converts a Pool to PoolInfo.

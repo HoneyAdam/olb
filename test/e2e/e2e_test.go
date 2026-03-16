@@ -1456,6 +1456,435 @@ pools:
 	}
 }
 
+// TestE2E_WAF_RateLimiter verifies WAF rate limiting blocks requests exceeding the limit.
+func TestE2E_WAF_RateLimiter(t *testing.T) {
+	var hits atomic.Int64
+	backendAddr := startBackend(t, "waf-rl-backend", &hits)
+
+	proxyPort := getFreePort(t)
+	adminPort := getFreePort(t)
+
+	yamlCfg := fmt.Sprintf(`admin:
+  address: "127.0.0.1:%d"
+waf:
+  enabled: true
+  mode: enforce
+  rate_limit:
+    enabled: true
+    rules:
+      - id: "e2e-test"
+        scope: "ip"
+        limit: 5
+        window: "1m"
+        burst: 0
+listeners:
+  - name: http
+    address: "127.0.0.1:%d"
+    protocol: http
+    routes:
+      - path: /
+        pool: rl-pool
+pools:
+  - name: rl-pool
+    algorithm: round_robin
+    backends:
+      - address: "%s"
+    health_check:
+      type: http
+      interval: 1s
+      timeout: 1s
+      path: /health
+`, adminPort, proxyPort, backendAddr)
+
+	cfgPath := writeYAML(t, yamlCfg)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	eng, err := engine.New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("Failed to start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eng.Shutdown(ctx)
+	})
+
+	proxyAddr := cfg.Listeners[0].Address
+	waitForReady(t, proxyAddr, 5*time.Second)
+	time.Sleep(2 * time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// First 5 requests should succeed
+	for i := 0; i < 5; i++ {
+		resp, err := client.Get(fmt.Sprintf("http://%s/", proxyAddr))
+		if err != nil {
+			t.Fatalf("Request %d failed: %v", i+1, err)
+		}
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 200 {
+			t.Fatalf("Request %d: expected 200, got %d", i+1, resp.StatusCode)
+		}
+	}
+	t.Log("First 5 requests passed (200 OK)")
+
+	// 6th request should be rate limited (429)
+	resp, err := client.Get(fmt.Sprintf("http://%s/", proxyAddr))
+	if err != nil {
+		t.Fatalf("Rate limit request failed: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 429 {
+		t.Errorf("Expected 429 after rate limit, got %d", resp.StatusCode)
+	} else {
+		t.Log("Rate limit enforced with 429")
+	}
+
+	if resp.Header.Get("Retry-After") == "" {
+		t.Error("Expected Retry-After header on 429 response")
+	}
+}
+
+// TestE2E_WAF_CommandInjection verifies WAF blocks command injection attempts.
+func TestE2E_WAF_CommandInjection(t *testing.T) {
+	var hits atomic.Int64
+	backendAddr := startBackend(t, "waf-cmdi-backend", &hits)
+
+	proxyPort := getFreePort(t)
+	adminPort := getFreePort(t)
+
+	yamlCfg := fmt.Sprintf(`admin:
+  address: "127.0.0.1:%d"
+waf:
+  enabled: true
+  mode: enforce
+listeners:
+  - name: http
+    address: "127.0.0.1:%d"
+    protocol: http
+    routes:
+      - path: /
+        pool: cmdi-pool
+pools:
+  - name: cmdi-pool
+    algorithm: round_robin
+    backends:
+      - address: "%s"
+    health_check:
+      type: http
+      interval: 1s
+      timeout: 1s
+      path: /health
+`, adminPort, proxyPort, backendAddr)
+
+	cfgPath := writeYAML(t, yamlCfg)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	eng, err := engine.New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("Failed to start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eng.Shutdown(ctx)
+	})
+
+	proxyAddr := cfg.Listeners[0].Address
+	waitForReady(t, proxyAddr, 5*time.Second)
+	time.Sleep(2 * time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// Command injection attempts
+	attacks := []struct {
+		name string
+		url  string
+	}{
+		{"semicolon_cat", "/?cmd=;cat+/etc/passwd"},
+		{"pipe_id", "/?cmd=|+/bin/sh"},
+		{"path_traversal", "/?file=../../../etc/passwd"},
+	}
+
+	for _, attack := range attacks {
+		resp, err := client.Get(fmt.Sprintf("http://%s%s", proxyAddr, attack.url))
+		if err != nil {
+			t.Fatalf("%s: request failed: %v", attack.name, err)
+		}
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != 403 {
+			t.Errorf("%s: expected 403, got %d", attack.name, resp.StatusCode)
+		} else {
+			t.Logf("%s blocked with 403", attack.name)
+		}
+	}
+}
+
+// TestE2E_WAF_MonitorMode verifies WAF monitor mode logs but doesn't block.
+func TestE2E_WAF_MonitorMode(t *testing.T) {
+	var hits atomic.Int64
+	backendAddr := startBackend(t, "waf-monitor-backend", &hits)
+
+	proxyPort := getFreePort(t)
+	adminPort := getFreePort(t)
+
+	yamlCfg := fmt.Sprintf(`admin:
+  address: "127.0.0.1:%d"
+waf:
+  enabled: true
+  mode: monitor
+listeners:
+  - name: http
+    address: "127.0.0.1:%d"
+    protocol: http
+    routes:
+      - path: /
+        pool: monitor-pool
+pools:
+  - name: monitor-pool
+    algorithm: round_robin
+    backends:
+      - address: "%s"
+    health_check:
+      type: http
+      interval: 1s
+      timeout: 1s
+      path: /health
+`, adminPort, proxyPort, backendAddr)
+
+	cfgPath := writeYAML(t, yamlCfg)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	eng, err := engine.New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("Failed to start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eng.Shutdown(ctx)
+	})
+
+	proxyAddr := cfg.Listeners[0].Address
+	waitForReady(t, proxyAddr, 5*time.Second)
+	time.Sleep(2 * time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// SQLi attack in monitor mode should pass through to backend
+	resp, err := client.Get(fmt.Sprintf("http://%s/?id=1%%27+OR+%%271%%27%%3D%%271", proxyAddr))
+	if err != nil {
+		t.Fatalf("Monitor mode request failed: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 {
+		t.Errorf("Monitor mode: expected 200 (passthrough), got %d", resp.StatusCode)
+	} else {
+		t.Log("Monitor mode: SQLi attack passed through (logged only)")
+	}
+
+	// Verify backend was actually hit
+	if hits.Load() == 0 {
+		t.Error("Expected backend to be hit in monitor mode")
+	}
+}
+
+// TestE2E_WAF_SecurityHeaders verifies WAF injects security headers in responses.
+func TestE2E_WAF_SecurityHeaders(t *testing.T) {
+	var hits atomic.Int64
+	backendAddr := startBackend(t, "waf-headers-backend", &hits)
+
+	proxyPort := getFreePort(t)
+	adminPort := getFreePort(t)
+
+	yamlCfg := fmt.Sprintf(`admin:
+  address: "127.0.0.1:%d"
+waf:
+  enabled: true
+  mode: enforce
+  response:
+    security_headers:
+      enabled: true
+      hsts:
+        enabled: true
+        max_age: 31536000
+      x_content_type_options: true
+      x_frame_options: "DENY"
+      referrer_policy: "no-referrer"
+listeners:
+  - name: http
+    address: "127.0.0.1:%d"
+    protocol: http
+    routes:
+      - path: /
+        pool: headers-pool
+pools:
+  - name: headers-pool
+    algorithm: round_robin
+    backends:
+      - address: "%s"
+    health_check:
+      type: http
+      interval: 1s
+      timeout: 1s
+      path: /health
+`, adminPort, proxyPort, backendAddr)
+
+	cfgPath := writeYAML(t, yamlCfg)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	eng, err := engine.New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("Failed to start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eng.Shutdown(ctx)
+	})
+
+	proxyAddr := cfg.Listeners[0].Address
+	waitForReady(t, proxyAddr, 5*time.Second)
+	time.Sleep(2 * time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(fmt.Sprintf("http://%s/", proxyAddr))
+	if err != nil {
+		t.Fatalf("Request failed: %v", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("Expected 200, got %d", resp.StatusCode)
+	}
+
+	checks := []struct {
+		header   string
+		contains string
+	}{
+		{"X-Content-Type-Options", "nosniff"},
+		{"X-Frame-Options", "DENY"},
+		{"Referrer-Policy", "no-referrer"},
+		{"X-XSS-Protection", "0"},
+	}
+
+	for _, c := range checks {
+		got := resp.Header.Get(c.header)
+		if !strings.Contains(got, c.contains) {
+			t.Errorf("Expected %s to contain %q, got %q", c.header, c.contains, got)
+		} else {
+			t.Logf("%s: %s", c.header, got)
+		}
+	}
+}
+
+// TestE2E_WAF_AdminStatus verifies the WAF status endpoint on the admin API.
+func TestE2E_WAF_AdminStatus(t *testing.T) {
+	var hits atomic.Int64
+	backendAddr := startBackend(t, "waf-status-backend", &hits)
+
+	proxyPort := getFreePort(t)
+	adminPort := getFreePort(t)
+
+	yamlCfg := fmt.Sprintf(`admin:
+  address: "127.0.0.1:%d"
+waf:
+  enabled: true
+  mode: enforce
+listeners:
+  - name: http
+    address: "127.0.0.1:%d"
+    protocol: http
+    routes:
+      - path: /
+        pool: status-pool
+pools:
+  - name: status-pool
+    algorithm: round_robin
+    backends:
+      - address: "%s"
+    health_check:
+      type: http
+      interval: 1s
+      timeout: 1s
+      path: /health
+`, adminPort, proxyPort, backendAddr)
+
+	cfgPath := writeYAML(t, yamlCfg)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
+
+	eng, err := engine.New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	if err := eng.Start(); err != nil {
+		t.Fatalf("Failed to start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eng.Shutdown(ctx)
+	})
+
+	adminAddr := fmt.Sprintf("127.0.0.1:%d", adminPort)
+	waitForReady(t, adminAddr, 5*time.Second)
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(fmt.Sprintf("http://%s/api/v1/waf/status", adminAddr))
+	if err != nil {
+		t.Fatalf("WAF status request failed: %v", err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		t.Fatalf("Expected 200, got %d: %s", resp.StatusCode, string(body))
+	}
+
+	bodyStr := string(body)
+	if !strings.Contains(bodyStr, "enabled") {
+		t.Errorf("Expected 'enabled' in WAF status response, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "enforce") {
+		t.Errorf("Expected 'enforce' mode in WAF status response, got: %s", bodyStr)
+	}
+	t.Logf("WAF status: %s", bodyStr)
+}
+
 // TestE2E_IPFilter verifies that the IP filter middleware denies requests from
 // IPs on the deny list.
 func TestE2E_IPFilter(t *testing.T) {

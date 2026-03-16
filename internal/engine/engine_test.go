@@ -2934,25 +2934,24 @@ func TestMTLSHTTPSListenerLifecycle(t *testing.T) {
 	})
 }
 
-// TestWAFMiddlewareAdapter tests the wafMiddlewareAdapter Name, Priority, and Wrap methods.
-func TestWAFMiddlewareAdapter(t *testing.T) {
-	wafCfg := waf.DefaultConfig()
-	w, err := waf.New(wafCfg)
+// TestWAFMiddleware tests the WAFMiddleware Name, Priority, and Wrap methods.
+func TestWAFMiddleware(t *testing.T) {
+	wafMW, err := waf.NewWAFMiddleware(waf.WAFMiddlewareConfig{
+		Config: &config.WAFConfig{Enabled: true, Mode: "enforce"},
+	})
 	if err != nil {
-		t.Fatalf("Failed to create WAF: %v", err)
+		t.Fatalf("Failed to create WAFMiddleware: %v", err)
 	}
 
-	adapter := &wafMiddlewareAdapter{waf: w}
-
 	t.Run("Name", func(t *testing.T) {
-		if adapter.Name() != "waf" {
-			t.Errorf("Name() = %q, want %q", adapter.Name(), "waf")
+		if wafMW.Name() != "waf" {
+			t.Errorf("Name() = %q, want %q", wafMW.Name(), "waf")
 		}
 	})
 
 	t.Run("Priority", func(t *testing.T) {
-		if adapter.Priority() != 100 {
-			t.Errorf("Priority() = %d, want %d", adapter.Priority(), 100)
+		if wafMW.Priority() != 100 {
+			t.Errorf("Priority() = %d, want %d", wafMW.Priority(), 100)
 		}
 	})
 
@@ -2963,7 +2962,7 @@ func TestWAFMiddlewareAdapter(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		handler := adapter.Wrap(next)
+		handler := wafMW.Wrap(next)
 
 		req := httptest.NewRequest("GET", "http://example.com/safe", nil)
 		rr := httptest.NewRecorder()
@@ -2984,7 +2983,7 @@ func TestWAFMiddlewareAdapter(t *testing.T) {
 			nextCalled = true
 		})
 
-		handler := adapter.Wrap(next)
+		handler := wafMW.Wrap(next)
 
 		// SQL injection attempt
 		req := httptest.NewRequest("GET", "http://example.com/?id=1'+OR+'1'='1", nil)

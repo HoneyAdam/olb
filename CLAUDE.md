@@ -34,7 +34,14 @@ internal/mcp/             → MCP server for AI integration
 internal/tls/             → TLS, mTLS, OCSP stapling
 internal/acme/            → ACME/Let's Encrypt client
 internal/health/          → Active + passive health checking
-internal/waf/             → Web Application Firewall
+internal/waf/             → WAF: 6-layer security pipeline (IP ACL, rate limit, sanitizer, detection, bot, response)
+  waf/ipacl/              → Radix tree whitelist/blacklist with auto-ban
+  waf/ratelimit/          → Token bucket rate limiter with distributed sync
+  waf/sanitizer/          → Request validation + URL/encoding normalization
+  waf/detection/          → Scoring engine + 6 detectors (sqli, xss, pathtraversal, cmdi, xxe, ssrf)
+  waf/botdetect/          → JA3 fingerprinting, UA analysis, behavioral analysis
+  waf/response/           → Security headers, data masking, error pages
+  waf/mcp/                → 8 MCP tools for WAF management
 internal/security/        → Request smuggling, header injection protection
 internal/webui/           → Embedded SPA (vanilla JS/CSS)
 internal/plugin/          → Plugin system with event bus
@@ -74,11 +81,31 @@ middleware:
     requests_per_second: 100
   cors:
     enabled: true
-  waf:
-    enabled: true
-
 admin:
   address: ":9090"
+
+waf:
+  enabled: true
+  mode: enforce               # enforce, monitor, disabled
+  ip_acl:
+    enabled: true
+    whitelist: [{cidr: "10.0.0.0/8", reason: "internal"}]
+    auto_ban: {enabled: true, default_ttl: "1h"}
+  rate_limit:
+    enabled: true
+    rules:
+      - {id: "per-ip", scope: "ip", limit: 1000, window: "1m"}
+  sanitizer: {enabled: true}
+  detection:
+    enabled: true
+    threshold: {block: 50, log: 25}
+    detectors:
+      sqli: {enabled: true}
+      xss: {enabled: true}
+  bot_detection: {enabled: true, mode: monitor}
+  response:
+    security_headers: {enabled: true}
+    data_masking: {enabled: true, mask_credit_cards: true}
 ```
 
 ## Common Patterns

@@ -88,8 +88,185 @@ type HeadersConfig struct {
 }
 
 type WAFConfig struct {
+	Enabled      bool                `yaml:"enabled" json:"enabled"`
+	Mode         string              `yaml:"mode" json:"mode"` // "enforce", "monitor", "disabled"
+	IPACL        *WAFIPACLConfig     `yaml:"ip_acl" json:"ip_acl"`
+	RateLimit    *WAFRateLimitConfig `yaml:"rate_limit" json:"rate_limit"`
+	Sanitizer    *WAFSanitizerConfig `yaml:"sanitizer" json:"sanitizer"`
+	Detection    *WAFDetectionConfig `yaml:"detection" json:"detection"`
+	BotDetection *WAFBotConfig       `yaml:"bot_detection" json:"bot_detection"`
+	Response     *WAFResponseConfig  `yaml:"response" json:"response"`
+	Logging      *WAFLoggingConfig   `yaml:"logging" json:"logging"`
+}
+
+// WAFIPACLConfig configures IP access control lists.
+type WAFIPACLConfig struct {
+	Enabled   bool              `yaml:"enabled" json:"enabled"`
+	Whitelist []WAFIPACLEntry   `yaml:"whitelist" json:"whitelist"`
+	Blacklist []WAFIPACLEntry   `yaml:"blacklist" json:"blacklist"`
+	AutoBan   *WAFAutoBanConfig `yaml:"auto_ban" json:"auto_ban"`
+}
+
+type WAFIPACLEntry struct {
+	CIDR    string `yaml:"cidr" json:"cidr"`
+	Reason  string `yaml:"reason" json:"reason"`
+	Expires string `yaml:"expires" json:"expires"` // ISO 8601
+}
+
+type WAFAutoBanConfig struct {
+	Enabled    bool   `yaml:"enabled" json:"enabled"`
+	DefaultTTL string `yaml:"default_ttl" json:"default_ttl"` // e.g. "1h"
+	MaxTTL     string `yaml:"max_ttl" json:"max_ttl"`         // e.g. "24h"
+}
+
+// WAFRateLimitConfig configures WAF-integrated rate limiting.
+type WAFRateLimitConfig struct {
+	Enabled      bool               `yaml:"enabled" json:"enabled"`
+	SyncInterval string             `yaml:"sync_interval" json:"sync_interval"` // e.g. "5s"
+	Rules        []WAFRateLimitRule `yaml:"rules" json:"rules"`
+}
+
+type WAFRateLimitRule struct {
+	ID           string   `yaml:"id" json:"id"`
+	Scope        string   `yaml:"scope" json:"scope"` // "ip", "path", "ip+path", "header:X-API-Key", "global"
+	Paths        []string `yaml:"paths" json:"paths"` // glob patterns
+	Limit        int      `yaml:"limit" json:"limit"`
+	Window       string   `yaml:"window" json:"window"` // e.g. "1m"
+	Burst        int      `yaml:"burst" json:"burst"`
+	Action       string   `yaml:"action" json:"action"` // "block", "throttle"
+	AutoBanAfter int      `yaml:"auto_ban_after" json:"auto_ban_after"`
+}
+
+// WAFSanitizerConfig configures request sanitization.
+type WAFSanitizerConfig struct {
+	Enabled           bool                   `yaml:"enabled" json:"enabled"`
+	MaxHeaderSize     int                    `yaml:"max_header_size" json:"max_header_size"`
+	MaxHeaderCount    int                    `yaml:"max_header_count" json:"max_header_count"`
+	MaxBodySize       int64                  `yaml:"max_body_size" json:"max_body_size"`
+	MaxURLLength      int                    `yaml:"max_url_length" json:"max_url_length"`
+	MaxCookieSize     int                    `yaml:"max_cookie_size" json:"max_cookie_size"`
+	MaxCookieCount    int                    `yaml:"max_cookie_count" json:"max_cookie_count"`
+	BlockNullBytes    bool                   `yaml:"block_null_bytes" json:"block_null_bytes"`
+	NormalizeEncoding bool                   `yaml:"normalize_encoding" json:"normalize_encoding"`
+	StripHopByHop     bool                   `yaml:"strip_hop_by_hop" json:"strip_hop_by_hop"`
+	AllowedMethods    []string               `yaml:"allowed_methods" json:"allowed_methods"`
+	PathOverrides     []WAFSanitizerOverride `yaml:"path_overrides" json:"path_overrides"`
+}
+
+type WAFSanitizerOverride struct {
+	Path        string `yaml:"path" json:"path"`
+	MaxBodySize int64  `yaml:"max_body_size" json:"max_body_size"`
+}
+
+// WAFDetectionConfig configures the WAF detection engine.
+type WAFDetectionConfig struct {
+	Enabled    bool                    `yaml:"enabled" json:"enabled"`
+	Mode       string                  `yaml:"mode" json:"mode"` // "enforce", "monitor"
+	Threshold  WAFDetectionThreshold   `yaml:"threshold" json:"threshold"`
+	Detectors  WAFDetectorsConfig      `yaml:"detectors" json:"detectors"`
+	Exclusions []WAFDetectionExclusion `yaml:"exclusions" json:"exclusions"`
+}
+
+type WAFDetectionThreshold struct {
+	Block int `yaml:"block" json:"block"` // default: 50
+	Log   int `yaml:"log" json:"log"`     // default: 25
+}
+
+type WAFDetectorConfig struct {
+	Enabled         bool    `yaml:"enabled" json:"enabled"`
+	ScoreMultiplier float64 `yaml:"score_multiplier" json:"score_multiplier"`
+}
+
+type WAFDetectorsConfig struct {
+	SQLi          WAFDetectorConfig `yaml:"sqli" json:"sqli"`
+	XSS           WAFDetectorConfig `yaml:"xss" json:"xss"`
+	PathTraversal WAFDetectorConfig `yaml:"path_traversal" json:"path_traversal"`
+	CMDi          WAFDetectorConfig `yaml:"cmdi" json:"cmdi"`
+	XXE           WAFDetectorConfig `yaml:"xxe" json:"xxe"`
+	SSRF          WAFDetectorConfig `yaml:"ssrf" json:"ssrf"`
+}
+
+type WAFDetectionExclusion struct {
+	Path      string   `yaml:"path" json:"path"`
+	Detectors []string `yaml:"detectors" json:"detectors"`
+	Reason    string   `yaml:"reason" json:"reason"`
+	Condition string   `yaml:"condition" json:"condition"` // "always", "whitelist"
+}
+
+// WAFBotConfig configures bot detection.
+type WAFBotConfig struct {
+	Enabled        bool                `yaml:"enabled" json:"enabled"`
+	Mode           string              `yaml:"mode" json:"mode"` // "enforce", "monitor"
+	TLSFingerprint *WAFTLSFPConfig     `yaml:"tls_fingerprint" json:"tls_fingerprint"`
+	UserAgent      *WAFUserAgentConfig `yaml:"user_agent" json:"user_agent"`
+	Behavior       *WAFBehaviorConfig  `yaml:"behavior" json:"behavior"`
+}
+
+type WAFTLSFPConfig struct {
+	Enabled         bool   `yaml:"enabled" json:"enabled"`
+	KnownBotsAction string `yaml:"known_bots_action" json:"known_bots_action"` // "block", "log"
+	UnknownAction   string `yaml:"unknown_action" json:"unknown_action"`
+	MismatchAction  string `yaml:"mismatch_action" json:"mismatch_action"`
+}
+
+type WAFUserAgentConfig struct {
+	Enabled            bool `yaml:"enabled" json:"enabled"`
+	BlockEmpty         bool `yaml:"block_empty" json:"block_empty"`
+	BlockKnownScanners bool `yaml:"block_known_scanners" json:"block_known_scanners"`
+}
+
+type WAFBehaviorConfig struct {
+	Enabled            bool   `yaml:"enabled" json:"enabled"`
+	Window             string `yaml:"window" json:"window"` // e.g. "5m"
+	RPSThreshold       int    `yaml:"rps_threshold" json:"rps_threshold"`
+	ErrorRateThreshold int    `yaml:"error_rate_threshold" json:"error_rate_threshold"`
+}
+
+// WAFResponseConfig configures response protection.
+type WAFResponseConfig struct {
+	SecurityHeaders *WAFSecurityHeadersConfig `yaml:"security_headers" json:"security_headers"`
+	DataMasking     *WAFDataMaskingConfig     `yaml:"data_masking" json:"data_masking"`
+	ErrorPages      *WAFErrorPagesConfig      `yaml:"error_pages" json:"error_pages"`
+}
+
+type WAFSecurityHeadersConfig struct {
+	Enabled               bool           `yaml:"enabled" json:"enabled"`
+	HSTS                  *WAFHSTSConfig `yaml:"hsts" json:"hsts"`
+	XContentTypeOptions   bool           `yaml:"x_content_type_options" json:"x_content_type_options"`
+	XFrameOptions         string         `yaml:"x_frame_options" json:"x_frame_options"`
+	ReferrerPolicy        string         `yaml:"referrer_policy" json:"referrer_policy"`
+	PermissionsPolicy     string         `yaml:"permissions_policy" json:"permissions_policy"`
+	ContentSecurityPolicy string         `yaml:"content_security_policy" json:"content_security_policy"`
+}
+
+type WAFHSTSConfig struct {
+	Enabled           bool `yaml:"enabled" json:"enabled"`
+	MaxAge            int  `yaml:"max_age" json:"max_age"`
+	IncludeSubdomains bool `yaml:"include_subdomains" json:"include_subdomains"`
+	Preload           bool `yaml:"preload" json:"preload"`
+}
+
+type WAFDataMaskingConfig struct {
+	Enabled          bool `yaml:"enabled" json:"enabled"`
+	MaskCreditCards  bool `yaml:"mask_credit_cards" json:"mask_credit_cards"`
+	MaskSSN          bool `yaml:"mask_ssn" json:"mask_ssn"`
+	MaskEmails       bool `yaml:"mask_emails" json:"mask_emails"`
+	MaskAPIKeys      bool `yaml:"mask_api_keys" json:"mask_api_keys"`
+	StripStackTraces bool `yaml:"strip_stack_traces" json:"strip_stack_traces"`
+}
+
+type WAFErrorPagesConfig struct {
 	Enabled bool   `yaml:"enabled" json:"enabled"`
-	Mode    string `yaml:"mode" json:"mode"`
+	Mode    string `yaml:"mode" json:"mode"` // "production", "development"
+}
+
+// WAFLoggingConfig configures WAF event logging.
+type WAFLoggingConfig struct {
+	Level      string `yaml:"level" json:"level"`   // "debug", "info", "warn", "error"
+	Format     string `yaml:"format" json:"format"` // "json", "text"
+	LogAllowed bool   `yaml:"log_allowed" json:"log_allowed"`
+	LogBlocked bool   `yaml:"log_blocked" json:"log_blocked"`
+	LogBody    bool   `yaml:"log_body" json:"log_body"`
 }
 
 // ListenerTLS represents TLS configuration for a listener.

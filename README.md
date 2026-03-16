@@ -9,8 +9,8 @@
   <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
   <a href="https://github.com/openloadbalancer/olb/releases"><img src="https://img.shields.io/github/v/release/openloadbalancer/olb" alt="Release"></a>
-  <a href="./"><img src="https://img.shields.io/badge/tests-39_E2E_%2B_36_unit-brightgreen" alt="Tests"></a>
-  <a href="./"><img src="https://img.shields.io/badge/coverage-89%25-brightgreen" alt="Coverage"></a>
+  <a href="./"><img src="https://img.shields.io/badge/tests-56_E2E_%2B_49_unit-brightgreen" alt="Tests"></a>
+  <a href="./"><img src="https://img.shields.io/badge/coverage-90%25-brightgreen" alt="Coverage"></a>
   <a href="./"><img src="https://img.shields.io/badge/deps-zero-orange" alt="Zero Deps"></a>
 </p>
 
@@ -76,9 +76,9 @@ Requires Go 1.25+. No other dependencies.
 
 **Load Balancing:** 12 algorithms — Round Robin, Weighted RR, Least Connections, Least Response Time, IP Hash, Consistent Hash (Ketama), Maglev, Ring Hash, Power of Two, Random, Weighted Random, Sticky Sessions
 
-**Security:** TLS termination + SNI, ACME/Let's Encrypt, mTLS, OCSP stapling, WAF (SQLi/XSS/traversal detection), rate limiting, IP filtering, circuit breaker
+**Security:** TLS termination + SNI, ACME/Let's Encrypt, mTLS, OCSP stapling, 6-layer WAF (IP ACL, rate limiting, request sanitizer, detection engine with SQLi/XSS/path traversal/CMDi/XXE/SSRF, bot detection with JA3 fingerprinting, response protection with security headers + data masking), circuit breaker
 
-**Middleware:** 18 components — rate limit, CORS, compression (gzip), WAF, IP filter, circuit breaker, retry, response cache, headers, request ID, real IP, access log, metrics
+**Middleware:** 19 components — WAF (6-layer security pipeline), rate limit, CORS, compression (gzip), IP filter, circuit breaker, retry, response cache, headers, request ID, real IP, access log, metrics
 
 **Observability:** Web UI dashboard (8 pages), TUI (`olb top`), Prometheus metrics, structured JSON logging, admin REST API (15+ endpoints)
 
@@ -94,7 +94,7 @@ Benchmarked on AMD Ryzen 9 9950X3D:
 | Proxy overhead | **137µs** (direct: 87µs → proxied: 223µs) |
 | RoundRobin.Next | **3.5 ns/op**, 0 allocs |
 | Middleware overhead | **< 3%** (full stack vs none) |
-| WAF overhead | **~3%** (11.8K vs 11.4K RPS) |
+| WAF overhead (6-layer) | **~35μs** per request, **< 3%** at proxy scale |
 | Binary size | **9 MB** |
 | P99 latency (50 conc.) | **22ms** |
 | Success rate | **100%** across all tests |
@@ -124,13 +124,13 @@ See [docs/benchmark-report.md](docs/benchmark-report.md) for the complete report
 
 ## E2E Verified
 
-39 end-to-end tests prove every feature works in a real proxy scenario:
+56 end-to-end tests prove every feature works in a real proxy scenario:
 
 | Category | Verified |
 |----------|----------|
 | **Proxy** | HTTP, HTTPS/TLS, WebSocket, SSE, TCP, UDP |
 | **Algorithms** | RR, WRR, LC, IPHash, CH, Maglev, P2C, Random, RingHash |
-| **Middleware** | Rate limit (429), CORS, gzip (98% reduction), WAF (SQLi/XSS → 403), IP filter, circuit breaker, cache (HIT/MISS), headers, retry |
+| **Middleware** | Rate limit (429), CORS, gzip (98% reduction), WAF 6-layer (SQLi/XSS/CMDi/path traversal → 403, rate limit → 429, monitor mode, security headers, bot detection, IP ACL, data masking), IP filter, circuit breaker, cache (HIT/MISS), headers, retry |
 | **Operations** | Health check (down/recovery), config reload, weighted distribution, session affinity, graceful failover (0 downtime) |
 | **Infra** | Admin API, Web UI, Prometheus, MCP server, multiple listeners |
 | **Performance** | 15K RPS, 137µs proxy overhead, 100% success rate |
@@ -170,7 +170,13 @@ middleware:
 
 waf:
   enabled: true
-  mode: block
+  mode: enforce
+  detection:
+    enabled: true
+    threshold: {block: 50, log: 25}
+  bot_detection: {enabled: true, mode: monitor}
+  response:
+    security_headers: {enabled: true}
 
 listeners:
   - name: http
@@ -225,9 +231,9 @@ olb cluster status                   # Cluster info
                     │              OpenLoadBalancer                    │
   Clients ─────────┤                                                  │
   HTTP/S, WS,      │  Listeners → Middleware → Router → Balancer → Backends
-  gRPC, TCP, UDP   │  (L4/L7)     (18 types)   (trie)   (12 algos)  │
+  gRPC, TCP, UDP   │  (L4/L7)     (19 types)   (trie)   (12 algos)  │
                     │                                                  │
-                    │  TLS │ Cluster │ MCP │ Web UI │ Admin API       │
+                    │  WAF (6 layers) │ TLS │ Cluster │ MCP │ Web UI  │
                     └─────────────────────────────────────────────────┘
 ```
 
@@ -240,6 +246,7 @@ olb cluster status                   # Cluster info
 | [Algorithms](docs/algorithms.md) | Algorithm details |
 | [API Reference](docs/api.md) | Admin REST API |
 | [Clustering](docs/clustering.md) | Multi-node setup |
+| [WAF](WAF-SPECIFICATION.md) | Web Application Firewall (6-layer defense) |
 | [MCP / AI](docs/mcp.md) | AI integration |
 | [Benchmarks](docs/benchmark-report.md) | Performance data |
 | [Specification](docs/SPECIFICATION.md) | Technical spec |
@@ -249,7 +256,7 @@ olb cluster status                   # Cluster info
 See [CONTRIBUTING.md](CONTRIBUTING.md). Key rules:
 
 1. **Zero external deps** — stdlib only
-2. **Tests required** — 89% coverage, don't lower it
+2. **Tests required** — 90% coverage, don't lower it
 3. **All features wired** — no dead code in engine.go
 4. **gofmt + go vet** — CI enforced
 

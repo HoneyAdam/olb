@@ -26,7 +26,42 @@ const (
 
 	// CmdUpdateListener updates a listener configuration.
 	CmdUpdateListener ConfigCommandType = "update_listener"
+
+	// WAF command types
+	CmdWAFAddWhitelist    ConfigCommandType = "waf_add_whitelist"
+	CmdWAFRemoveWhitelist ConfigCommandType = "waf_remove_whitelist"
+	CmdWAFAddBlacklist    ConfigCommandType = "waf_add_blacklist"
+	CmdWAFRemoveBlacklist ConfigCommandType = "waf_remove_blacklist"
+	CmdWAFAddRateRule     ConfigCommandType = "waf_add_rate_rule"
+	CmdWAFRemoveRateRule  ConfigCommandType = "waf_remove_rate_rule"
+	CmdWAFSetMode         ConfigCommandType = "waf_set_mode"
+	CmdWAFSyncCounters    ConfigCommandType = "waf_sync_counters"
 )
+
+// WAFIPACLPayload is the payload for WAF IP ACL commands.
+type WAFIPACLPayload struct {
+	CIDR    string `json:"cidr"`
+	Reason  string `json:"reason"`
+	Expires string `json:"expires,omitempty"` // ISO 8601
+}
+
+// WAFRateRulePayload is the payload for WAF rate limit rule commands.
+type WAFRateRulePayload struct {
+	ID           string   `json:"id"`
+	Scope        string   `json:"scope"`
+	Paths        []string `json:"paths,omitempty"`
+	Limit        int      `json:"limit"`
+	Window       string   `json:"window"`
+	Burst        int      `json:"burst,omitempty"`
+	Action       string   `json:"action,omitempty"`
+	AutoBanAfter int      `json:"auto_ban_after,omitempty"`
+}
+
+// WAFModePayload is the payload for WAF mode change commands.
+type WAFModePayload struct {
+	Layer string `json:"layer,omitempty"` // "detection", "bot", "rate_limit", "all"
+	Mode  string `json:"mode"`            // "enforce", "monitor", "disabled"
+}
 
 // ConfigCommand represents a configuration change command to be applied via Raft.
 type ConfigCommand struct {
@@ -63,6 +98,17 @@ type ConfigStateMachine struct {
 
 	// onConfigApplied is called after a config change is successfully committed.
 	onConfigApplied func(*config.Config)
+
+	// onWAFCommand is called when a WAF-specific command is applied via Raft.
+	// WAF middleware registers this callback to apply WAF state changes.
+	onWAFCommand func(cmdType ConfigCommandType, payload json.RawMessage) error
+}
+
+// SetWAFCommandHandler registers a callback for WAF Raft commands.
+func (sm *ConfigStateMachine) SetWAFCommandHandler(handler func(ConfigCommandType, json.RawMessage) error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.onWAFCommand = handler
 }
 
 // NewConfigStateMachine creates a new ConfigStateMachine with an optional
@@ -100,6 +146,13 @@ func (sm *ConfigStateMachine) Apply(command []byte) ([]byte, error) {
 		err = sm.applyUpdateRoute(cmd.Payload)
 	case CmdUpdateListener:
 		err = sm.applyUpdateListener(cmd.Payload)
+	case CmdWAFAddWhitelist, CmdWAFRemoveWhitelist,
+		CmdWAFAddBlacklist, CmdWAFRemoveBlacklist,
+		CmdWAFAddRateRule, CmdWAFRemoveRateRule,
+		CmdWAFSetMode, CmdWAFSyncCounters:
+		if sm.onWAFCommand != nil {
+			err = sm.onWAFCommand(cmd.Type, cmd.Payload)
+		}
 	default:
 		return nil, fmt.Errorf("unknown config command type: %s", cmd.Type)
 	}

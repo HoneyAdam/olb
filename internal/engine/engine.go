@@ -32,6 +32,7 @@ import (
 	"github.com/openloadbalancer/olb/internal/router"
 	olbTLS "github.com/openloadbalancer/olb/internal/tls"
 	"github.com/openloadbalancer/olb/internal/waf"
+	wafmcp "github.com/openloadbalancer/olb/internal/waf/mcp"
 	"github.com/openloadbalancer/olb/internal/webui"
 	"github.com/openloadbalancer/olb/pkg/version"
 )
@@ -234,6 +235,13 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 	adminCfg.ConfigGetter = &engineConfigGetter{engine: e}
 	adminCfg.CertLister = &engineCertLister{tlsMgr: tlsMgr}
 
+	// Wire WAF status provider for admin API
+	if e.middlewareChain != nil {
+		if wafMW, ok := e.middlewareChain.Get("waf").(*waf.WAFMiddleware); ok {
+			adminCfg.WAFStatus = func() any { return wafMW.Status() }
+		}
+	}
+
 	// Initialize MCP server with provider adapters
 	mcpCfg := mcp.ServerConfig{
 		Metrics:  &engineMetricsProvider{registry: metricsRegistry},
@@ -242,6 +250,13 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		Routes:   &engineRouteProvider{rtr: rtr},
 	}
 	e.mcpServer = mcp.NewServer(mcpCfg)
+
+	// Register WAF MCP tools if WAF is enabled
+	if e.mcpServer != nil && e.middlewareChain != nil {
+		if wafMW, ok := e.middlewareChain.Get("waf").(*waf.WAFMiddleware); ok {
+			wafmcp.RegisterTools(e.mcpServer, wafMW)
+		}
+	}
 
 	// Set up admin server reload callback before creating the server
 	adminCfg.OnReload = func() error {
@@ -1260,15 +1275,13 @@ func createMiddlewareChain(cfg *config.Config, logger *logging.Logger, registry 
 		}
 	}
 
-	// WAF (priority 100)
+	// WAF (priority 100) — 6-layer security pipeline
 	if cfg.WAF != nil && cfg.WAF.Enabled {
-		wafCfg := waf.DefaultConfig()
-		if cfg.WAF.Mode != "" {
-			wafCfg.Mode = cfg.WAF.Mode
-		}
-		w, err := waf.New(wafCfg)
+		wafMW, err := waf.NewWAFMiddleware(waf.WAFMiddlewareConfig{
+			Config: cfg.WAF,
+		})
 		if err == nil {
-			chain.Use(&wafMiddlewareAdapter{waf: w})
+			chain.Use(wafMW)
 		}
 	}
 
@@ -1363,25 +1376,6 @@ func createMiddlewareChain(cfg *config.Config, logger *logging.Logger, registry 
 	chain.Use(middleware.NewAccessLogMiddleware(middleware.AccessLogConfig{Logger: logger}))
 
 	return chain
-}
-
-// wafMiddlewareAdapter wraps waf.WAF as a middleware.Middleware.
-type wafMiddlewareAdapter struct {
-	waf *waf.WAF
-}
-
-func (w *wafMiddlewareAdapter) Name() string  { return "waf" }
-func (w *wafMiddlewareAdapter) Priority() int { return 100 }
-func (w *wafMiddlewareAdapter) Wrap(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
-		result, err := w.waf.Process(r)
-		if err != nil || !result.Allowed {
-			rw.WriteHeader(http.StatusForbidden)
-			rw.Write([]byte(`{"error":"blocked by WAF"}`))
-			return
-		}
-		next.ServeHTTP(rw, r)
-	})
 }
 
 // getAdminAddress returns the admin server address from config.

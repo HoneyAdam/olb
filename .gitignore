@@ -87,3 +87,6 @@ certs/local/
 # OS specific
 Thumbs.db
 Desktop.ini
+
+*.out
+*.out.*

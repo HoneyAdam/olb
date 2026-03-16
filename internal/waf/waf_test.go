@@ -782,10 +782,10 @@ func TestDefaultLogger_NoOp(t *testing.T) {
 
 func BenchmarkWAF_Process_SQLi(b *testing.B) {
 	waf, _ := New(nil)
-	req := httptest.NewRequest("GET", "http://example.com/?id=1' OR '1'='1", nil)
+	req := httptest.NewRequest("GET", "http://example.com/?id=1%27+OR+%271%27%3D%271", nil)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		waf.Process(req)
 	}
 }
