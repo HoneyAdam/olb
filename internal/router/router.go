@@ -225,10 +225,28 @@ func (r *Router) Match(req *http.Request) (*RouteMatch, bool) {
 // matchInHostTrie tries to match a request in a specific host trie.
 // Returns nil if no match found.
 func (r *Router) matchInHostTrie(ht *hostTrie, path string, req *http.Request) *RouteMatch {
-	// Match the path
+	// Try exact match first
 	result, ok := ht.trie.Match(path)
 	if !ok {
-		return nil
+		// Try prefix match: walk up the path looking for a parent route
+		// e.g., /api/users → try /api/users, /api, /
+		tryPath := path
+		for tryPath != "" {
+			idx := strings.LastIndex(tryPath, "/")
+			if idx <= 0 {
+				// Try root "/"
+				result, ok = ht.trie.Match("/")
+				break
+			}
+			tryPath = tryPath[:idx]
+			result, ok = ht.trie.Match(tryPath)
+			if ok {
+				break
+			}
+		}
+		if !ok {
+			return nil
+		}
 	}
 
 	// Get the matched path pattern
