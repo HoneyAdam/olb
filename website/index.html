@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OpenLoadBalancer — High-Performance Zero-Dependency Load Balancer</title>
+<meta name="description" content="L4/L7 load balancer written in Go. Single binary, zero dependencies, 15K RPS, built-in Web UI, clustering, MCP/AI integration.">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0a0a;--fg:#e5e5e5;--accent:#3b82f6;--muted:#737373;--surface:#171717;--border:#262626}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--fg);line-height:1.6}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.container{max-width:800px;margin:0 auto;padding:0 24px}
+header{padding:80px 0 40px;text-align:center}
+h1{font-size:2.5rem;font-weight:700;letter-spacing:-0.02em}
+h1 span{color:var(--accent)}
+.tagline{color:var(--muted);font-size:1.1rem;margin-top:12px}
+.badges{margin-top:24px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap}
+.badges img{height:22px}
+.install{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px 24px;margin:40px 0;font-family:'SF Mono',Monaco,Consolas,monospace;font-size:0.9rem;position:relative;overflow-x:auto}
+.install code{color:#22c55e}
+.install .comment{color:var(--muted)}
+.copy-btn{position:absolute;top:12px;right:12px;background:var(--border);border:none;color:var(--fg);padding:4px 12px;border-radius:4px;cursor:pointer;font-size:0.8rem}
+.copy-btn:hover{background:var(--accent)}
+.features{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:40px 0}
+.feature{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:20px}
+.feature h3{font-size:0.95rem;margin-bottom:8px}
+.feature p{color:var(--muted);font-size:0.85rem}
+.stats{display:flex;justify-content:center;gap:48px;margin:48px 0;flex-wrap:wrap}
+.stat{text-align:center}
+.stat .num{font-size:2rem;font-weight:700;color:var(--accent)}
+.stat .label{color:var(--muted);font-size:0.85rem}
+.links{display:flex;gap:16px;justify-content:center;margin:48px 0;flex-wrap:wrap}
+.btn{display:inline-block;padding:12px 28px;border-radius:8px;font-weight:600;font-size:0.95rem}
+.btn-primary{background:var(--accent);color:#fff}
+.btn-primary:hover{background:#2563eb;text-decoration:none}
+.btn-outline{border:1px solid var(--border);color:var(--fg)}
+.btn-outline:hover{border-color:var(--accent);text-decoration:none}
+footer{border-top:1px solid var(--border);padding:32px 0;text-align:center;color:var(--muted);font-size:0.85rem;margin-top:64px}
+@media(max-width:600px){
+  h1{font-size:1.8rem}
+  .features{grid-template-columns:1fr}
+  .stats{gap:24px}
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+<header>
+  <h1>Open<span>Load</span>Balancer</h1>
+  <p class="tagline">High-performance L4/L7 load balancer. Single binary. Zero dependencies.</p>
+  <div class="badges">
+    <img src="https://img.shields.io/github/v/release/openloadbalancer/olb?color=blue" alt="Release">
+    <img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go">
+    <img src="https://img.shields.io/badge/coverage-89%25-brightgreen" alt="Coverage">
+    <img src="https://img.shields.io/badge/deps-zero-orange" alt="Dependencies">
+  </div>
+</header>
+
+<div class="install">
+  <span class="comment"># Install</span><br>
+  <code>curl -sSL https://openloadbalancer.dev/install.sh | sh</code>
+  <button class="copy-btn" onclick="navigator.clipboard.writeText('curl -sSL https://openloadbalancer.dev/install.sh | sh')">Copy</button>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="num">15K</div><div class="label">Requests/sec</div></div>
+  <div class="stat"><div class="num">137µs</div><div class="label">Proxy overhead</div></div>
+  <div class="stat"><div class="num">9 MB</div><div class="label">Binary size</div></div>
+  <div class="stat"><div class="num">12</div><div class="label">LB algorithms</div></div>
+</div>
+
+<div class="features">
+  <div class="feature">
+    <h3>L4 + L7 Proxy</h3>
+    <p>HTTP/S, WebSocket, gRPC, SSE, TCP, UDP. TLS termination, SNI routing, PROXY protocol.</p>
+  </div>
+  <div class="feature">
+    <h3>Security</h3>
+    <p>WAF (SQLi/XSS), rate limiting, IP filtering, mTLS, ACME/Let's Encrypt, OCSP stapling.</p>
+  </div>
+  <div class="feature">
+    <h3>Observability</h3>
+    <p>Built-in Web UI, TUI dashboard, Prometheus metrics, structured logging, admin REST API.</p>
+  </div>
+  <div class="feature">
+    <h3>Operations</h3>
+    <p>Hot reload, Raft clustering, service discovery, MCP/AI integration, plugin system.</p>
+  </div>
+</div>
+
+<div class="links">
+  <a href="https://github.com/openloadbalancer/olb" class="btn btn-primary">GitHub</a>
+  <a href="https://github.com/openloadbalancer/olb/releases" class="btn btn-outline">Downloads</a>
+  <a href="https://github.com/openloadbalancer/olb/tree/main/docs" class="btn btn-outline">Docs</a>
+</div>
+
+</div>
+
+<footer>
+  <div class="container">
+    <p>Apache 2.0 &middot; <a href="https://github.com/openloadbalancer/olb">GitHub</a></p>
+  </div>
+</footer>
+
+</body>
+</html>
