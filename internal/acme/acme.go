@@ -352,11 +352,11 @@ func (c *Client) PollOrder(order *Order, timeout time.Duration) error {
 			return err
 		}
 
-		if err := json.NewDecoder(resp.Body).Decode(order); err != nil {
-			resp.Body.Close()
+		err = json.NewDecoder(resp.Body).Decode(order)
+		resp.Body.Close()
+		if err != nil {
 			return err
 		}
-		resp.Body.Close()
 
 		switch order.Status {
 		case "valid":
