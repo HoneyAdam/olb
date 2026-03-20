@@ -92,3 +92,5 @@ Desktop.ini
 # Raft data (local dev)
 raft-data/
 data/
+
+node_modules/
