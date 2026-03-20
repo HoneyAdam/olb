@@ -4,7 +4,7 @@
 > Works with Node.js, Python, Java, Go, Rust, .NET, PHP — anything that speaks HTTP or TCP.
 
 <p align="center">
-  <img src="olb.png" alt="OpenLoadBalancer" width="100%">
+  <img src="olb.jpeg" alt="OpenLoadBalancer" width="100%">
 </p>
 
 <p align="center">
