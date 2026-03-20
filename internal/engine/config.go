@@ -202,22 +202,26 @@ func (e *Engine) applyConfig(newCfg *config.Config) error {
 	}
 	newProxy := l7.NewHTTPProxy(newProxyConfig)
 
-	// Close old proxy and swap
-	if e.proxy != nil {
-		go func() {
-			// Give some time for in-flight requests to complete
-			time.Sleep(5 * time.Second)
-			e.proxy.Close()
-		}()
-	}
+	// Capture old proxy before swapping — must use local variable so the
+	// deferred close goroutine references the correct (old) proxy even if
+	// another reload happens within the drain window.
+	oldProxy := e.proxy
 	e.proxy = newProxy
 	e.mu.Unlock()
 
-	// 6. Stop old health checker
-	go func() {
+	// Close old proxy after drain window
+	if oldProxy != nil {
+		go func(p *l7.HTTPProxy) {
+			time.Sleep(5 * time.Second)
+			p.Close()
+		}(oldProxy)
+	}
+
+	// Stop old health checker after drain window
+	go func(hc *health.Checker) {
 		time.Sleep(10 * time.Second)
-		oldHealthChecker.Stop()
-	}()
+		hc.Stop()
+	}(oldHealthChecker)
 
 	// 7. Reload TLS certificates if changed
 	if newCfg.TLS != nil && newCfg.TLS.CertFile != "" && newCfg.TLS.KeyFile != "" {

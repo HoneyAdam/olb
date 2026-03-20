@@ -36,6 +36,9 @@ type Pool struct {
 	active int
 	closed bool
 
+	// Idle eviction
+	stopCh chan struct{}
+
 	// Statistics
 	hits   int64
 	misses int64
@@ -67,7 +70,7 @@ func NewPool(config *PoolConfig) *Pool {
 		config = DefaultPoolConfig()
 	}
 
-	return &Pool{
+	p := &Pool{
 		backendID:   config.BackendID,
 		address:     config.Address,
 		maxSize:     config.MaxSize,
@@ -75,6 +78,49 @@ func NewPool(config *PoolConfig) *Pool {
 		idleTimeout: config.IdleTimeout,
 		dialTimeout: config.DialTimeout,
 		idle:        make([]*PooledConn, 0, config.MaxSize),
+		stopCh:      make(chan struct{}),
+	}
+
+	// Start idle connection eviction goroutine
+	go p.evictIdle()
+
+	return p
+}
+
+// evictIdle periodically removes expired idle connections.
+func (p *Pool) evictIdle() {
+	interval := p.idleTimeout / 2
+	if interval < 10*time.Second {
+		interval = 10 * time.Second
+	}
+	if interval > 5*time.Minute {
+		interval = 5 * time.Minute
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.stopCh:
+			return
+		case <-ticker.C:
+			p.mu.Lock()
+			if p.closed {
+				p.mu.Unlock()
+				return
+			}
+			remaining := make([]*PooledConn, 0, len(p.idle))
+			for _, conn := range p.idle {
+				if conn.isExpired(p.maxLifetime, p.idleTimeout) {
+					conn.Conn.Close()
+				} else {
+					remaining = append(remaining, conn)
+				}
+			}
+			p.idle = remaining
+			p.mu.Unlock()
+		}
 	}
 }
 
@@ -172,6 +218,13 @@ func (p *Pool) Close() error {
 	}
 
 	p.closed = true
+
+	// Stop eviction goroutine
+	select {
+	case <-p.stopCh:
+	default:
+		close(p.stopCh)
+	}
 
 	// Close all idle connections
 	for _, conn := range p.idle {

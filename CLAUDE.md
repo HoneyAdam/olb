@@ -26,14 +26,14 @@ internal/engine/          → Central orchestrator (engine.go wires everything)
 internal/proxy/l7/        → HTTP reverse proxy + WebSocket/gRPC/SSE detection
 internal/proxy/l4/        → TCP/UDP proxy, SNI routing, PROXY protocol
 internal/balancer/        → 14 load balancing algorithms
-internal/middleware/      → 13 middleware components (config-gated)
+internal/middleware/      → 16 middleware components (config-gated)
 internal/config/          → YAML/TOML/HCL/JSON config + hot reload
 internal/admin/           → REST API + Web UI serving
 internal/cluster/         → Raft consensus + SWIM gossip
 internal/mcp/             → MCP server for AI integration
 internal/tls/             → TLS, mTLS, OCSP stapling
 internal/acme/            → ACME/Let's Encrypt client
-internal/health/          → Active + passive health checking
+internal/health/          → Active + passive health checking (HTTP, TCP, gRPC)
 internal/waf/             → WAF: 6-layer security pipeline (IP ACL, rate limit, sanitizer, detection, bot, response)
   waf/ipacl/              → Radix tree whitelist/blacklist with auto-ban
   waf/ratelimit/          → Token bucket rate limiter with distributed sync
@@ -111,7 +111,7 @@ waf:
 ## Common Patterns
 - Engine wiring: `internal/engine/engine.go` → `New()`, `Start()`, `Shutdown()`
 - Balancer switch: `initializePools()` — all 14 algorithms
-- Middleware chain: `createMiddlewareChain()` — all 13 middleware
+- Middleware chain: `createMiddlewareChain()` — all 15 middleware
 - Protocol detection: `proxy.go` → `proxyHandler()` checks WebSocket/gRPC/SSE headers
 - Backend state: `StateStarting` → set `StateUp` after creation
 - Backend ID: auto-generated from address if not specified

@@ -35,8 +35,8 @@ func NewBodyLimitMiddleware(config BodyLimitConfig) *BodyLimitMiddleware {
 // Name returns the middleware name.
 func (b *BodyLimitMiddleware) Name() string { return "body_limit" }
 
-// Priority returns the middleware priority (runs very early).
-func (b *BodyLimitMiddleware) Priority() int { return PriorityRealIP - 50 } // 250
+// Priority returns the middleware priority (runs before WAF/security).
+func (b *BodyLimitMiddleware) Priority() int { return PrioritySecurity - 50 } // 50
 
 // Wrap wraps the handler with body size enforcement.
 func (b *BodyLimitMiddleware) Wrap(next http.Handler) http.Handler {

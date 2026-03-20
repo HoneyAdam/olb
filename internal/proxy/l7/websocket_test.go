@@ -157,38 +157,38 @@ func TestWebSocketHandler_Disabled(t *testing.T) {
 	}
 }
 
-func TestWebSocketHandler_MissingVersion(t *testing.T) {
+func TestWebSocketHandler_MissingKey(t *testing.T) {
 	handler := NewWebSocketHandler(nil)
 
 	be := backend.NewBackend("backend-1", "127.0.0.1:8080")
 	req := httptest.NewRequest("GET", "/ws", nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
-	// Missing Sec-WebSocket-Version
+	// Missing Sec-WebSocket-Key
 
 	rec := httptest.NewRecorder()
 	err := handler.HandleWebSocket(rec, req, be)
 
-	if err == nil || !strings.Contains(err.Error(), "missing Sec-WebSocket-Version") {
-		t.Errorf("Expected 'missing Sec-WebSocket-Version' error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "missing Sec-WebSocket-Key") {
+		t.Errorf("Expected 'missing Sec-WebSocket-Key' error, got: %v", err)
 	}
 }
 
-func TestWebSocketHandler_HijackNotSupported(t *testing.T) {
+func TestWebSocketHandler_BackendDialFail(t *testing.T) {
 	handler := NewWebSocketHandler(nil)
 
-	be := backend.NewBackend("backend-1", "127.0.0.1:8080")
+	be := backend.NewBackend("backend-1", "127.0.0.1:1") // unreachable port
 	req := httptest.NewRequest("GET", "/ws", nil)
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 
-	// Use a normal ResponseRecorder (doesn't support hijack)
 	rec := httptest.NewRecorder()
 	err := handler.HandleWebSocket(rec, req, be)
 
-	if err == nil || !strings.Contains(err.Error(), "hijacking") {
-		t.Errorf("Expected hijacking error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "failed to connect to backend") {
+		t.Errorf("Expected backend dial error, got: %v", err)
 	}
 }
 
@@ -208,6 +208,7 @@ func TestWebSocketHandler_BackendMaxConnections(t *testing.T) {
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
 	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
 
 	rec := httptest.NewRecorder()
 	err := handler.HandleWebSocket(rec, req, be)
@@ -399,8 +400,6 @@ func TestProxyWebSocket(t *testing.T) {
 	client1, server1 := net.Pipe()
 	client2, server2 := net.Pipe()
 
-	be := backend.NewBackend("backend-1", "127.0.0.1:8080")
-
 	// Write from client side and read from server side
 	go func() {
 		client1.Write([]byte("ws message from client"))
@@ -419,7 +418,7 @@ func TestProxyWebSocket(t *testing.T) {
 	}()
 
 	// proxyWebSocket should complete without panic
-	err := handler.proxyWebSocket(server1, client2, be)
+	err := handler.proxyWebSocket(server1, client2)
 	// Error may or may not occur depending on timing, but should not panic
 	_ = err
 }

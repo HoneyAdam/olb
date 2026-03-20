@@ -70,6 +70,7 @@ type Engine struct {
 	ocspManager     *olbTLS.OCSPManager
 	poolManager     *backend.PoolManager
 	healthChecker   *health.Checker
+	passiveChecker  *health.PassiveChecker
 	router          *router.Router
 	proxy           *l7.HTTPProxy
 	listeners       []listener.Listener
@@ -166,6 +167,19 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 	// Create health checker
 	healthChecker := health.NewChecker()
 
+	// Create passive health checker for real-traffic based health detection
+	passiveChecker := health.NewPassiveChecker(nil)
+	passiveChecker.OnBackendUnhealthy = func(addr string) {
+		logger.Warn("Passive health check: backend marked unhealthy",
+			logging.String("backend", addr),
+		)
+	}
+	passiveChecker.OnBackendRecovered = func(addr string) {
+		logger.Info("Passive health check: backend recovered",
+			logging.String("backend", addr),
+		)
+	}
+
 	// Create router
 	rtr := router.NewRouter()
 
@@ -227,6 +241,7 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		ocspManager:     ocspMgr,
 		poolManager:     poolMgr,
 		healthChecker:   healthChecker,
+		passiveChecker:  passiveChecker,
 		router:          rtr,
 		proxy:           proxy,
 		connManager:     connMgr,
@@ -495,6 +510,12 @@ func (e *Engine) Start() error {
 		}
 	}
 
+	// 8a. Start passive health checker
+	if e.passiveChecker != nil {
+		e.passiveChecker.Start()
+		e.logger.Info("Passive health checker started")
+	}
+
 	// 9. Start MCP HTTP transport if admin address is available
 	if e.mcpServer != nil {
 		mcpAddr := getMCPAddress(e.config)
@@ -692,7 +713,11 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// 4. Stop health checker
+	// 4. Stop health checkers
+	if e.passiveChecker != nil {
+		e.passiveChecker.Stop()
+		e.logger.Info("Passive health checker stopped")
+	}
 	if e.healthChecker != nil {
 		e.healthChecker.Stop()
 		e.logger.Info("Health checker stopped")
@@ -1346,6 +1371,16 @@ func createLoggerWithOutput(cfg *config.Logging) (*logging.Logger, *logging.Rota
 func createMiddlewareChain(cfg *config.Config, logger *logging.Logger, registry *metrics.Registry) *middleware.Chain {
 	chain := middleware.NewChain()
 
+	// Panic Recovery (priority 1) — MUST be first to catch panics from all downstream middleware
+	chain.Use(middleware.NewRecoveryMiddleware(middleware.RecoveryConfig{
+		LogFunc: func(panicVal interface{}, stack string) {
+			logger.Error("panic recovered",
+				logging.String("panic", fmt.Sprintf("%v", panicVal)),
+				logging.String("stack", stack),
+			)
+		},
+	}))
+
 	// IP Filter (priority 100)
 	if cfg.Middleware != nil && cfg.Middleware.IPFilter != nil && cfg.Middleware.IPFilter.Enabled {
 		ipCfg := cfg.Middleware.IPFilter
@@ -1357,6 +1392,16 @@ func createMiddlewareChain(cfg *config.Config, logger *logging.Logger, registry 
 		}
 	}
 
+	// Max Body Size (priority 50) — MUST run before WAF to reject oversized
+	// payloads before they enter the detection pipeline (prevents DoS).
+	if cfg.Middleware != nil && cfg.Middleware.MaxBodySize != nil && cfg.Middleware.MaxBodySize.Enabled {
+		maxSize := cfg.Middleware.MaxBodySize.MaxSize
+		if maxSize <= 0 {
+			maxSize = 10 * 1024 * 1024 // 10 MB default
+		}
+		chain.Use(middleware.NewBodyLimitMiddleware(middleware.BodyLimitConfig{MaxSize: maxSize}))
+	}
+
 	// WAF (priority 100) — 6-layer security pipeline
 	if cfg.WAF != nil && cfg.WAF.Enabled {
 		wafMW, err := waf.NewWAFMiddleware(waf.WAFMiddlewareConfig{
@@ -1366,15 +1411,6 @@ func createMiddlewareChain(cfg *config.Config, logger *logging.Logger, registry 
 		if err == nil {
 			chain.Use(wafMW)
 		}
-	}
-
-	// Max Body Size (priority 250) — prevent memory exhaustion from large uploads
-	if cfg.Middleware != nil && cfg.Middleware.MaxBodySize != nil && cfg.Middleware.MaxBodySize.Enabled {
-		maxSize := cfg.Middleware.MaxBodySize.MaxSize
-		if maxSize <= 0 {
-			maxSize = 10 * 1024 * 1024 // 10 MB default
-		}
-		chain.Use(middleware.NewBodyLimitMiddleware(middleware.BodyLimitConfig{MaxSize: maxSize}))
 	}
 
 	// Real IP (priority 300)

@@ -431,14 +431,76 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("at least one listener is required")
 	}
 
+	// Validate listeners
+	listenerNames := make(map[string]bool)
 	for i, l := range c.Listeners {
 		if l.Name == "" {
 			return fmt.Errorf("listener %d: name is required", i)
 		}
+		if listenerNames[l.Name] {
+			return fmt.Errorf("listener %s: duplicate name", l.Name)
+		}
+		listenerNames[l.Name] = true
+
 		if l.Address == "" {
 			return fmt.Errorf("listener %s: address is required", l.Name)
+		}
+
+		// Validate address format (must be parseable as host:port)
+		if _, _, err := parseAddress(l.Address); err != nil {
+			return fmt.Errorf("listener %s: invalid address %q: %w", l.Name, l.Address, err)
+		}
+
+		// Validate routes reference pools
+		for j, route := range l.Routes {
+			if route.Pool == "" {
+				return fmt.Errorf("listener %s: route %d: pool is required", l.Name, j)
+			}
+		}
+	}
+
+	// Validate pools
+	poolNames := make(map[string]bool)
+	for i, p := range c.Pools {
+		if p.Name == "" {
+			return fmt.Errorf("pool %d: name is required", i)
+		}
+		if poolNames[p.Name] {
+			return fmt.Errorf("pool %s: duplicate name", p.Name)
+		}
+		poolNames[p.Name] = true
+
+		// Validate backends
+		for j, b := range p.Backends {
+			if b.Address == "" {
+				return fmt.Errorf("pool %s: backend %d: address is required", p.Name, j)
+			}
+		}
+	}
+
+	// Validate route pool references
+	for _, l := range c.Listeners {
+		for _, route := range l.Routes {
+			if route.Pool != "" && !poolNames[route.Pool] {
+				return fmt.Errorf("listener %s: route references non-existent pool %q", l.Name, route.Pool)
+			}
+		}
+		if l.Pool != "" && !poolNames[l.Pool] {
+			return fmt.Errorf("listener %s: references non-existent pool %q", l.Name, l.Pool)
 		}
 	}
 
 	return nil
+}
+
+// parseAddress validates and splits an address like ":8080" or "127.0.0.1:8080".
+func parseAddress(addr string) (string, string, error) {
+	if strings.HasPrefix(addr, ":") {
+		return "", addr[1:], nil
+	}
+	host, port, found := strings.Cut(addr, ":")
+	if !found {
+		return addr, "", nil
+	}
+	return host, port, nil
 }

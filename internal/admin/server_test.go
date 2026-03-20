@@ -2981,6 +2981,50 @@ func TestHandleBackendDetail_NotFound(t *testing.T) {
 	}
 }
 
+// TestUpdateBackend tests PATCH /api/v1/backends/:pool/:backend to update weight.
+func TestUpdateBackend(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	b := backend.NewBackend("b1", "10.0.0.1:8080")
+	b.Weight = 1
+	pool.AddBackend(b)
+	poolManager.AddPool(pool)
+
+	body := `{"weight": 5}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/backends/test-pool/b1", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	// Verify weight was updated
+	if b.Weight != 5 {
+		t.Errorf("expected weight 5, got %d", b.Weight)
+	}
+}
+
+// TestUpdateBackend_NotFound tests PATCH on non-existent backend.
+func TestUpdateBackend_NotFound(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	poolManager.AddPool(pool)
+
+	body := `{"weight": 5}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/backends/test-pool/nonexistent", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+}
+
 // TestHandleBackendDetail_MethodNotAllowed tests unsupported methods on backend detail.
 func TestHandleBackendDetail_MethodNotAllowed(t *testing.T) {
 	server, poolManager, _, _, _ := setupTestServer(t, nil)

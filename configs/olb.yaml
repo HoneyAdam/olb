@@ -6,6 +6,7 @@ version: "1"
 # Admin API
 admin:
   address: "127.0.0.1:8081"
+  mcp_address: "127.0.0.1:8082"  # MCP server for AI integration
 
 # Middleware configuration (all disabled by default)
 middleware:
@@ -34,6 +35,19 @@ middleware:
     enabled: true
     response_add:
       X-Powered-By: OpenLoadBalancer
+  timeout:
+    enabled: true
+    timeout: "60s"
+  max_body_size:
+    enabled: true
+    max_size: 10485760  # 10 MB
+  circuit_breaker:
+    enabled: true
+    error_threshold: 50
+  retry:
+    enabled: true
+  cache:
+    enabled: false
 
 # WAF (Web Application Firewall)
 waf:
@@ -96,3 +110,8 @@ pools:
 logging:
   level: info
   format: json
+
+# Profiling (disabled by default — enable for debugging)
+profiling:
+  enabled: false
+  pprof_addr: "localhost:6060"

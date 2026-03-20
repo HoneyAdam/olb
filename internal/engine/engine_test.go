@@ -1603,14 +1603,9 @@ func TestInitializePoolsWithErrors(t *testing.T) {
 		}
 
 		configPath := createTempConfigFile(t, cfg)
-		engine, err := New(cfg, configPath)
-		if err != nil {
-			t.Fatalf("Failed to create engine: %v", err)
-		}
-
-		err = engine.initializePools()
+		_, err := New(cfg, configPath)
 		if err == nil {
-			t.Error("initializePools() expected error for duplicate pool name")
+			t.Error("New() expected error for duplicate pool name")
 		}
 	})
 }

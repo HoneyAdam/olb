@@ -2,7 +2,9 @@
 package health
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -224,6 +226,8 @@ func (c *Checker) performCheck(state *checkState) {
 		result = c.checkHTTP(state.backend, config)
 	case "tcp":
 		result = c.checkTCP(state.backend, config)
+	case "grpc":
+		result = c.checkGRPC(state.backend, config)
 	default:
 		result = Result{
 			Healthy: false,
@@ -316,6 +320,78 @@ func (c *Checker) checkHTTP(b *backend.Backend, config *Check) Result {
 	}
 
 	return Result{Healthy: true}
+}
+
+// checkGRPC performs a gRPC health check using a minimal HTTP/2 approach.
+// It sends a gRPC request to /grpc.health.v1.Health/Check and checks the
+// response status. This works without external protobuf dependencies by
+// sending a pre-encoded empty Check request and validating the gRPC status.
+func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
+	// gRPC uses HTTP/2 POST with specific content type
+	url := fmt.Sprintf("https://%s/grpc.health.v1.Health/Check", b.Address)
+
+	ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
+	defer cancel()
+
+	// Pre-encoded protobuf: empty HealthCheckRequest = no fields = empty message
+	// gRPC wire format: [compressed(1 byte) + length(4 bytes) + message(0 bytes)]
+	grpcPayload := []byte{0, 0, 0, 0, 0} // uncompressed, 0-length message
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
+	if err != nil {
+		return Result{Healthy: false, Error: err}
+	}
+	req.Header.Set("Content-Type", "application/grpc")
+	req.Header.Set("TE", "trailers")
+
+	client := &http.Client{
+		Timeout: config.Timeout,
+		Transport: &http.Transport{
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true},
+			ForceAttemptHTTP2: true,
+		},
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		// Fallback: if HTTPS fails (self-signed or no TLS), try plain HTTP/2
+		url = fmt.Sprintf("http://%s/grpc.health.v1.Health/Check", b.Address)
+		req, _ = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
+		req.Header.Set("Content-Type", "application/grpc")
+		req.Header.Set("TE", "trailers")
+
+		plainClient := &http.Client{
+			Timeout:   config.Timeout,
+			Transport: &http.Transport{ForceAttemptHTTP2: true},
+		}
+		resp, err = plainClient.Do(req)
+		if err != nil {
+			return Result{Healthy: false, Error: fmt.Errorf("grpc health check failed: %w", err)}
+		}
+	}
+	defer resp.Body.Close()
+
+	// Check gRPC status from trailers (grpc-status: 0 = OK)
+	grpcStatus := resp.Trailer.Get("Grpc-Status")
+	if grpcStatus == "" {
+		grpcStatus = resp.Header.Get("Grpc-Status")
+	}
+	if grpcStatus != "" && grpcStatus != "0" {
+		return Result{
+			Healthy: false,
+			Error:   fmt.Errorf("grpc health check returned status: %s", grpcStatus),
+		}
+	}
+
+	// HTTP 200 with gRPC status 0 (or absent) = healthy
+	if resp.StatusCode == http.StatusOK {
+		return Result{Healthy: true}
+	}
+
+	return Result{
+		Healthy: false,
+		Error:   fmt.Errorf("grpc health check HTTP status: %d", resp.StatusCode),
+	}
 }
 
 // checkTCP performs a TCP health check.

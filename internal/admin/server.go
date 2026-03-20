@@ -189,6 +189,9 @@ func (s *Server) setupRoutes() {
 		handler = AuthMiddleware(s.config)(mux)
 	}
 
+	// Apply CORS for admin API (allows Web UI from any origin)
+	handler = adminCORS(handler)
+
 	s.server = &http.Server{
 		Addr:         s.addr,
 		Handler:      handler,
@@ -307,4 +310,28 @@ func (m *defaultMetrics) PrometheusFormat() string {
 	handler := metrics.NewPrometheusHandler(m.registry)
 	handler.WriteMetrics(&buf)
 	return buf.String()
+}
+
+// adminCORS wraps a handler with CORS headers for the admin API.
+// This allows the embedded Web UI (or external dashboards) to call
+// the API from any origin.
+func adminCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Access-Control-Max-Age", "86400")
+		}
+
+		// Handle preflight
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }

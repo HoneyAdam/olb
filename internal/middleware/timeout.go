@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"net/http"
+	"sync/atomic"
 	"time"
 )
 
@@ -79,22 +80,24 @@ func (t *TimeoutMiddleware) Wrap(next http.Handler) http.Handler {
 }
 
 // timeoutWriter tracks whether a response has been written.
+// Uses atomic operations for safe concurrent access between the
+// handler goroutine and the timeout select branch.
 type timeoutWriter struct {
 	http.ResponseWriter
-	written bool
+	written atomic.Bool
 }
 
 func (tw *timeoutWriter) WriteHeader(code int) {
-	tw.written = true
+	tw.written.Store(true)
 	tw.ResponseWriter.WriteHeader(code)
 }
 
 func (tw *timeoutWriter) Write(b []byte) (int, error) {
-	tw.written = true
+	tw.written.Store(true)
 	return tw.ResponseWriter.Write(b)
 }
 
 // Written returns true if the handler has written a response.
 func (tw *timeoutWriter) Written() bool {
-	return tw.written
+	return tw.written.Load()
 }
