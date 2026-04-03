@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -1093,13 +1094,21 @@ func TestClient_getNonce_ServerError(t *testing.T) {
 		t.Fatalf("GeneratePrivateKey error: %v", err)
 	}
 
-	// Use an invalid URL so the HTTP client fails
+	// Start a server that immediately closes connections, then stop it
+	// so the port is guaranteed to refuse connections.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := listener.Addr().String()
+	listener.Close() // port now refuses connections
+
 	client := &Client{
 		accountKey: key,
 		directory: &Directory{
-			NewNonce: "http://127.0.0.1:1/new-nonce", // connection refused
+			NewNonce: "http://" + addr + "/new-nonce",
 		},
-		httpClient: &http.Client{},
+		httpClient: &http.Client{Timeout: 2 * time.Second},
 	}
 
 	_, err = client.getNonce()

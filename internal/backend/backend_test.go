@@ -320,10 +320,17 @@ func TestBackendDial(t *testing.T) {
 }
 
 func TestBackendDial_ConnectionRefused(t *testing.T) {
-	// Use a port that is not listening
-	b := NewBackend("test-dial-fail", "127.0.0.1:1")
+	// Listen on a random port, then close it to guarantee connection refused
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to listen: %v", err)
+	}
+	addr := listener.Addr().String()
+	listener.Close()
 
-	_, err := b.Dial(100 * time.Millisecond)
+	b := NewBackend("test-dial-fail", addr)
+
+	_, err = b.Dial(100 * time.Millisecond)
 	if err == nil {
 		t.Error("Dial() should return error for refused connection")
 	}
