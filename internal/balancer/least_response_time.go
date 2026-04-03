@@ -15,7 +15,7 @@ const DefaultResponseTimeWindowSize = 100
 type lrtBackendState struct {
 	backend *backend.Backend
 	// samples is a circular buffer of recent response times
-	samples []time.Duration
+	samples []atomic.Int64
 	// writePos is the next position to write in the circular buffer
 	writePos atomic.Uint32
 	// count is the number of valid samples in the buffer
@@ -28,7 +28,7 @@ type lrtBackendState struct {
 func newLRTBackendState(backend *backend.Backend, windowSize int) *lrtBackendState {
 	return &lrtBackendState{
 		backend: backend,
-		samples: make([]time.Duration, windowSize),
+		samples: make([]atomic.Int64, windowSize),
 	}
 }
 
@@ -47,8 +47,7 @@ func (bs *lrtBackendState) record(d time.Duration) {
 	}
 
 	// Now we own position 'pos'
-	oldSample := bs.samples[pos]
-	bs.samples[pos] = d
+	oldSample := bs.samples[pos].Swap(int64(d))
 
 	// Update count (cap at windowSize)
 	for {
@@ -65,7 +64,7 @@ func (bs *lrtBackendState) record(d time.Duration) {
 	// Update total: add new sample, subtract old sample if we're overwriting
 	if bs.count.Load() == windowSize {
 		// We're overwriting, subtract the old value
-		bs.total.Add(int64(d) - int64(oldSample))
+		bs.total.Add(int64(d) - oldSample)
 	} else {
 		// New slot, just add
 		bs.total.Add(int64(d))

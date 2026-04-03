@@ -334,16 +334,28 @@ func (m *Manager) AllServices() []*Service {
 }
 
 // AggregateEvents returns an aggregated channel of events from all providers.
+// The returned channel is closed when all provider event channels are drained.
+// Goroutines are stopped when the caller stops consuming from the returned channel
+// and it is garbage collected, or when the provider event channels are closed.
 func (m *Manager) AggregateEvents() <-chan *Event {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
+	providers := make([]Provider, 0, len(m.providers))
+	for _, p := range m.providers {
+		providers = append(providers, p)
+	}
+	m.mu.RUnlock()
 
 	// Create aggregated channel
 	agg := make(chan *Event, 1000)
 
+	// Use a WaitGroup to know when all forwarders are done
+	var wg sync.WaitGroup
+
 	// Start goroutine for each provider
-	for _, provider := range m.providers {
+	for _, provider := range providers {
+		wg.Add(1)
 		go func(p Provider) {
+			defer wg.Done()
 			for event := range p.Events() {
 				select {
 				case agg <- event:
@@ -353,6 +365,12 @@ func (m *Manager) AggregateEvents() <-chan *Event {
 			}
 		}(provider)
 	}
+
+	// Close aggregated channel when all forwarders finish
+	go func() {
+		wg.Wait()
+		close(agg)
+	}()
 
 	return agg
 }

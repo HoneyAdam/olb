@@ -95,10 +95,13 @@ type Result struct {
 
 // Checker performs health checks for backends.
 type Checker struct {
-	mu     sync.RWMutex
-	checks map[string]*checkState // backend ID -> check state
-	stopCh chan struct{}
-	wg     sync.WaitGroup
+	mu               sync.RWMutex
+	checks           map[string]*checkState // backend ID -> check state
+	stopCh           chan struct{}
+	wg               sync.WaitGroup
+	httpClient       *http.Client // shared HTTP client for HTTP/HTTPS health checks
+	grpcClient       *http.Client // shared HTTP client for gRPC health checks (TLS + H2)
+	grpcPlainClient  *http.Client // shared HTTP client for gRPC fallback (plain H2C)
 }
 
 // checkState holds the state for a single backend's health check.
@@ -115,9 +118,38 @@ type checkState struct {
 
 // NewChecker creates a new health checker.
 func NewChecker() *Checker {
+	// Shared HTTP client for HTTP/HTTPS health checks.
+	// 10s overall timeout, no redirect following, connection reuse enabled.
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	// Shared HTTP client for gRPC health checks (TLS with InsecureSkipVerify + HTTP/2).
+	grpcClient := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec — health check to internal backends
+			ForceAttemptHTTP2: true,
+		},
+	}
+
+	// Shared HTTP client for gRPC fallback (plain HTTP/2 without TLS).
+	grpcPlainClient := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			ForceAttemptHTTP2: true,
+		},
+	}
+
 	return &Checker{
-		checks: make(map[string]*checkState),
-		stopCh: make(chan struct{}),
+		checks:          make(map[string]*checkState),
+		stopCh:          make(chan struct{}),
+		httpClient:      httpClient,
+		grpcClient:      grpcClient,
+		grpcPlainClient: grpcPlainClient,
 	}
 }
 
@@ -295,15 +327,7 @@ func (c *Checker) checkHTTP(b *backend.Backend, config *Check) Result {
 		req.Header.Set(key, value)
 	}
 
-	client := &http.Client{
-		Timeout: config.Timeout,
-		// Don't follow redirects
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-
-	resp, err := client.Do(req)
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return Result{Healthy: false, Error: err}
 	}
@@ -352,17 +376,7 @@ func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 	req.Header.Set("Content-Type", "application/grpc")
 	req.Header.Set("TE", "trailers")
 
-	client := &http.Client{
-		Timeout: config.Timeout,
-		Transport: &http.Transport{
-			// Health checks against backends typically use self-signed certs.
-			// Verification is skipped to avoid requiring CA distribution.
-			TLSClientConfig:   &tls.Config{InsecureSkipVerify: true}, //nolint:gosec — health check to internal backends
-			ForceAttemptHTTP2: true,
-		},
-	}
-
-	resp, err := client.Do(req)
+	resp, err := c.grpcClient.Do(req)
 	if err != nil {
 		// Fallback: if HTTPS fails (self-signed or no TLS), try plain HTTP/2
 		url = fmt.Sprintf("http://%s/grpc.health.v1.Health/Check", b.Address)
@@ -373,11 +387,7 @@ func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 		req.Header.Set("Content-Type", "application/grpc")
 		req.Header.Set("TE", "trailers")
 
-		plainClient := &http.Client{
-			Timeout:   config.Timeout,
-			Transport: &http.Transport{ForceAttemptHTTP2: true},
-		}
-		resp, err = plainClient.Do(req)
+		resp, err = c.grpcPlainClient.Do(req)
 		if err != nil {
 			return Result{Healthy: false, Error: fmt.Errorf("grpc health check failed: %w", err)}
 		}

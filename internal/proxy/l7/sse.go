@@ -3,6 +3,7 @@ package l7
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -105,7 +106,7 @@ func (sh *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request, b *backe
 	}
 
 	// Handle SSE response with streaming
-	return sh.streamSSEResponse(w, resp, b)
+	return sh.streamSSEResponseWithContext(w, r, resp, b)
 }
 
 // createSSETransport creates an HTTP transport optimized for SSE.
@@ -157,8 +158,16 @@ func (sh *SSEHandler) prepareSSERequest(r *http.Request, b *backend.Backend) (*h
 	return outReq, nil
 }
 
-// streamSSEResponse streams an SSE response to the client.
+// streamSSEResponse streams an SSE response to the client without context awareness.
+// This is kept for backward compatibility; prefer streamSSEResponseWithContext.
 func (sh *SSEHandler) streamSSEResponse(w http.ResponseWriter, resp *http.Response, b *backend.Backend) error {
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
+	return sh.streamSSEResponseWithContext(w, req, resp, b)
+}
+
+// streamSSEResponseWithContext streams an SSE response to the client,
+// stopping when the client disconnects (via request context cancellation).
+func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *http.Request, resp *http.Response, b *backend.Backend) error {
 	// Copy headers
 	copySSEHeaders(w.Header(), resp.Header)
 
@@ -179,34 +188,52 @@ func (sh *SSEHandler) streamSSEResponse(w http.ResponseWriter, resp *http.Respon
 	}
 
 	// Stream events line by line
+	ctx := r.Context()
 	reader := bufio.NewReader(resp.Body)
 	for {
 		// Read line with timeout handling
-		line, err := sh.readLineWithTimeout(reader, sh.config.IdleTimeout, func() { resp.Body.Close() })
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			// Check if it's a timeout (normal for SSE idle connections)
-			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				// Send a keepalive comment and continue
-				if _, writeErr := w.Write([]byte(":keepalive\n")); writeErr != nil {
-					return writeErr
+		lineCh := make(chan readLineResult, 1)
+		go func() {
+			line, err := sh.readLineWithTimeout(reader, sh.config.IdleTimeout, func() { resp.Body.Close() })
+			lineCh <- readLineResult{line: line, err: err}
+		}()
+
+		select {
+		case <-ctx.Done():
+			// Client disconnected, stop streaming
+			return ctx.Err()
+		case res := <-lineCh:
+			if res.err != nil {
+				if res.err == io.EOF {
+					return nil
 				}
-				flusher.Flush()
-				continue
+				// Check if it's a timeout (normal for SSE idle connections)
+				if netErr, ok := res.err.(net.Error); ok && netErr.Timeout() {
+					// Send a keepalive comment and continue
+					if _, writeErr := w.Write([]byte(":keepalive\n")); writeErr != nil {
+						return writeErr
+					}
+					flusher.Flush()
+					continue
+				}
+				return res.err
 			}
-			return err
-		}
 
-		// Write the line
-		if _, writeErr := w.Write(line); writeErr != nil {
-			return writeErr
-		}
+			// Write the line
+			if _, writeErr := w.Write(res.line); writeErr != nil {
+				return writeErr
+			}
 
-		// Flush after each line (critical for SSE)
-		flusher.Flush()
+			// Flush after each line (critical for SSE)
+			flusher.Flush()
+		}
 	}
+}
+
+// readLineResult holds the result of an async line read.
+type readLineResult struct {
+	line []byte
+	err  error
 }
 
 // readLineWithTimeout reads a line with a timeout.

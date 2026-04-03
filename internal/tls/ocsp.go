@@ -231,7 +231,7 @@ func (m *OCSPManager) fetchResponse(cert *x509.Certificate, issuer *x509.Certifi
 	// Try each responder
 	var lastErr error
 	for _, responderURL := range cert.OCSPServer {
-		resp, err := m.queryResponder(responderURL, requestBody)
+		resp, err := m.queryResponder(responderURL, requestBody, issuer)
 		if err == nil {
 			return resp, nil
 		}
@@ -242,7 +242,7 @@ func (m *OCSPManager) fetchResponse(cert *x509.Certificate, issuer *x509.Certifi
 }
 
 // queryResponder queries a single OCSP responder.
-func (m *OCSPManager) queryResponder(responderURL string, requestBody []byte) (*OCSPResponse, error) {
+func (m *OCSPManager) queryResponder(responderURL string, requestBody []byte, issuer *x509.Certificate) (*OCSPResponse, error) {
 	// Try POST first
 	req, err := http.NewRequest("POST", responderURL, bytes.NewReader(requestBody))
 	if err != nil {
@@ -260,14 +260,14 @@ func (m *OCSPManager) queryResponder(responderURL string, requestBody []byte) (*
 
 	if resp.StatusCode != http.StatusOK {
 		// Try GET fallback
-		return m.queryResponderGET(responderURL, requestBody)
+		return m.queryResponderGET(responderURL, requestBody, issuer)
 	}
 
-	return m.parseResponse(resp.Body)
+	return m.parseResponse(resp.Body, issuer)
 }
 
 // queryResponderGET queries using GET method (RFC 6960 Appendix A.1).
-func (m *OCSPManager) queryResponderGET(responderURL string, requestBody []byte) (*OCSPResponse, error) {
+func (m *OCSPManager) queryResponderGET(responderURL string, requestBody []byte, issuer *x509.Certificate) (*OCSPResponse, error) {
 	// Base64 encode the request
 	encoded := base64.StdEncoding.EncodeToString(requestBody)
 	urlWithParam := fmt.Sprintf("%s/%s", responderURL, encoded)
@@ -282,17 +282,17 @@ func (m *OCSPManager) queryResponderGET(responderURL string, requestBody []byte)
 		return nil, fmt.Errorf("OCSP responder returned %d", resp.StatusCode)
 	}
 
-	return m.parseResponse(resp.Body)
+	return m.parseResponse(resp.Body, issuer)
 }
 
 // parseResponse parses the OCSP response.
-func (m *OCSPManager) parseResponse(body io.Reader) (*OCSPResponse, error) {
+func (m *OCSPManager) parseResponse(body io.Reader, issuer *x509.Certificate) (*OCSPResponse, error) {
 	data, err := io.ReadAll(body)
 	if err != nil {
 		return nil, err
 	}
 
-	parsed, err := ocsp.ParseResponse(data, nil)
+	parsed, err := ocsp.ParseResponse(data, issuer)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse OCSP response: %w", err)
 	}

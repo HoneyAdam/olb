@@ -596,7 +596,7 @@ func TestOCSPManager_QueryResponder_MockServer(t *testing.T) {
 	manager := NewOCSPManager(DefaultOCSPConfig())
 
 	// The response will fail to parse as valid OCSP, but we verify the HTTP flow works
-	_, err := manager.queryResponder(mockOCSPServer.URL, []byte("test-request"))
+	_, err := manager.queryResponder(mockOCSPServer.URL, []byte("test-request"), nil)
 	// We expect a parse error since our mock response isn't a real OCSP response
 	if err == nil {
 		t.Log("queryResponder succeeded (mock response happened to parse)")
@@ -615,7 +615,7 @@ func TestOCSPManager_QueryResponderGET_MockServer(t *testing.T) {
 
 	manager := NewOCSPManager(DefaultOCSPConfig())
 
-	_, err := manager.queryResponderGET(mockOCSPServer.URL, []byte("test-request"))
+	_, err := manager.queryResponderGET(mockOCSPServer.URL, []byte("test-request"), nil)
 	// Parse error is expected since it's not a real OCSP response
 	if err == nil {
 		t.Log("queryResponderGET succeeded (mock response happened to parse)")
@@ -630,7 +630,7 @@ func TestOCSPManager_QueryResponderGET_ServerError(t *testing.T) {
 
 	manager := NewOCSPManager(DefaultOCSPConfig())
 
-	_, err := manager.queryResponderGET(mockOCSPServer.URL, []byte("test-request"))
+	_, err := manager.queryResponderGET(mockOCSPServer.URL, []byte("test-request"), nil)
 	if err == nil {
 		t.Error("Expected error for 500 response")
 	}
@@ -641,7 +641,7 @@ func TestOCSPManager_ParseResponse_ValidStructure(t *testing.T) {
 
 	// Use a bytes.Reader to test parseResponse
 	// An invalid OCSP response body should return a parse error
-	_, err := manager.parseResponse(bytes.NewReader([]byte("invalid ocsp data")))
+	_, err := manager.parseResponse(bytes.NewReader([]byte("invalid ocsp data")), nil)
 	if err == nil {
 		t.Error("Expected error for invalid OCSP response data")
 	}

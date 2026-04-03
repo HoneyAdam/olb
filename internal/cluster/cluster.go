@@ -318,7 +318,6 @@ func (c *Cluster) startElection() {
 	lastLogIndex := c.getLastLogIndex()
 	lastLogTerm := c.getLastLogTermLocked()
 
-	var wg sync.WaitGroup
 	c.nodesMu.RLock()
 	peers := make(map[string]string, len(c.nodes))
 	for nodeID, node := range c.nodes {
@@ -329,9 +328,7 @@ func (c *Cluster) startElection() {
 	c.nodesMu.RUnlock()
 
 	for _, addr := range peers {
-		wg.Add(1)
 		go func(addr string) {
-			defer wg.Done()
 
 			if c.transport != nil {
 				// Send real RPC via TCPTransport
@@ -366,8 +363,7 @@ func (c *Cluster) startElection() {
 	// Wait for votes with timeout
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(done)
+			close(done)
 	}()
 
 	select {
@@ -424,11 +420,8 @@ func (c *Cluster) sendHeartbeats() {
 	}
 	c.nodesMu.RUnlock()
 
-	var wg sync.WaitGroup
 	for _, addr := range peerAddrs {
-		wg.Add(1)
 		go func(addr string) {
-			defer wg.Done()
 			if c.transport != nil {
 				resp, err := c.transport.SendAppendEntries(addr, &AppendEntries{
 					Term:         term,
@@ -449,7 +442,6 @@ func (c *Cluster) sendHeartbeats() {
 			}
 		}(addr)
 	}
-	wg.Wait()
 }
 
 // handleCommand handles a command to be applied.
@@ -867,19 +859,19 @@ func (c *Cluster) HandleAppendEntries(req *AppendEntries) *AppendEntriesResponse
 		}
 		c.commitIndex.Store(newCommit)
 
-		// Apply committed but unapplied entries to state machine
-		for c.lastApplied.Load() < c.commitIndex.Load() {
-			nextApply := c.lastApplied.Load() + 1
-			c.logMu.RLock()
-			if nextApply <= uint64(len(c.log)) {
-				entry := c.log[nextApply-1]
-				c.logMu.RUnlock()
-				c.stateMachine.Apply(entry.Command)
-				c.lastApplied.Add(1)
-			} else {
-				c.logMu.RUnlock()
-				break
-			}
+		// Collect committed but unapplied entries under a single lock
+		var toApply [][]byte
+		startIdx := c.lastApplied.Load() + 1
+		c.logMu.RLock()
+		for i := startIdx; i <= c.commitIndex.Load() && i <= uint64(len(c.log)); i++ {
+			toApply = append(toApply, c.log[i-1].Command)
+		}
+		c.logMu.RUnlock()
+
+		// Apply outside the lock to avoid interleaving
+		for _, cmd := range toApply {
+			c.stateMachine.Apply(cmd)
+			c.lastApplied.Add(1)
 		}
 	}
 

@@ -466,7 +466,10 @@ func (c *Client) keyThumbprint() (string, error) {
 		"y":   base64.RawURLEncoding.EncodeToString(pub.Y.Bytes()),
 	}
 
-	jwkJSON, _ := json.Marshal(jwk)
+	jwkJSON, err := json.Marshal(jwk)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JWK: %w", err)
+	}
 	hash := sha256.Sum256(jwkJSON)
 	return base64.RawURLEncoding.EncodeToString(hash[:]), nil
 }

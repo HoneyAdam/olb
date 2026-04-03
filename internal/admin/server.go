@@ -67,6 +67,9 @@ type Server struct {
 	// Callbacks
 	onReload func() error
 
+	// Internal
+	rateLimiter *rateLimiter
+
 	// State
 	mu    sync.RWMutex
 	state string
@@ -197,7 +200,9 @@ func (s *Server) setupRoutes() {
 
 	// Apply rate limiting before auth to prevent brute force attacks
 	var handler http.Handler = mux
-	handler = adminRateLimit(handler)
+	rl := newRateLimiter()
+	handler = rl.middleware(handler)
+	s.rateLimiter = rl
 
 	// Apply auth middleware if configured
 	if s.config != nil {
@@ -226,6 +231,10 @@ func (s *Server) Stop(ctx context.Context) error {
 	s.mu.Lock()
 	s.state = "stopping"
 	s.mu.Unlock()
+
+	if s.rateLimiter != nil {
+		s.rateLimiter.stop()
+	}
 
 	return s.server.Shutdown(ctx)
 }
@@ -327,57 +336,79 @@ func (m *defaultMetrics) PrometheusFormat() string {
 	return buf.String()
 }
 
-// adminRateLimit provides basic rate limiting for the admin API to prevent
+// rateLimiter provides basic rate limiting for the admin API to prevent
 // brute-force attacks. Allows 30 requests per minute per source IP.
-func adminRateLimit(next http.Handler) http.Handler {
-	type visitor struct {
-		count    int
-		lastSeen time.Time
-	}
-	var (
-		mu       sync.Mutex
-		visitors = make(map[string]*visitor)
-		maxReqs  = 30
-		window   = time.Minute
-	)
+type rateLimiter struct {
+	mu       sync.Mutex
+	visitors map[string]*rlVisitor
+	maxReqs  int
+	window   time.Duration
+	stopCh   chan struct{}
+}
 
-	// Cleanup stale entries periodically
-	go func() {
-		for {
-			time.Sleep(window)
-			mu.Lock()
-			for ip, v := range visitors {
-				if time.Since(v.lastSeen) > window {
-					delete(visitors, ip)
+type rlVisitor struct {
+	count    int
+	lastSeen time.Time
+}
+
+func newRateLimiter() *rateLimiter {
+	rl := &rateLimiter{
+		visitors: make(map[string]*rlVisitor),
+		maxReqs:  30,
+		window:   time.Minute,
+		stopCh:   make(chan struct{}),
+	}
+	go rl.cleanupLoop()
+	return rl
+}
+
+func (rl *rateLimiter) stop() {
+	close(rl.stopCh)
+}
+
+func (rl *rateLimiter) cleanupLoop() {
+	ticker := time.NewTicker(rl.window)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-rl.stopCh:
+			return
+		case <-ticker.C:
+			rl.mu.Lock()
+			for ip, v := range rl.visitors {
+				if time.Since(v.lastSeen) > rl.window {
+					delete(rl.visitors, ip)
 				}
 			}
-			mu.Unlock()
+			rl.mu.Unlock()
 		}
-	}()
+	}
+}
 
+func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ip, _, err := net.SplitHostPort(r.RemoteAddr)
 		if err != nil {
 			ip = r.RemoteAddr
 		}
 
-		mu.Lock()
-		v, exists := visitors[ip]
-		if !exists || time.Since(v.lastSeen) > window {
-			visitors[ip] = &visitor{count: 1, lastSeen: time.Now()}
-			mu.Unlock()
+		rl.mu.Lock()
+		v, exists := rl.visitors[ip]
+		if !exists || time.Since(v.lastSeen) > rl.window {
+			rl.visitors[ip] = &rlVisitor{count: 1, lastSeen: time.Now()}
+			rl.mu.Unlock()
 			next.ServeHTTP(w, r)
 			return
 		}
 		v.count++
 		v.lastSeen = time.Now()
-		if v.count > maxReqs {
-			mu.Unlock()
+		if v.count > rl.maxReqs {
+			rl.mu.Unlock()
 			w.Header().Set("Retry-After", "60")
 			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
 			return
 		}
-		mu.Unlock()
+		rl.mu.Unlock()
 		next.ServeHTTP(w, r)
 	})
 }

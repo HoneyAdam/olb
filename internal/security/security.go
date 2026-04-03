@@ -225,6 +225,11 @@ func ValidateRequest(r *http.Request) error {
 		}
 	}
 
+	// Validate Host header
+	if r.Host != "" && !ValidateHostHeader(r.Host) {
+		return fmt.Errorf("invalid Host header")
+	}
+
 	return nil
 }
 
