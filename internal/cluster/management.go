@@ -463,7 +463,7 @@ func writeJSONError(w http.ResponseWriter, statusCode int, code, message string)
 // FormatMembersTable formats the members list as a text table.
 func FormatMembersTable(members []MemberInfo) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("%-20s %-30s %-12s %-10s %-10s\n", "ID", "Address", "Raft State", "Leader", "Healthy"))
+	fmt.Fprintf(&sb, "%-20s %-30s %-12s %-10s %-10s\n", "ID", "Address", "Raft State", "Leader", "Healthy")
 	sb.WriteString(strings.Repeat("-", 82) + "\n")
 
 	for _, m := range members {
@@ -475,8 +475,8 @@ func FormatMembersTable(members []MemberInfo) string {
 		if m.Healthy {
 			healthy = "yes"
 		}
-		sb.WriteString(fmt.Sprintf("%-20s %-30s %-12s %-10s %-10s\n",
-			m.ID, m.Address, m.RaftState, leader, healthy))
+		fmt.Fprintf(&sb, "%-20s %-30s %-12s %-10s %-10s\n",
+			m.ID, m.Address, m.RaftState, leader, healthy)
 	}
 	return sb.String()
 }

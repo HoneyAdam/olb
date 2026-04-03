@@ -242,7 +242,7 @@ func ValidateRequest(r *http.Request) error {
 func SanitizeHeaderValue(value string) string {
 	var b strings.Builder
 	b.Grow(len(value))
-	for i := 0; i < len(value); i++ {
+	for i := range len(value) {
 		c := value[i]
 		if c != '\r' && c != '\n' && c != 0x00 {
 			b.WriteByte(c)
@@ -261,7 +261,7 @@ func ValidateHeaderName(name string) bool {
 	if name == "" {
 		return false
 	}
-	for i := 0; i < len(name); i++ {
+	for i := range len(name) {
 		c := name[i]
 		if !isTokenChar(c) {
 			return false
@@ -306,7 +306,7 @@ func ValidateHostHeader(host string) bool {
 	}
 
 	// Reject control characters, whitespace, and NUL.
-	for i := 0; i < len(host); i++ {
+	for i := range len(host) {
 		c := host[i]
 		if c <= ' ' || c == 0x7f {
 			return false
@@ -355,7 +355,7 @@ func ValidateHostHeader(host string) bool {
 
 	// Check for valid hostname characters: a-z, A-Z, 0-9, '-', '.', and
 	// allow IPv4 dotted addresses.
-	for i := 0; i < len(hostname); i++ {
+	for i := range len(hostname) {
 		c := hostname[i]
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
 			(c >= '0' && c <= '9') || c == '-' || c == '.') {
@@ -386,7 +386,7 @@ func ValidateContentLength(cl string) (int64, error) {
 	}
 
 	// Reject any non-digit character.
-	for i := 0; i < len(cl); i++ {
+	for i := range len(cl) {
 		if cl[i] < '0' || cl[i] > '9' {
 			return 0, fmt.Errorf("Content-Length contains non-digit character: %q", cl)
 		}

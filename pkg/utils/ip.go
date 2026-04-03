@@ -94,7 +94,7 @@ func (cm *CIDRMatcher) match(root *cidrNode, ip net.IP) bool {
 
 	bits := len(ip) * 8
 
-	for i := 0; i < bits; i++ {
+	for i := range bits {
 		byteIdx := i / 8
 		bitIdx := 7 - (i % 8)
 		bit := (ip[byteIdx] >> bitIdx) & 1
@@ -190,7 +190,7 @@ func parseUint16(s string) (uint16, error) {
 	}
 
 	var n uint16
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		if c < '0' || c > '9' {
 			return 0, nil

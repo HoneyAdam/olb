@@ -149,7 +149,7 @@ func (rb *RingBuffer[T]) Snapshot() []T {
 	}
 
 	result := make([]T, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		result[i] = rb.buffer[(head+uint64(i))&rb.mask]
 	}
 

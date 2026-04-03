@@ -102,7 +102,7 @@ func (rh *RingHash) Next(backends []*backend.Backend) *backend.Backend {
 
 // generateKey creates a hash key from the backends list.
 // Uses a combination of available backend IDs for distribution.
-func (rh *RingHash) generateKey(backends []*backend.Backend) string {
+func (rh *RingHash) generateKey(_ []*backend.Backend) string {
 	// Use counter to distribute requests across backends
 	// This ensures different requests go to different backends
 	counter := atomic.AddUint64(&rh.counter, 1)
@@ -128,7 +128,7 @@ func (rh *RingHash) findNextAvailable(startIdx int, backends []*backend.Backend)
 	}
 
 	// Search forward from startIdx
-	for i := 0; i < len(rh.ring); i++ {
+	for i := range len(rh.ring) {
 		idx := (startIdx + i) % len(rh.ring)
 		if available[rh.ring[idx].backendID] {
 			for _, b := range backends {
@@ -200,11 +200,9 @@ func (rh *RingHash) rebuildRing() {
 		}
 		numVNodes := rh.vnodes * weight
 		// Cap virtual nodes to prevent memory exhaustion with large weights
-		if numVNodes > 10000 {
-			numVNodes = 10000
-		}
+		numVNodes = min(numVNodes, 10000)
 
-		for i := 0; i < numVNodes; i++ {
+		for i := range numVNodes {
 			key := b.ID + "#" + intToStr(i)
 			node := ringHashNode{
 				hash:      rh.hashFunc([]byte(key)),

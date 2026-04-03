@@ -38,7 +38,7 @@ func (d *Detector) analyze(input, location string) *detection.Finding {
 	var maxRule, maxEvidence string
 
 	// Shell metacharacters followed by command-like tokens
-	for i := 0; i < len(lower); i++ {
+	for i := range len(lower) {
 		ch := lower[i]
 
 		// Semicolon chaining: ; command

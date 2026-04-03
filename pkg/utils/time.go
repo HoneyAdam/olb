@@ -31,7 +31,7 @@ func parseCustomDuration(s string) (time.Duration, error) {
 	var total time.Duration
 	var numStr strings.Builder
 
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 
 		if unicode.IsDigit(rune(c)) || c == '.' {

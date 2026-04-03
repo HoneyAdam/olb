@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"time"
 )
@@ -141,9 +142,7 @@ func (p *FileProvider) loadFile() error {
 		currentIDs[id] = true
 
 		meta := make(map[string]string)
-		for k, v := range backend.Metadata {
-			meta[k] = v
-		}
+		maps.Copy(meta, backend.Metadata)
 
 		service := &Service{
 			ID:      id,

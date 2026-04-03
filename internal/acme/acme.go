@@ -459,11 +459,17 @@ func (c *Client) keyThumbprint() (string, error) {
 		return "", errors.New("unsupported key type")
 	}
 
+	// Extract X and Y coordinates from uncompressed point bytes (0x04 || X || Y)
+	pubBytes, err := pub.Bytes()
+	if err != nil {
+		return "", fmt.Errorf("failed to encode public key: %w", err)
+	}
+	coordSize := (len(pubBytes) - 1) / 2
 	jwk := map[string]any{
 		"crv": "P-256",
 		"kty": "EC",
-		"x":   base64.RawURLEncoding.EncodeToString(pub.X.Bytes()),
-		"y":   base64.RawURLEncoding.EncodeToString(pub.Y.Bytes()),
+		"x":   base64.RawURLEncoding.EncodeToString(pubBytes[1 : 1+coordSize]),
+		"y":   base64.RawURLEncoding.EncodeToString(pubBytes[1+coordSize:]),
 	}
 
 	jwkJSON, err := json.Marshal(jwk)
@@ -502,11 +508,16 @@ func (c *Client) postJWS(url string, payload any, newAccount bool) (*http.Respon
 	if newAccount {
 		// Use jwk for new account
 		pub := c.accountKey.Public().(*ecdsa.PublicKey)
+		pubBytes, err := pub.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode public key: %w", err)
+		}
+		coordSize := (len(pubBytes) - 1) / 2
 		protected["jwk"] = map[string]any{
 			"crv": "P-256",
 			"kty": "EC",
-			"x":   base64.RawURLEncoding.EncodeToString(pub.X.Bytes()),
-			"y":   base64.RawURLEncoding.EncodeToString(pub.Y.Bytes()),
+			"x":   base64.RawURLEncoding.EncodeToString(pubBytes[1 : 1+coordSize]),
+			"y":   base64.RawURLEncoding.EncodeToString(pubBytes[1+coordSize:]),
 		}
 	} else if c.account != nil {
 		protected["kid"] = c.account.URL

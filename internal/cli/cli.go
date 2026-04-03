@@ -134,7 +134,7 @@ func (c *CLI) Help() string {
 	for name := range c.commands {
 		names = append(names, name)
 	}
-	for i := 0; i < len(names)-1; i++ {
+	for i := range len(names) - 1 {
 		for j := i + 1; j < len(names); j++ {
 			if names[i] > names[j] {
 				names[i], names[j] = names[j], names[i]
@@ -162,7 +162,7 @@ func (c *CLI) Commands() []Command {
 	}
 
 	// Sort for consistent ordering
-	for i := 0; i < len(names)-1; i++ {
+	for i := range len(names) - 1 {
 		for j := i + 1; j < len(names); j++ {
 			if names[i] > names[j] {
 				names[i], names[j] = names[j], names[i]

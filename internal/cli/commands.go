@@ -666,7 +666,7 @@ func waitForProcessExit(pid int, timeout time.Duration) error {
 	return fmt.Errorf("timeout")
 }
 
-func forkDaemon(configPath, pidFile string) error {
+func forkDaemon(_, _ string) error {
 	// This is a placeholder for Unix daemon forking
 	// In a real implementation, this would use syscall.ForkExec
 	return fmt.Errorf("daemon mode not yet implemented")

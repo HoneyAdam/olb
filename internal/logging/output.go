@@ -88,7 +88,7 @@ func appendJSONKey(buf []byte, key string) []byte {
 // appendJSONString appends a JSON string with proper escaping.
 func appendJSONString(buf []byte, s string) []byte {
 	buf = append(buf, '"')
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch c {
 		case '"':

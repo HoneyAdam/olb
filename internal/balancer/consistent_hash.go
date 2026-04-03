@@ -113,7 +113,7 @@ func (ch *ConsistentHash) findNextAvailable(hash uint32, backends []*backend.Bac
 
 	// Search forward on the ring
 	idx := ch.search(hash)
-	for i := 0; i < len(ch.ring.nodes); i++ {
+	for i := range len(ch.ring.nodes) {
 		node := ch.ring.nodes[(idx+i)%len(ch.ring.nodes)]
 		if b, ok := available[node.backend]; ok {
 			return b
@@ -134,7 +134,7 @@ func (ch *ConsistentHash) Add(b *backend.Backend) {
 	ch.backends[b.ID] = b
 
 	// Add virtual nodes for this backend
-	for i := 0; i < ch.vnodes; i++ {
+	for i := range ch.vnodes {
 		vnodeKey := b.ID + ":" + intToString(i)
 		hash := ch.hashKey(vnodeKey)
 		ch.ring.nodes = append(ch.ring.nodes, ringNode{
@@ -275,7 +275,7 @@ func (ch *ConsistentHash) SetVirtualNodes(vnodes int) {
 	// Rebuild the ring
 	ch.ring.nodes = make([]ringNode, 0, len(ch.backends)*ch.vnodes)
 	for _, b := range ch.backends {
-		for i := 0; i < ch.vnodes; i++ {
+		for i := range ch.vnodes {
 			vnodeKey := b.ID + ":" + intToString(i)
 			hash := ch.hashKey(vnodeKey)
 			ch.ring.nodes = append(ch.ring.nodes, ringNode{

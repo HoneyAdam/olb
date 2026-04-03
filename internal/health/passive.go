@@ -99,7 +99,7 @@ func (sw *SlidingWindow) Stats(windowSize time.Duration, now time.Time) (total i
 
 	cutoff := now.Add(-windowSize)
 
-	for i := 0; i < sw.count; i++ {
+	for i := range sw.count {
 		// Walk backward from the most recent entry
 		idx := (sw.head - 1 - i + sw.size) % sw.size
 		r := sw.results[idx]

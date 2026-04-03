@@ -326,8 +326,8 @@ func ParseSSEEvent(data []byte) (*SSEEvent, error) {
 		}
 
 		// Parse field
-		colonIdx := bytes.Index(line, []byte(":"))
-		if colonIdx == -1 {
+		fieldBytes, value, found := bytes.Cut(line, []byte(":"))
+		if !found {
 			// Field with no value
 			field := string(line)
 			switch field {
@@ -343,8 +343,7 @@ func ParseSSEEvent(data []byte) (*SSEEvent, error) {
 			continue
 		}
 
-		field := string(line[:colonIdx])
-		value := line[colonIdx+1:]
+		field := string(fieldBytes)
 
 		// Strip leading space if present
 		if len(value) > 0 && value[0] == ' ' {

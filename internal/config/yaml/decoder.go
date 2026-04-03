@@ -102,7 +102,7 @@ func (d *Decoder) decodeStruct(node *Node, v reflect.Value) error {
 
 	// Build field map
 	fieldMap := make(map[string]int)
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		if field.PkgPath != "" { // Skip unexported fields
 			continue

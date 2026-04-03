@@ -117,7 +117,7 @@ func (f *TableFormatter) formatMapSlice(rows []map[string]string) (string, error
 			headers = append(headers, key)
 		}
 		// Sort headers for consistent output
-		for i := 0; i < len(headers)-1; i++ {
+		for i := range len(headers) - 1 {
 			for j := i + 1; j < len(headers); j++ {
 				if headers[i] > headers[j] {
 					headers[i], headers[j] = headers[j], headers[i]
@@ -159,7 +159,7 @@ func (f *TableFormatter) formatSingleMap(data map[string]string) (string, error)
 	for k := range data {
 		keys = append(keys, k)
 	}
-	for i := 0; i < len(keys)-1; i++ {
+	for i := range len(keys) - 1 {
 		for j := i + 1; j < len(keys); j++ {
 			if keys[i] > keys[j] {
 				keys[i], keys[j] = keys[j], keys[i]

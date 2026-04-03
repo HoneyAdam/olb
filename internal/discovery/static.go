@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -37,7 +38,7 @@ func NewStaticProvider(config *ProviderConfig) (*StaticProvider, error) {
 func parseAddresses(s string) []string {
 	var addresses []string
 	start := 0
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] == ',' {
 			addr := trimSpace(s[start:i])
 			if addr != "" {
@@ -256,9 +257,7 @@ func (p *StaticFileProvider) loadServices() error {
 			Healthy: true,
 		}
 
-		for k, v := range svc.Meta {
-			service.Meta[k] = v
-		}
+		maps.Copy(service.Meta, svc.Meta)
 
 		p.addService(service)
 	}

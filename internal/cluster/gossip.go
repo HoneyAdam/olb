@@ -690,7 +690,7 @@ func decodeNodePayload(payload []byte) (incarnation uint32, nodeID, address stri
 	metaCount := binary.BigEndian.Uint16(payload[off : off+2])
 	off += 2
 	metadata = make(map[string]string, metaCount)
-	for i := 0; i < int(metaCount); i++ {
+	for range int(metaCount) {
 		if len(payload) < off+2 {
 			return 0, "", "", 0, nil, fmt.Errorf("gossip: node payload truncated at meta key len")
 		}
@@ -808,7 +808,7 @@ func decodeCompound(payload []byte) ([][]byte, error) {
 	count := binary.BigEndian.Uint16(payload[0:2])
 	off := 2
 	messages := make([][]byte, 0, count)
-	for i := 0; i < int(count); i++ {
+	for i := range int(count) {
 		if len(payload) < off+2 {
 			return nil, fmt.Errorf("gossip: compound truncated at message %d length", i)
 		}
@@ -1673,7 +1673,7 @@ func (g *Gossip) randomMembers(n int, excludeID string) []*GossipNode {
 	}
 
 	result := make([]*GossipNode, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		result[i] = eligible[i].Clone()
 	}
 	return result

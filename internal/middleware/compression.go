@@ -148,7 +148,7 @@ func (m *CompressionMiddleware) Wrap(next http.Handler) http.Handler {
 }
 
 // shouldCompress determines if the response should be compressed based on various criteria.
-func (m *CompressionMiddleware) shouldCompress(r *http.Request, w http.ResponseWriter) bool {
+func (m *CompressionMiddleware) shouldCompress(r *http.Request, _ http.ResponseWriter) bool {
 	// Check excluded paths
 	path := r.URL.Path
 	for _, prefix := range m.config.ExcludePaths {

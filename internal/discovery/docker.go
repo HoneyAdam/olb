@@ -336,7 +336,7 @@ func (p *DockerProvider) parseContainerLabels(labels map[string]string) (port in
 func splitTags(s string) []string {
 	var tags []string
 	start := 0
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		if s[i] == ',' {
 			tag := trimSpace(s[start:i])
 			if tag != "" {
@@ -599,7 +599,7 @@ func (p *DockerProvider) handleEvent(event *dockerEvent) {
 // This avoids importing net/url for a simple encoding need.
 func urlEncode(s string) string {
 	var b strings.Builder
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		c := s[i]
 		switch {
 		case (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'):

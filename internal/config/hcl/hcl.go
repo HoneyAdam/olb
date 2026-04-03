@@ -1155,7 +1155,7 @@ func decodeStruct(src reflect.Value, dst reflect.Value) error {
 	}
 	fieldMap := make(map[string]fieldInfo)
 
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		if field.PkgPath != "" { // skip unexported
 			continue
@@ -1260,7 +1260,7 @@ func decodeSlice(src reflect.Value, dst reflect.Value) error {
 		elemType := dst.Type().Elem()
 		slice := reflect.MakeSlice(dst.Type(), 0, src.Len())
 
-		for i := 0; i < src.Len(); i++ {
+		for i := range src.Len() {
 			elem := reflect.New(elemType).Elem()
 			if err := decodeValue(src.Index(i), elem); err != nil {
 				return fmt.Errorf("slice index %d: %w", i, err)
@@ -1380,7 +1380,7 @@ func decodeScalar(src reflect.Value, dst reflect.Value) error {
 		dst.Set(src)
 		return nil
 
-	case reflect.Ptr:
+	case reflect.Pointer:
 		if dst.IsNil() {
 			dst.Set(reflect.New(dst.Type().Elem()))
 		}

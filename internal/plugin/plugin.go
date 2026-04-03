@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"plugin"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -372,12 +373,7 @@ func (pm *PluginManager) isAllowed(name string) bool {
 	if len(pm.managerConfig.AllowedPlugins) == 0 {
 		return true
 	}
-	for _, allowed := range pm.managerConfig.AllowedPlugins {
-		if allowed == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(pm.managerConfig.AllowedPlugins, name)
 }
 
 // RegisterPlugin registers a plugin directly (for built-in plugins).

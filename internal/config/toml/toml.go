@@ -279,7 +279,7 @@ func (l *Lexer) readEscape() (string, error) {
 // readUnicodeEscape reads n hex digits and returns the corresponding character.
 func (l *Lexer) readUnicodeEscape(n int) (string, error) {
 	var hex strings.Builder
-	for i := 0; i < n; i++ {
+	for range n {
 		ch := l.ch()
 		if !isHexDigit(ch) {
 			return "", fmt.Errorf("invalid unicode escape at %d:%d", l.line, l.col)
@@ -1119,7 +1119,7 @@ func (p *parser) ensureArrayTable(keys []string) ([]any, error) {
 	current := p.result
 
 	// Traverse to parent
-	for i := 0; i < len(keys)-1; i++ {
+	for i := range len(keys) - 1 {
 		key := keys[i]
 		next, ok := current[key]
 		if !ok {
@@ -1164,7 +1164,7 @@ func (p *parser) ensureArrayTable(keys []string) ([]any, error) {
 }
 
 // pathForArrayTable returns the key path to use as currentTable after processing [[keys]].
-func (p *parser) pathForArrayTable(keys []string, arr []any) []string {
+func (p *parser) pathForArrayTable(keys []string, _ []any) []string {
 	// The current table after [[a.b]] is effectively a.b pointing to the last element.
 	// We return keys as-is; insertValue will navigate through the array.
 	return keys
@@ -1346,7 +1346,7 @@ func decodeStruct(src map[string]any, dst reflect.Value) error {
 
 	// Build field map: lowercase tag name -> field index
 	fieldMap := make(map[string]int)
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		field := t.Field(i)
 		if field.PkgPath != "" {
 			continue // unexported

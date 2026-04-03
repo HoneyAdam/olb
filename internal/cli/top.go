@@ -597,7 +597,7 @@ func (t *TUI) renderRoutes(data *DashboardData, width, height int) {
 }
 
 // renderMetrics renders the metrics view.
-func (t *TUI) renderMetrics(data *DashboardData, width, height int) {
+func (t *TUI) renderMetrics(data *DashboardData, width, _ int) {
 	// Title bar
 	t.screen.DrawBox(0, 0, width, 3, "Metrics", true)
 

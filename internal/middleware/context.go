@@ -3,6 +3,7 @@ package middleware
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"sync"
 	"time"
@@ -236,8 +237,6 @@ func (c *RequestContext) AllMetadata() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	result := make(map[string]any, len(c.metadata))
-	for k, v := range c.metadata {
-		result[k] = v
-	}
+	maps.Copy(result, c.metadata)
 	return result
 }

@@ -158,16 +158,15 @@ func isPROXYProtocolV2(data []byte) bool {
 // parseV1 parses a PROXY protocol v1 header.
 func (p *PROXYProtocolParser) parseV1(data []byte) (*PROXYHeader, []byte, error) {
 	// Find end of header (CRLF)
-	crlfIdx := bytes.Index(data, []byte("\r\n"))
-	if crlfIdx == -1 {
+	headerLine, remaining, found := bytes.Cut(data, []byte("\r\n"))
+	if !found {
 		return nil, data, errors.New("incomplete PROXY v1 header")
 	}
 
-	headerLine := string(data[:crlfIdx])
-	remaining := data[crlfIdx+2:]
+	headerLineStr := string(headerLine)
 
 	// Parse: PROXY TCP4 192.168.1.1 192.168.1.2 12345 443\r\n
-	parts := strings.Split(headerLine, " ")
+	parts := strings.Split(headerLineStr, " ")
 	if len(parts) < 2 {
 		return nil, data, errors.New("invalid PROXY v1 header")
 	}

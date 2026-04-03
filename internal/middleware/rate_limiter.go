@@ -57,10 +57,8 @@ func (m *RateLimitMiddleware) keyFunc(r *http.Request) string {
 	if m.isTrustedProxy(remoteIP) {
 		// Check X-Forwarded-For (first IP in chain is the original client)
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if idx := strings.Index(xff, ","); idx != -1 {
-				return strings.TrimSpace(xff[:idx])
-			}
-			return strings.TrimSpace(xff)
+			first, _, _ := strings.Cut(xff, ",")
+			return strings.TrimSpace(first)
 		}
 
 		// Check X-Real-IP
@@ -173,9 +171,7 @@ func (m *RateLimitMiddleware) Wrap(next http.Handler) http.Handler {
 		if bucket != nil {
 			bucket.mu.Lock()
 			remaining := int(math.Floor(bucket.tokens))
-			if remaining < 0 {
-				remaining = 0
-			}
+			remaining = max(remaining, 0)
 			// Calculate reset time (when bucket will be full)
 			tokensNeeded := float64(m.config.BurstSize) - bucket.tokens
 			secondsToFill := tokensNeeded / m.config.RequestsPerSecond
@@ -268,9 +264,7 @@ func (m *RateLimitMiddleware) checkAndConsume(bucket *tokenBucket, now time.Time
 	retryAfter := time.Duration(tokensNeeded / m.config.RequestsPerSecond * float64(time.Second))
 
 	// Ensure retry-after is at least 1 second
-	if retryAfter < time.Second {
-		retryAfter = time.Second
-	}
+	retryAfter = max(retryAfter, time.Second)
 
 	return false, retryAfter
 }

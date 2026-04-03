@@ -98,7 +98,7 @@ func (m *Maglev) Next(backends []*backend.Backend) *backend.Backend {
 }
 
 // generateKey creates a hash key for distributing requests.
-func (m *Maglev) generateKey(backends []*backend.Backend) string {
+func (m *Maglev) generateKey(_ []*backend.Backend) string {
 	// Use counter to distribute requests across backends
 	counter := atomic.AddUint64(&m.counter, 1)
 	return fmt.Sprintf("request-%d", counter)
@@ -214,7 +214,7 @@ func (m *Maglev) generatePermutation(b *backend.Backend) []uint64 {
 	offset, skip := m.computeHashPair(b.ID)
 
 	// Generate permutation
-	for i := 0; i < MaglevTableSize; i++ {
+	for i := range MaglevTableSize {
 		perm[i] = (offset + uint64(i)*skip) % MaglevTableSize
 	}
 
@@ -238,66 +238,6 @@ func (m *Maglev) computeHashPair(backendID string) (offset, skip uint64) {
 	}
 
 	return offset, skip
-}
-
-// rebuild rebuilds the Maglev lookup table.
-func (m *Maglev) rebuild() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if !m.needRebuild {
-		return
-	}
-
-	n := len(m.backends)
-	if n == 0 {
-		// Clear lookup table
-		for i := range m.lookupTable {
-			m.lookupTable[i] = -1
-		}
-		m.needRebuild = false
-		return
-	}
-
-	// Regenerate permutations for all backends
-	m.permutations = make([][]uint64, n)
-	for i, backend := range m.backends {
-		m.permutations[i] = m.generatePermutation(backend)
-	}
-
-	// Reset lookup table
-	for i := range m.lookupTable {
-		m.lookupTable[i] = -1
-	}
-
-	// Populate lookup table using Maglev algorithm
-	next := make([]int, n)
-
-	for i := 0; i < MaglevTableSize; i++ {
-		minPos := uint64(^uint64(0))
-		minBackend := -1
-
-		for j := 0; j < n; j++ {
-			for next[j] < MaglevTableSize {
-				pos := m.permutations[j][next[j]]
-				if m.lookupTable[pos] == -1 {
-					if pos < minPos {
-						minPos = pos
-						minBackend = j
-					}
-					break
-				}
-				next[j]++
-			}
-		}
-
-		if minBackend >= 0 {
-			m.lookupTable[minPos] = minBackend
-			next[minBackend]++
-		}
-	}
-
-	m.needRebuild = false
 }
 
 // rebuildLocked rebuilds the lookup table assuming the caller holds m.mu.
@@ -325,11 +265,11 @@ func (m *Maglev) rebuildLocked() {
 	}
 
 	next := make([]int, n)
-	for i := 0; i < MaglevTableSize; i++ {
+	for range MaglevTableSize {
 		minPos := uint64(^uint64(0))
 		minBackend := -1
 
-		for j := 0; j < n; j++ {
+		for j := range n {
 			for next[j] < MaglevTableSize {
 				pos := m.permutations[j][next[j]]
 				if m.lookupTable[pos] == -1 {

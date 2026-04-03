@@ -79,10 +79,10 @@ func ParseArgs(args []string) (*ParsedArgs, error) {
 
 		if strings.HasPrefix(arg, "--") {
 			// Long flag
-			if idx := strings.Index(arg, "="); idx != -1 {
+			key, value, hasEq := strings.Cut(arg, "=")
+			if hasEq {
 				// --key=value format
-				key := arg[2:idx]
-				value := arg[idx+1:]
+				key = key[2:]
 				result.Flags[key] = value
 				i++
 			} else {
@@ -99,10 +99,10 @@ func ParseArgs(args []string) (*ParsedArgs, error) {
 			}
 		} else if strings.HasPrefix(arg, "-") && len(arg) > 1 {
 			// Short flag
-			if idx := strings.Index(arg, "="); idx != -1 {
+			key, value, hasEq := strings.Cut(arg, "=")
+			if hasEq {
 				// -k=value format
-				key := arg[1:idx]
-				value := arg[idx+1:]
+				key = key[1:]
 				result.Flags[key] = value
 				i++
 			} else {

@@ -335,10 +335,7 @@ func (c *CacheMiddleware) serveCached(w http.ResponseWriter, cached *CachedRespo
 
 	// Set cache-specific headers.
 	w.Header().Set("X-Cache", string(status))
-	age := int(cached.Age().Seconds())
-	if age < 0 {
-		age = 0
-	}
+	age := max(int(cached.Age().Seconds()), 0)
 	w.Header().Set("Age", strconv.Itoa(age))
 
 	w.WriteHeader(cached.StatusCode)
@@ -374,7 +371,7 @@ func (c *CacheMiddleware) revalidateInBackground(key string, next http.Handler, 
 }
 
 // maybeCacheResponse decides whether to store the captured response.
-func (c *CacheMiddleware) maybeCacheResponse(key string, r *http.Request, rec *responseCapturer) {
+func (c *CacheMiddleware) maybeCacheResponse(key string, _ *http.Request, rec *responseCapturer) {
 	// Check status code.
 	if !c.statuses[rec.statusCode] {
 		return
