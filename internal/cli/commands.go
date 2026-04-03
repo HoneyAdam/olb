@@ -633,7 +633,7 @@ func writePIDFile(path string, pid int) error {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(fmt.Sprintf("%d\n", pid)), 0644)
+	return os.WriteFile(path, fmt.Appendf(nil, "%d\n", pid), 0644)
 }
 
 func removePIDFile(path string) error {

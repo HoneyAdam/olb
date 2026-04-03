@@ -62,7 +62,7 @@ func (r *OCSPResponse) RemainingValidity() time.Duration {
 	if r.IsExpired() {
 		return 0
 	}
-	return r.NextUpdate.Sub(time.Now())
+	return time.Until(r.NextUpdate)
 }
 
 // OCSPManager manages OCSP stapling for certificates.

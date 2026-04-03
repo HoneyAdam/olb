@@ -623,10 +623,7 @@ func (t *TUI) renderMetrics(data *DashboardData, width, height int) {
 
 	// Draw error rate gauge
 	gaugeWidth := width/2 - 4
-	filled := int(errorRate / 100 * float64(gaugeWidth))
-	if filled > gaugeWidth {
-		filled = gaugeWidth
-	}
+	filled := min(int(errorRate/100*float64(gaugeWidth)), gaugeWidth)
 	gaugeColor := ColorGreen
 	if errorRate > 1 {
 		gaugeColor = ColorYellow
@@ -831,14 +828,14 @@ func (s *Screen) DrawBox(x, y, width, height int, title string, fill bool) {
 
 // DrawHLine draws a horizontal line.
 func (s *Screen) DrawHLine(x, y, length int) {
-	for i := 0; i < length; i++ {
+	for i := range length {
 		s.SetCell(x+i, y, BoxDrawingsLightHorizontal, ColorDefault)
 	}
 }
 
 // DrawVLine draws a vertical line.
 func (s *Screen) DrawVLine(x, y, length int) {
-	for i := 0; i < length; i++ {
+	for i := range length {
 		s.SetCell(x, y+i, BoxDrawingsLightVertical, ColorDefault)
 	}
 }
@@ -851,7 +848,7 @@ func (s *Screen) DrawGauge(x, y, width, filled int, color Color) {
 
 	// Draw filled portion
 	fillWidth := width - 2
-	for i := 0; i < fillWidth; i++ {
+	for i := range fillWidth {
 		if i < filled {
 			s.SetCell(x+1+i, y, '=', color)
 		} else {

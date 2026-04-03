@@ -45,8 +45,7 @@ func AuthMiddleware(config *AuthConfig) func(http.Handler) http.Handler {
 			}
 
 			// Try bearer token auth first
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				token := strings.TrimPrefix(authHeader, "Bearer ")
+			if token, ok := strings.CutPrefix(authHeader, "Bearer "); ok {
 				if config.validateBearerToken(token) {
 					next.ServeHTTP(w, r)
 					return
@@ -56,8 +55,7 @@ func AuthMiddleware(config *AuthConfig) func(http.Handler) http.Handler {
 			}
 
 			// Try basic auth
-			if strings.HasPrefix(authHeader, "Basic ") {
-				encoded := strings.TrimPrefix(authHeader, "Basic ")
+			if encoded, ok := strings.CutPrefix(authHeader, "Basic "); ok {
 				decoded, err := base64.StdEncoding.DecodeString(encoded)
 				if err != nil {
 					config.writeUnauthorized(w, "invalid basic auth encoding")

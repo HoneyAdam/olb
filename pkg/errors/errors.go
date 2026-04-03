@@ -4,6 +4,7 @@ package errors
 
 import (
 	"fmt"
+	"maps"
 )
 
 // Code is an error code for API responses and categorization.
@@ -240,9 +241,7 @@ func (e *Error) WithContextMap(ctx map[string]any) *Error {
 	if e.Context == nil {
 		e.Context = make(map[string]any)
 	}
-	for k, v := range ctx {
-		e.Context[k] = v
-	}
+	maps.Copy(e.Context, ctx)
 	return e
 }
 
