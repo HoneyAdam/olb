@@ -2185,3 +2185,191 @@ func TestDiagnose_DefaultMode(t *testing.T) {
 		t.Error("Default mode should be 'full'")
 	}
 }
+
+func TestModifyBackend_MissingParams(t *testing.T) {
+	s := newTestServer()
+
+	tests := []struct {
+		name string
+		args map[string]interface{}
+		want string
+	}{
+		{"missing action", map[string]interface{}{"pool": "p", "address": "a:80"}, "action parameter is required"},
+		{"missing pool", map[string]interface{}{"action": "add", "address": "a:80"}, "pool parameter is required"},
+		{"missing address", map[string]interface{}{"action": "add", "pool": "p"}, "address parameter is required"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeRequest("tools/call", map[string]interface{}{
+				"name":      "olb_modify_backend",
+				"arguments": tc.args,
+			})
+			resp, _ := s.HandleJSONRPC(req)
+			r := parseResponse(t, resp)
+
+			resultJSON, _ := json.Marshal(r.Result)
+			var toolResult ToolResult
+			json.Unmarshal(resultJSON, &toolResult)
+
+			if !toolResult.IsError {
+				t.Error("Expected error")
+			}
+			if !strings.Contains(toolResult.Content[0].Text, tc.want) {
+				t.Errorf("Error = %q, want substring %q", toolResult.Content[0].Text, tc.want)
+			}
+		})
+	}
+}
+
+func TestModifyBackend_NilProvider(t *testing.T) {
+	s := NewServer(ServerConfig{}) // backends nil
+
+	req := makeRequest("tools/call", map[string]interface{}{
+		"name": "olb_modify_backend",
+		"arguments": map[string]interface{}{
+			"action":  "add",
+			"pool":    "test-pool",
+			"address": "10.0.0.1:8080",
+		},
+	})
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	resultJSON, _ := json.Marshal(r.Result)
+	var toolResult ToolResult
+	json.Unmarshal(resultJSON, &toolResult)
+
+	if !toolResult.IsError {
+		t.Error("Expected error when backend provider is nil")
+	}
+	if !strings.Contains(toolResult.Content[0].Text, "backend provider not configured") {
+		t.Errorf("Error = %q, want 'backend provider not configured'", toolResult.Content[0].Text)
+	}
+}
+
+func TestModifyRoute_MissingAction(t *testing.T) {
+	s := newTestServer()
+
+	req := makeRequest("tools/call", map[string]interface{}{
+		"name": "olb_modify_route",
+		"arguments": map[string]interface{}{
+			"host": "example.com",
+		},
+	})
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	resultJSON, _ := json.Marshal(r.Result)
+	var toolResult ToolResult
+	json.Unmarshal(resultJSON, &toolResult)
+
+	if !toolResult.IsError {
+		t.Error("Expected error for missing action")
+	}
+	if !strings.Contains(toolResult.Content[0].Text, "action parameter is required") {
+		t.Errorf("Error = %q, want 'action parameter is required'", toolResult.Content[0].Text)
+	}
+}
+
+func TestModifyRoute_NilProvider(t *testing.T) {
+	s := NewServer(ServerConfig{}) // routes nil
+
+	req := makeRequest("tools/call", map[string]interface{}{
+		"name": "olb_modify_route",
+		"arguments": map[string]interface{}{
+			"action": "add",
+		},
+	})
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	resultJSON, _ := json.Marshal(r.Result)
+	var toolResult ToolResult
+	json.Unmarshal(resultJSON, &toolResult)
+
+	if !toolResult.IsError {
+		t.Error("Expected error when route provider is nil")
+	}
+}
+
+func TestResourcesRead_MissingParams(t *testing.T) {
+	s := newTestServer()
+
+	req := makeRequest("resources/read", nil)
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	if r.Error == nil {
+		t.Fatal("Expected error for nil params")
+	}
+}
+
+func TestResourcesRead_InvalidParams(t *testing.T) {
+	s := newTestServer()
+
+	req := makeRequest("resources/read", "not an object")
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	if r.Error == nil {
+		t.Fatal("Expected error for invalid params")
+	}
+}
+
+func TestPromptsGet_InvalidParams(t *testing.T) {
+	s := newTestServer()
+
+	req := makeRequest("prompts/get", "not an object")
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	if r.Error == nil {
+		t.Fatal("Expected error for invalid params")
+	}
+}
+
+func TestToolsCall_InvalidParams(t *testing.T) {
+	s := newTestServer()
+
+	req := makeRequest("tools/call", "not an object")
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	if r.Error == nil {
+		t.Fatal("Expected error for invalid params")
+	}
+}
+
+func TestUnknownPrompt_GeneratesDefault(t *testing.T) {
+	s := newTestServer()
+
+	// Register a prompt with no custom message generator
+	s.RegisterPrompt(Prompt{
+		Name:        "custom_test",
+		Description: "Custom test prompt",
+	})
+
+	req := makeRequest("prompts/get", map[string]interface{}{
+		"name": "custom_test",
+	})
+	resp, _ := s.HandleJSONRPC(req)
+	r := parseResponse(t, resp)
+
+	if r.Error != nil {
+		t.Fatalf("Unexpected error: %v", r.Error)
+	}
+
+	result, _ := r.Result.(map[string]interface{})
+	messagesRaw, _ := result["messages"]
+	messagesJSON, _ := json.Marshal(messagesRaw)
+	var messages []PromptMessage
+	json.Unmarshal(messagesJSON, &messages)
+
+	if len(messages) == 0 {
+		t.Fatal("Expected at least one message")
+	}
+	if !strings.Contains(messages[0].Content.Text, "custom_test") {
+		t.Error("Default prompt should contain prompt name")
+	}
+}

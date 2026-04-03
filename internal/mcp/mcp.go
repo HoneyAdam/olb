@@ -48,7 +48,7 @@ const (
 // Request represents a JSON-RPC 2.0 request.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id,omitempty"`
+	ID      any     `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
@@ -56,8 +56,8 @@ type Request struct {
 // Response represents a JSON-RPC 2.0 response.
 type Response struct {
 	JSONRPC string         `json:"jsonrpc"`
-	ID      interface{}    `json:"id,omitempty"`
-	Result  interface{}    `json:"result,omitempty"`
+	ID      any    `json:"id,omitempty"`
+	Result  any    `json:"result,omitempty"`
 	Error   *ResponseError `json:"error,omitempty"`
 }
 
@@ -65,7 +65,7 @@ type Response struct {
 type ResponseError struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Data    any `json:"data,omitempty"`
 }
 
 // --- MCP types ---
@@ -167,12 +167,12 @@ type LogEntry struct {
 	Timestamp string                 `json:"timestamp"`
 	Level     string                 `json:"level"`
 	Message   string                 `json:"message"`
-	Fields    map[string]interface{} `json:"fields,omitempty"`
+	Fields    map[string]any `json:"fields,omitempty"`
 }
 
 // MetricsProvider provides access to load balancer metrics.
 type MetricsProvider interface {
-	QueryMetrics(pattern string) map[string]interface{}
+	QueryMetrics(pattern string) map[string]any
 }
 
 // BackendProvider provides access to backend pool management.
@@ -183,7 +183,7 @@ type BackendProvider interface {
 
 // ConfigProvider provides access to the current configuration.
 type ConfigProvider interface {
-	GetConfig() interface{}
+	GetConfig() any
 }
 
 // LogProvider provides access to recent log entries.
@@ -193,7 +193,7 @@ type LogProvider interface {
 
 // ClusterProvider provides access to cluster status information.
 type ClusterProvider interface {
-	GetStatus() interface{}
+	GetStatus() any
 }
 
 // RouteProvider provides access to route management.
@@ -204,7 +204,7 @@ type RouteProvider interface {
 // --- Tool handler type ---
 
 // ToolHandler is a function that handles a tool call.
-type ToolHandler func(params map[string]interface{}) (interface{}, error)
+type ToolHandler func(params map[string]any) (any, error)
 
 // --- Server ---
 
@@ -493,7 +493,7 @@ func (s *Server) HandleJSONRPC(request []byte) ([]byte, error) {
 }
 
 // dispatch routes a method call to the appropriate handler.
-func (s *Server) dispatch(method string, params json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) dispatch(method string, params json.RawMessage) (any, *ResponseError) {
 	switch method {
 	case "initialize":
 		return s.handleInitialize(params)
@@ -520,15 +520,15 @@ func (s *Server) dispatch(method string, params json.RawMessage) (interface{}, *
 // --- Protocol method handlers ---
 
 // handleInitialize handles the "initialize" method.
-func (s *Server) handleInitialize(_ json.RawMessage) (interface{}, *ResponseError) {
-	return map[string]interface{}{
+func (s *Server) handleInitialize(_ json.RawMessage) (any, *ResponseError) {
+	return map[string]any{
 		"protocolVersion": mcpProtocolVersion,
-		"capabilities": map[string]interface{}{
-			"tools":     map[string]interface{}{},
-			"resources": map[string]interface{}{},
-			"prompts":   map[string]interface{}{},
+		"capabilities": map[string]any{
+			"tools":     map[string]any{},
+			"resources": map[string]any{},
+			"prompts":   map[string]any{},
 		},
-		"serverInfo": map[string]interface{}{
+		"serverInfo": map[string]any{
 			"name":    serverName,
 			"version": serverVersion,
 		},
@@ -536,7 +536,7 @@ func (s *Server) handleInitialize(_ json.RawMessage) (interface{}, *ResponseErro
 }
 
 // handleToolsList handles the "tools/list" method.
-func (s *Server) handleToolsList(_ json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) handleToolsList(_ json.RawMessage) (any, *ResponseError) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -545,13 +545,13 @@ func (s *Server) handleToolsList(_ json.RawMessage) (interface{}, *ResponseError
 		tools = append(tools, tool)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"tools": tools,
 	}, nil
 }
 
 // handleToolsCall handles the "tools/call" method.
-func (s *Server) handleToolsCall(params json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) handleToolsCall(params json.RawMessage) (any, *ResponseError) {
 	if params == nil {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
@@ -561,7 +561,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (interface{}, *Response
 
 	var callParams struct {
 		Name      string                 `json:"name"`
-		Arguments map[string]interface{} `json:"arguments"`
+		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &callParams); err != nil {
 		return nil, &ResponseError{
@@ -589,7 +589,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (interface{}, *Response
 	}
 
 	if callParams.Arguments == nil {
-		callParams.Arguments = make(map[string]interface{})
+		callParams.Arguments = make(map[string]any)
 	}
 
 	result, err := handler(callParams.Arguments)
@@ -615,7 +615,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (interface{}, *Response
 }
 
 // handleResourcesList handles the "resources/list" method.
-func (s *Server) handleResourcesList(_ json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) handleResourcesList(_ json.RawMessage) (any, *ResponseError) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -624,13 +624,13 @@ func (s *Server) handleResourcesList(_ json.RawMessage) (interface{}, *ResponseE
 		resources = append(resources, resource)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"resources": resources,
 	}, nil
 }
 
 // handleResourcesRead handles the "resources/read" method.
-func (s *Server) handleResourcesRead(params json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) handleResourcesRead(params json.RawMessage) (any, *ResponseError) {
 	if params == nil {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
@@ -671,7 +671,7 @@ func (s *Server) handleResourcesRead(params json.RawMessage) (interface{}, *Resp
 		return nil, rpcErr
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"contents": []ResourceContent{
 			{
 				URI:      readParams.URI,
@@ -684,35 +684,35 @@ func (s *Server) handleResourcesRead(params json.RawMessage) (interface{}, *Resp
 
 // readResource reads the content of a resource by URI.
 func (s *Server) readResource(uri string) (string, *ResponseError) {
-	var data interface{}
+	var data any
 
 	switch uri {
 	case "olb://metrics":
 		if s.metrics != nil {
 			data = s.metrics.QueryMetrics("*")
 		} else {
-			data = map[string]interface{}{"message": "metrics provider not configured"}
+			data = map[string]any{"message": "metrics provider not configured"}
 		}
 
 	case "olb://config":
 		if s.config != nil {
 			data = s.config.GetConfig()
 		} else {
-			data = map[string]interface{}{"message": "config provider not configured"}
+			data = map[string]any{"message": "config provider not configured"}
 		}
 
 	case "olb://health":
 		if s.backends != nil {
 			data = s.backends.ListPools()
 		} else {
-			data = map[string]interface{}{"message": "backend provider not configured"}
+			data = map[string]any{"message": "backend provider not configured"}
 		}
 
 	case "olb://logs":
 		if s.logs != nil {
 			data = s.logs.GetLogs(100, "")
 		} else {
-			data = map[string]interface{}{"message": "log provider not configured"}
+			data = map[string]any{"message": "log provider not configured"}
 		}
 
 	default:
@@ -734,7 +734,7 @@ func (s *Server) readResource(uri string) (string, *ResponseError) {
 }
 
 // handlePromptsList handles the "prompts/list" method.
-func (s *Server) handlePromptsList(_ json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) handlePromptsList(_ json.RawMessage) (any, *ResponseError) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -743,13 +743,13 @@ func (s *Server) handlePromptsList(_ json.RawMessage) (interface{}, *ResponseErr
 		prompts = append(prompts, prompt)
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"prompts": prompts,
 	}, nil
 }
 
 // handlePromptsGet handles the "prompts/get" method.
-func (s *Server) handlePromptsGet(params json.RawMessage) (interface{}, *ResponseError) {
+func (s *Server) handlePromptsGet(params json.RawMessage) (any, *ResponseError) {
 	if params == nil {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
@@ -759,7 +759,7 @@ func (s *Server) handlePromptsGet(params json.RawMessage) (interface{}, *Respons
 
 	var getParams struct {
 		Name      string                 `json:"name"`
-		Arguments map[string]interface{} `json:"arguments"`
+		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &getParams); err != nil {
 		return nil, &ResponseError{
@@ -788,14 +788,14 @@ func (s *Server) handlePromptsGet(params json.RawMessage) (interface{}, *Respons
 
 	messages := s.generatePromptMessages(prompt, getParams.Arguments)
 
-	return map[string]interface{}{
+	return map[string]any{
 		"description": prompt.Description,
 		"messages":    messages,
 	}, nil
 }
 
 // generatePromptMessages generates the messages for a prompt template.
-func (s *Server) generatePromptMessages(prompt Prompt, args map[string]interface{}) []PromptMessage {
+func (s *Server) generatePromptMessages(prompt Prompt, args map[string]any) []PromptMessage {
 	switch prompt.Name {
 	case "diagnose":
 		target := "all"
@@ -901,30 +901,30 @@ func (s *Server) generatePromptMessages(prompt Prompt, args map[string]interface
 // --- Tool handlers ---
 
 // handleQueryMetrics handles the olb_query_metrics tool.
-func (s *Server) handleQueryMetrics(params map[string]interface{}) (interface{}, error) {
+func (s *Server) handleQueryMetrics(params map[string]any) (any, error) {
 	metric, _ := params["metric"].(string)
 	if metric == "" {
 		return nil, fmt.Errorf("metric parameter is required")
 	}
 
 	if s.metrics == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"metric":  metric,
 			"message": "metrics provider not configured",
 		}, nil
 	}
 
 	result := s.metrics.QueryMetrics(metric)
-	return map[string]interface{}{
+	return map[string]any{
 		"metric":  metric,
 		"results": result,
 	}, nil
 }
 
 // handleListBackends handles the olb_list_backends tool.
-func (s *Server) handleListBackends(params map[string]interface{}) (interface{}, error) {
+func (s *Server) handleListBackends(params map[string]any) (any, error) {
 	if s.backends == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"message": "backend provider not configured",
 			"pools":   []PoolInfo{},
 		}, nil
@@ -956,13 +956,13 @@ func (s *Server) handleListBackends(params map[string]interface{}) (interface{},
 		}
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"pools": pools,
 	}, nil
 }
 
 // handleModifyBackend handles the olb_modify_backend tool.
-func (s *Server) handleModifyBackend(params map[string]interface{}) (interface{}, error) {
+func (s *Server) handleModifyBackend(params map[string]any) (any, error) {
 	action, _ := params["action"].(string)
 	pool, _ := params["pool"].(string)
 	address, _ := params["address"].(string)
@@ -986,7 +986,7 @@ func (s *Server) handleModifyBackend(params map[string]interface{}) (interface{}
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"status":  "ok",
 		"action":  action,
 		"pool":    pool,
@@ -995,7 +995,7 @@ func (s *Server) handleModifyBackend(params map[string]interface{}) (interface{}
 }
 
 // handleModifyRoute handles the olb_modify_route tool.
-func (s *Server) handleModifyRoute(params map[string]interface{}) (interface{}, error) {
+func (s *Server) handleModifyRoute(params map[string]any) (any, error) {
 	action, _ := params["action"].(string)
 	host, _ := params["host"].(string)
 	path, _ := params["path"].(string)
@@ -1014,7 +1014,7 @@ func (s *Server) handleModifyRoute(params map[string]interface{}) (interface{}, 
 		return nil, err
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"status":  "ok",
 		"action":  action,
 		"host":    host,
@@ -1024,25 +1024,25 @@ func (s *Server) handleModifyRoute(params map[string]interface{}) (interface{}, 
 }
 
 // handleDiagnose handles the olb_diagnose tool.
-func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, error) {
+func (s *Server) handleDiagnose(params map[string]any) (any, error) {
 	mode, _ := params["mode"].(string)
 	if mode == "" {
 		mode = "full"
 	}
 
-	diagnosis := map[string]interface{}{
+	diagnosis := map[string]any{
 		"mode":      mode,
 		"timestamp": time.Now().UTC().Format(time.RFC3339),
-		"findings":  []interface{}{},
+		"findings":  []any{},
 	}
 
-	findings := make([]interface{}, 0)
+	findings := make([]any, 0)
 
 	switch mode {
 	case "errors":
 		if s.logs != nil {
 			logs := s.logs.GetLogs(50, "error")
-			findings = append(findings, map[string]interface{}{
+			findings = append(findings, map[string]any{
 				"type":    "error_analysis",
 				"count":   len(logs),
 				"entries": logs,
@@ -1051,7 +1051,7 @@ func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, err
 	case "latency":
 		if s.metrics != nil {
 			latencyMetrics := s.metrics.QueryMetrics("latency")
-			findings = append(findings, map[string]interface{}{
+			findings = append(findings, map[string]any{
 				"type":    "latency_analysis",
 				"metrics": latencyMetrics,
 			})
@@ -1067,7 +1067,7 @@ func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, err
 						healthy++
 					}
 				}
-				findings = append(findings, map[string]interface{}{
+				findings = append(findings, map[string]any{
 					"type":        "capacity_analysis",
 					"pool":        pool.Name,
 					"total":       total,
@@ -1082,7 +1082,7 @@ func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, err
 			for _, pool := range pools {
 				for _, b := range pool.Backends {
 					if b.Status != "healthy" {
-						findings = append(findings, map[string]interface{}{
+						findings = append(findings, map[string]any{
 							"type":    "unhealthy_backend",
 							"pool":    pool.Name,
 							"backend": b.Address,
@@ -1095,19 +1095,19 @@ func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, err
 	case "full":
 		// Collect all diagnostics
 		if s.metrics != nil {
-			findings = append(findings, map[string]interface{}{
+			findings = append(findings, map[string]any{
 				"type":    "metrics_snapshot",
 				"metrics": s.metrics.QueryMetrics("*"),
 			})
 		}
 		if s.backends != nil {
-			findings = append(findings, map[string]interface{}{
+			findings = append(findings, map[string]any{
 				"type":  "backend_status",
 				"pools": s.backends.ListPools(),
 			})
 		}
 		if s.logs != nil {
-			findings = append(findings, map[string]interface{}{
+			findings = append(findings, map[string]any{
 				"type": "recent_errors",
 				"logs": s.logs.GetLogs(20, "error"),
 			})
@@ -1119,7 +1119,7 @@ func (s *Server) handleDiagnose(params map[string]interface{}) (interface{}, err
 }
 
 // handleGetLogs handles the olb_get_logs tool.
-func (s *Server) handleGetLogs(params map[string]interface{}) (interface{}, error) {
+func (s *Server) handleGetLogs(params map[string]any) (any, error) {
 	count := 50
 	if c, ok := params["count"].(float64); ok {
 		count = int(c)
@@ -1127,7 +1127,7 @@ func (s *Server) handleGetLogs(params map[string]interface{}) (interface{}, erro
 	level, _ := params["level"].(string)
 
 	if s.logs == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"message": "log provider not configured",
 			"entries": []LogEntry{},
 		}, nil
@@ -1146,16 +1146,16 @@ func (s *Server) handleGetLogs(params map[string]interface{}) (interface{}, erro
 		entries = filtered
 	}
 
-	return map[string]interface{}{
+	return map[string]any{
 		"count":   len(entries),
 		"entries": entries,
 	}, nil
 }
 
 // handleGetConfig handles the olb_get_config tool.
-func (s *Server) handleGetConfig(_ map[string]interface{}) (interface{}, error) {
+func (s *Server) handleGetConfig(_ map[string]any) (any, error) {
 	if s.config == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"message": "config provider not configured",
 		}, nil
 	}
@@ -1164,23 +1164,15 @@ func (s *Server) handleGetConfig(_ map[string]interface{}) (interface{}, error) 
 }
 
 // handleClusterStatus handles the olb_cluster_status tool.
-func (s *Server) handleClusterStatus(_ map[string]interface{}) (interface{}, error) {
+func (s *Server) handleClusterStatus(_ map[string]any) (any, error) {
 	if s.cluster == nil {
-		return map[string]interface{}{
+		return map[string]any{
 			"mode":    "standalone",
 			"message": "cluster not configured",
 		}, nil
 	}
 
 	return s.cluster.GetStatus(), nil
-}
-
-// max returns the larger of a or b.
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // --- Transports ---

@@ -7,12 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- Fix Dockerfile HEALTHCHECK syntax — shell `||` operator in JSON-form CMD didn't execute correctly
+- Fix admin error message sanitization to prevent internal info leakage
+- Fix cluster data race in state management
+- Fix health check HTTP client reuse and SSE context cancellation
+- Fix OCSP verification and cluster safety
+- Fix CLI tests for cross-platform compatibility (TempDir for non-existent paths)
+- Fix goroutine leaks, memory exhaustion, and race conditions across proxy, cluster, and engine
+- Fix CORS, proxy trust, and secrets masking security hardening
+- Fix connection release to O(1) and track config reload goroutines
+- Fix response body close before checking JSON decode errors (ACME PollOrder)
+- Fix cluster goroutine leaks and race conditions
+- Fix connection-refused tests for deterministic cross-platform behavior
+
 ### Added
+- SSE transport tests: auth, CORS, broadcast, audit logging, client lifecycle, message routing
+- HTTP bearer auth tests: valid, invalid, missing token scenarios
+- Package-level godoc for backend, yaml, metrics, and detection packages
 - Comprehensive README.md with full feature documentation
 - Updated llms.txt with complete project description for AI assistants
-- Full changelog covering all development phases
 
 ### Changed
+- MCP test coverage improved from 57.9% to 88.5%
+- README test badge updated from "56 E2E + 49 unit" to "138 files + 3300 funcs"
 - Documentation updates across all files
 
 ---
@@ -403,7 +421,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/openloadbalancer/olb/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/openloadbalancer/olb/compare/v1.0.7...HEAD
+[1.0.7]: https://github.com/openloadbalancer/olb/compare/v1.0.6...v1.0.7
+[1.0.6]: https://github.com/openloadbalancer/olb/compare/v1.0.5...v1.0.6
+[1.0.5]: https://github.com/openloadbalancer/olb/compare/v1.0.4...v1.0.5
+[1.0.4]: https://github.com/openloadbalancer/olb/compare/v1.0.3...v1.0.4
+[1.0.3]: https://github.com/openloadbalancer/olb/compare/v1.0.2...v1.0.3
+[1.0.2]: https://github.com/openloadbalancer/olb/compare/v1.0.1...v1.0.2
+[1.0.1]: https://github.com/openloadbalancer/olb/compare/v1.0.0...v1.0.1
+[1.0.0]: https://github.com/openloadbalancer/olb/compare/v0.5.0...v1.0.0
 [0.5.0]: https://github.com/openloadbalancer/olb/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/openloadbalancer/olb/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/openloadbalancer/olb/compare/v0.2.0...v0.3.0
