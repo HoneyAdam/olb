@@ -413,6 +413,13 @@ func (c *Cluster) getLastLogIndexLocked() uint64 {
 	return c.log[len(c.log)-1].Index
 }
 
+// getLastLogTerm returns the term of the last log entry (thread-safe).
+func (c *Cluster) getLastLogTerm() uint64 {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+	return c.getLastLogTermLocked()
+}
+
 // getLastLogTermLocked returns the term of the last log entry. Caller must
 // hold logMu.
 func (c *Cluster) getLastLogTermLocked() uint64 {

@@ -348,7 +348,7 @@ func (s *Server) removeBackend(w http.ResponseWriter, r *http.Request) {
 
 	if err := pool.RemoveBackend(backendID); err != nil {
 		if errors.Is(err, errors.ErrBackendNotFound) {
-			writeError(w, http.StatusNotFound, "BACKEND_NOT_FOUND", err.Error())
+			writeError(w, http.StatusNotFound, "BACKEND_NOT_FOUND", "backend not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error")
@@ -450,7 +450,7 @@ func (s *Server) drainBackend(w http.ResponseWriter, r *http.Request) {
 
 	if err := pool.DrainBackend(backendID); err != nil {
 		if errors.Is(err, errors.ErrBackendNotFound) {
-			writeError(w, http.StatusNotFound, "BACKEND_NOT_FOUND", err.Error())
+			writeError(w, http.StatusNotFound, "BACKEND_NOT_FOUND", "backend not found")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error")

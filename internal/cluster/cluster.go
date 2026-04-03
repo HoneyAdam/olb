@@ -316,7 +316,7 @@ func (c *Cluster) startElection() {
 	votesMu := sync.Mutex{}
 
 	lastLogIndex := c.getLastLogIndex()
-	lastLogTerm := c.getLastLogTermLocked()
+	lastLogTerm := c.getLastLogTerm()
 
 	c.nodesMu.RLock()
 	peers := make(map[string]string, len(c.nodes))
@@ -427,7 +427,7 @@ func (c *Cluster) sendHeartbeats() {
 					Term:         term,
 					LeaderID:     c.config.NodeID,
 					PrevLogIndex: c.getLastLogIndex(),
-					PrevLogTerm:  c.getLastLogTermLocked(),
+					PrevLogTerm:  c.getLastLogTerm(),
 					Entries:      nil, // Empty = heartbeat
 					LeaderCommit: commitIndex,
 				})
