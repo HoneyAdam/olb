@@ -52,7 +52,7 @@ func TestAccessLogMiddleware_JSONFormat(t *testing.T) {
 
 	// Parse JSON log
 	logLine := strings.TrimSpace(buf.String())
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal([]byte(logLine), &logEntry); err != nil {
 		t.Fatalf("failed to parse JSON log: %v", err)
 	}
@@ -239,7 +239,7 @@ func TestAccessLogMiddleware_WithLogger(t *testing.T) {
 	}
 
 	// Verify it's valid JSON
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal([]byte(logOutput), &logEntry); err != nil {
 		t.Errorf("log output should be valid JSON: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestAccessLogMiddleware_StatusCodes(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 
 		logLine := strings.TrimSpace(buf.String())
-		var logEntry map[string]interface{}
+		var logEntry map[string]any
 		if err := json.Unmarshal([]byte(logLine), &logEntry); err != nil {
 			t.Fatalf("failed to parse JSON log for status %d: %v", tc.status, err)
 		}
@@ -346,7 +346,7 @@ func TestAccessLogMiddleware_BytesTracking(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	logLine := strings.TrimSpace(buf.String())
-	var logEntry map[string]interface{}
+	var logEntry map[string]any
 	if err := json.Unmarshal([]byte(logLine), &logEntry); err != nil {
 		t.Fatalf("failed to parse JSON log: %v", err)
 	}

@@ -90,13 +90,13 @@ func (m *mockHealthChecker) SetStatus(backendID string, status health.Status) {
 }
 
 type mockMetrics struct {
-	data map[string]interface{}
+	data map[string]any
 }
 
 func newMockMetrics() *mockMetrics {
 	return &mockMetrics{
-		data: map[string]interface{}{
-			"test_counter": map[string]interface{}{
+		data: map[string]any{
+			"test_counter": map[string]any{
 				"type":  "counter",
 				"value": 42,
 			},
@@ -104,7 +104,7 @@ func newMockMetrics() *mockMetrics {
 	}
 }
 
-func (m *mockMetrics) GetAllMetrics() map[string]interface{} {
+func (m *mockMetrics) GetAllMetrics() map[string]any {
 	return m.data
 }
 
@@ -402,7 +402,7 @@ func TestGetSystemInfo(t *testing.T) {
 		t.Error("expected success response")
 	}
 
-	data, ok := result.Data.(map[string]interface{})
+	data, ok := result.Data.(map[string]any)
 	if !ok {
 		t.Fatal("expected data to be a map")
 	}
@@ -517,7 +517,7 @@ func TestListBackends(t *testing.T) {
 		t.Error("expected success response")
 	}
 
-	pools, ok := result.Data.([]interface{})
+	pools, ok := result.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be a slice, got %T", result.Data)
 	}
@@ -777,7 +777,7 @@ func TestListRoutes(t *testing.T) {
 		t.Error("expected success response")
 	}
 
-	routes, ok := result.Data.([]interface{})
+	routes, ok := result.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be a slice, got %T", result.Data)
 	}
@@ -1132,7 +1132,7 @@ func TestGetSystemInfo_DifferentStates(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	data, ok := result.Data.(map[string]interface{})
+	data, ok := result.Data.(map[string]any)
 	if !ok {
 		t.Fatal("expected data to be a map")
 	}
@@ -1194,7 +1194,7 @@ func TestGetSystemHealth_WithNilComponents(t *testing.T) {
 	}
 
 	// Verify degraded status due to nil components
-	data, ok := result.Data.(map[string]interface{})
+	data, ok := result.Data.(map[string]any)
 	if !ok {
 		t.Fatal("expected data to be a map")
 	}
@@ -1336,7 +1336,7 @@ func TestListBackends_EmptyPools(t *testing.T) {
 		t.Error("expected success response")
 	}
 
-	pools, ok := result.Data.([]interface{})
+	pools, ok := result.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be a slice, got %T", result.Data)
 	}
@@ -1394,7 +1394,7 @@ func TestListBackends_NilPoolManager(t *testing.T) {
 	}
 
 	// Should return empty array
-	pools, ok := result.Data.([]interface{})
+	pools, ok := result.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be a slice, got %T", result.Data)
 	}
@@ -1716,7 +1716,7 @@ func TestListRoutes_NoRoutes(t *testing.T) {
 		t.Error("expected success response")
 	}
 
-	routes, ok := result.Data.([]interface{})
+	routes, ok := result.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be a slice, got %T", result.Data)
 	}
@@ -1822,7 +1822,7 @@ func TestGetHealthStatus_NilChecker(t *testing.T) {
 	}
 
 	// Should return empty array
-	statuses, ok := result.Data.([]interface{})
+	statuses, ok := result.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be a slice, got %T", result.Data)
 	}
@@ -2393,10 +2393,10 @@ func TestAuthMiddleware_InvalidBasicAuthFormat(t *testing.T) {
 
 // mockConfigGetter implements admin.ConfigGetter for testing.
 type mockConfigGetter struct {
-	config interface{}
+	config any
 }
 
-func (m *mockConfigGetter) GetConfig() interface{} {
+func (m *mockConfigGetter) GetConfig() any {
 	return m.config
 }
 
@@ -2410,9 +2410,9 @@ func (m *mockCertLister) ListCertificates() []CertInfoView {
 }
 
 func TestGetConfig_ReturnsJSON(t *testing.T) {
-	configData := map[string]interface{}{
+	configData := map[string]any{
 		"version": "1",
-		"admin":   map[string]interface{}{"enabled": true, "address": ":8080"},
+		"admin":   map[string]any{"enabled": true, "address": ":8080"},
 	}
 	getter := &mockConfigGetter{config: configData}
 
@@ -2528,7 +2528,7 @@ func TestGetCertificates_WithCerts(t *testing.T) {
 	}
 
 	// Data should be present (array of certs)
-	dataSlice, ok := resp.Data.([]interface{})
+	dataSlice, ok := resp.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be an array, got %T", resp.Data)
 	}
@@ -2563,7 +2563,7 @@ func TestGetCertificates_NilCertLister(t *testing.T) {
 	}
 
 	// Should return empty array
-	dataSlice, ok := resp.Data.([]interface{})
+	dataSlice, ok := resp.Data.([]any)
 	if !ok {
 		t.Fatalf("expected data to be an array, got %T", resp.Data)
 	}

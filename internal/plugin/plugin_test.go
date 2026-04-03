@@ -418,7 +418,7 @@ func TestPluginAPI_RegisterMiddleware(t *testing.T) {
 		t.Fatal("plugin API is nil after Init")
 	}
 
-	factory := func(cfg map[string]interface{}) (Middleware, error) {
+	factory := func(cfg map[string]any) (Middleware, error) {
 		return &mockMiddleware{name: "custom-mw"}, nil
 	}
 
@@ -453,7 +453,7 @@ func TestPluginAPI_RegisterMiddleware_Duplicate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	factory := func(cfg map[string]interface{}) (Middleware, error) {
+	factory := func(cfg map[string]any) (Middleware, error) {
 		return &mockMiddleware{name: "dup"}, nil
 	}
 
@@ -478,7 +478,7 @@ func TestPluginAPI_RegisterBalancer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	factory := func(cfg map[string]interface{}) (Balancer, error) {
+	factory := func(cfg map[string]any) (Balancer, error) {
 		return &mockBalancer{name: "custom-balancer"}, nil
 	}
 
@@ -512,7 +512,7 @@ func TestPluginAPI_RegisterHealthCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	factory := func(cfg map[string]interface{}) (HealthChecker, error) {
+	factory := func(cfg map[string]any) (HealthChecker, error) {
 		return &mockHealthChecker{name: "custom-hc"}, nil
 	}
 
@@ -546,7 +546,7 @@ func TestPluginAPI_RegisterDiscovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	factory := func(cfg map[string]interface{}) (DiscoveryProvider, error) {
+	factory := func(cfg map[string]any) (DiscoveryProvider, error) {
 		return &mockDiscoveryProvider{name: "custom-disc"}, nil
 	}
 

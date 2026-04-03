@@ -892,7 +892,7 @@ func TestStatusCommand_JSONFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/info" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"version": "1.0.0",
 				"uptime":  "1h30m",
 			})
@@ -901,7 +901,7 @@ func TestStatusCommand_JSONFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/health" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"status": "healthy",
 			})
 			return
@@ -926,7 +926,7 @@ func TestBackendCommand_JSONFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/backends" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode([]map[string]interface{}{
+			json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "b1", "address": "10.0.0.1:8080", "weight": 1, "status": "healthy"},
 			})
 			return
@@ -951,9 +951,9 @@ func TestHealthCommand_JSONFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/health" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"status": "healthy",
-				"checks": map[string]interface{}{
+				"checks": map[string]any{
 					"backend": map[string]string{"status": "ok"},
 				},
 			})
@@ -1070,7 +1070,7 @@ func TestStatusCommand_TableFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/info" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"version":   "1.0.0",
 				"uptime":    "1h30m",
 				"listeners": float64(3),
@@ -1081,7 +1081,7 @@ func TestStatusCommand_TableFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/health" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"status": "healthy",
 			})
 			return
@@ -1104,13 +1104,13 @@ func TestStatusCommand_UnknownFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/info" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"version": "1.0.0"})
+			json.NewEncoder(w).Encode(map[string]any{"version": "1.0.0"})
 			return
 		}
 		if r.URL.Path == "/api/v1/system/health" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok"})
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -1133,7 +1133,7 @@ func TestBackendCommand_TableFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/backends" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode([]map[string]interface{}{
+			json.NewEncoder(w).Encode([]map[string]any{
 				{"id": "b1", "address": "10.0.0.1:8080", "weight": float64(1), "status": "healthy"},
 			})
 			return
@@ -1155,7 +1155,7 @@ func TestBackendCommand_UnknownFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/backends" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode([]map[string]interface{}{})
+			json.NewEncoder(w).Encode([]map[string]any{})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -1175,10 +1175,10 @@ func TestHealthCommand_TableFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/health" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"status":  "healthy",
 				"message": "all systems operational",
-				"checks": map[string]interface{}{
+				"checks": map[string]any{
 					"backend": "ok",
 				},
 			})
@@ -1201,7 +1201,7 @@ func TestHealthCommand_UnknownFormat(t *testing.T) {
 		if r.URL.Path == "/api/v1/health" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"status": "ok"})
+			json.NewEncoder(w).Encode(map[string]any{"status": "ok"})
 			return
 		}
 		w.WriteHeader(http.StatusNotFound)
@@ -1221,7 +1221,7 @@ func TestStatusCommand_HealthUnhealthy(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/info" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{"version": "1.0.0"})
+			json.NewEncoder(w).Encode(map[string]any{"version": "1.0.0"})
 			return
 		}
 		if r.URL.Path == "/api/v1/system/health" {
@@ -1356,7 +1356,7 @@ func TestStatusCommand_SuccessfulWithHealthError(t *testing.T) {
 		if r.URL.Path == "/api/v1/system/info" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"version":    "1.0.0",
 				"uptime":     "2h",
 				"listeners":  float64(2),
@@ -1369,7 +1369,7 @@ func TestStatusCommand_SuccessfulWithHealthError(t *testing.T) {
 			// Connection works but health returns error JSON
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"status": "degraded",
 			})
 			return
@@ -1506,7 +1506,7 @@ func TestStatusCommand_HealthEndpointNon200(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/system/info" {
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"version": "1.0.0",
 				"uptime":  "1h",
 			})
@@ -1532,7 +1532,7 @@ func TestStatusCommand_HealthEndpointNon200(t *testing.T) {
 func TestBackendCommand_List_JSONFormat_WithMockServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode([]map[string]interface{}{
+		json.NewEncoder(w).Encode([]map[string]any{
 			{"id": "b1", "address": "10.0.0.1:8080", "weight": float64(1), "status": "healthy"},
 		})
 	}))
@@ -1550,10 +1550,10 @@ func TestBackendCommand_List_JSONFormat_WithMockServer(t *testing.T) {
 func TestHealthCommand_Show_JSONFormat_WithMockServer(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		json.NewEncoder(w).Encode(map[string]any{
 			"status": "healthy",
-			"checks": map[string]interface{}{
-				"backend": map[string]interface{}{"status": "ok"},
+			"checks": map[string]any{
+				"backend": map[string]any{"status": "ok"},
 			},
 			"message": "all systems operational",
 		})

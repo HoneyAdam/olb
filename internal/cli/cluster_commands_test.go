@@ -45,7 +45,7 @@ func newClusterTestServer() *httptest.Server {
 			return
 		}
 
-		var req map[string]interface{}
+		var req map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(admin.ErrorResponse("INVALID_JSON", "invalid json"))

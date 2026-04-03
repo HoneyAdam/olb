@@ -166,7 +166,7 @@ func newMockServer() *httptest.Server {
 			w.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		metrics := map[string]interface{}{
+		metrics := map[string]any{
 			"requests_total": 1000,
 			"errors_total":   10,
 		}
@@ -670,7 +670,7 @@ func TestClient_EmptyResponse(t *testing.T) {
 }
 
 func TestClient_PostWithBody(t *testing.T) {
-	var receivedBody map[string]interface{}
+	var receivedBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			json.NewDecoder(r.Body).Decode(&receivedBody)
@@ -1227,7 +1227,7 @@ func TestClient_GetMetricsJSON_Success(t *testing.T) {
 		if r.URL.Path == "/api/v1/metrics" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"requests_total": float64(1000),
 				"errors_total":   float64(10),
 				"latency_ms":     map[string]float64{"p50": 10, "p99": 100},

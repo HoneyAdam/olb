@@ -58,12 +58,12 @@ server {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	servers, ok := m["server"].([]interface{})
+	servers, ok := m["server"].([]any)
 	if !ok || len(servers) == 0 {
 		t.Fatalf("server block not found or wrong type: %v", m["server"])
 	}
 
-	srv := servers[0].(map[string]interface{})
+	srv := servers[0].(map[string]any)
 	if srv["host"] != "localhost" {
 		t.Errorf("host = %v, want %q", srv["host"], "localhost")
 	}
@@ -87,12 +87,12 @@ resource "web" {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	resources, ok := m["resource"].([]interface{})
+	resources, ok := m["resource"].([]any)
 	if !ok || len(resources) == 0 {
 		t.Fatalf("resource block not found")
 	}
 
-	res := resources[0].(map[string]interface{})
+	res := resources[0].(map[string]any)
 	labels := res["__labels__"].([]string)
 	if len(labels) != 1 || labels[0] != "web" {
 		t.Errorf("labels = %v, want [web]", labels)
@@ -118,8 +118,8 @@ resource "aws_instance" "web" {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	resources := m["resource"].([]interface{})
-	res := resources[0].(map[string]interface{})
+	resources := m["resource"].([]any)
+	res := resources[0].(map[string]any)
 	labels := res["__labels__"].([]string)
 	if len(labels) != 2 || labels[0] != "aws_instance" || labels[1] != "web" {
 		t.Errorf("labels = %v, want [aws_instance web]", labels)
@@ -150,11 +150,11 @@ server {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	servers := m["server"].([]interface{})
-	srv := servers[0].(map[string]interface{})
+	servers := m["server"].([]any)
+	srv := servers[0].(map[string]any)
 
-	listeners := srv["listener"].([]interface{})
-	lis := listeners[0].(map[string]interface{})
+	listeners := srv["listener"].([]any)
+	lis := listeners[0].(map[string]any)
 	if lis["port"] != int64(443) {
 		t.Errorf("port = %v, want 443", lis["port"])
 	}
@@ -178,7 +178,7 @@ mixed  = [1, "two", true]
 		t.Fatalf("parse error: %v", err)
 	}
 
-	ports := m["ports"].([]interface{})
+	ports := m["ports"].([]any)
 	if len(ports) != 3 {
 		t.Fatalf("ports has %d items, want 3", len(ports))
 	}
@@ -186,7 +186,7 @@ mixed  = [1, "two", true]
 		t.Errorf("ports = %v, want [80 443 8080]", ports)
 	}
 
-	hosts := m["hosts"].([]interface{})
+	hosts := m["hosts"].([]any)
 	if len(hosts) != 3 {
 		t.Fatalf("hosts has %d items, want 3", len(hosts))
 	}
@@ -194,7 +194,7 @@ mixed  = [1, "two", true]
 		t.Errorf("hosts = %v", hosts)
 	}
 
-	mixed := m["mixed"].([]interface{})
+	mixed := m["mixed"].([]any)
 	if mixed[0] != int64(1) || mixed[1] != "two" || mixed[2] != true {
 		t.Errorf("mixed = %v", mixed)
 	}
@@ -213,7 +213,7 @@ tags = { env = "prod", region = "us-east-1" }
 		t.Fatalf("parse error: %v", err)
 	}
 
-	tags, ok := m["tags"].(map[string]interface{})
+	tags, ok := m["tags"].(map[string]any)
 	if !ok {
 		t.Fatalf("tags is not a map: %T", m["tags"])
 	}
@@ -405,7 +405,7 @@ backend "web3" {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	backends, ok := m["backend"].([]interface{})
+	backends, ok := m["backend"].([]any)
 	if !ok {
 		t.Fatalf("backend is not a slice: %T", m["backend"])
 	}
@@ -413,9 +413,9 @@ backend "web3" {
 		t.Fatalf("got %d backends, want 3", len(backends))
 	}
 
-	b1 := backends[0].(map[string]interface{})
-	b2 := backends[1].(map[string]interface{})
-	b3 := backends[2].(map[string]interface{})
+	b1 := backends[0].(map[string]any)
+	b2 := backends[1].(map[string]any)
+	b3 := backends[2].(map[string]any)
 
 	if b1["address"] != "10.0.0.1:8080" {
 		t.Errorf("b1 address = %v", b1["address"])
@@ -521,11 +521,11 @@ pool "web-pool" {
 	}
 
 	// Listener
-	listeners := m["listener"].([]interface{})
+	listeners := m["listener"].([]any)
 	if len(listeners) != 1 {
 		t.Fatalf("got %d listeners, want 1", len(listeners))
 	}
-	lis := listeners[0].(map[string]interface{})
+	lis := listeners[0].(map[string]any)
 	if lis["address"] != ":80" {
 		t.Errorf("listener address = %v", lis["address"])
 	}
@@ -534,8 +534,8 @@ pool "web-pool" {
 	}
 
 	// Route inside listener
-	routes := lis["route"].([]interface{})
-	route := routes[0].(map[string]interface{})
+	routes := lis["route"].([]any)
+	route := routes[0].(map[string]any)
 	if route["path"] != "/" {
 		t.Errorf("route path = %v", route["path"])
 	}
@@ -544,15 +544,15 @@ pool "web-pool" {
 	}
 
 	// Pool
-	pools := m["pool"].([]interface{})
-	pool := pools[0].(map[string]interface{})
+	pools := m["pool"].([]any)
+	pool := pools[0].(map[string]any)
 	if pool["algorithm"] != "round-robin" {
 		t.Errorf("pool algorithm = %v", pool["algorithm"])
 	}
 
 	// Health check in pool
-	hcs := pool["health_check"].([]interface{})
-	hc := hcs[0].(map[string]interface{})
+	hcs := pool["health_check"].([]any)
+	hc := hcs[0].(map[string]any)
 	if hc["type"] != "http" {
 		t.Errorf("health_check type = %v", hc["type"])
 	}
@@ -561,11 +561,11 @@ pool "web-pool" {
 	}
 
 	// Backends in pool
-	backends := pool["backend"].([]interface{})
+	backends := pool["backend"].([]any)
 	if len(backends) != 2 {
 		t.Fatalf("got %d backends, want 2", len(backends))
 	}
-	b1 := backends[0].(map[string]interface{})
+	b1 := backends[0].(map[string]any)
 	if b1["id"] != "web1" {
 		t.Errorf("backend 1 id = %v", b1["id"])
 	}
@@ -737,7 +737,7 @@ admin {
 	}
 	type Config struct {
 		Version string        `hcl:"version"`
-		Admin   []interface{} `hcl:"admin"`
+		Admin   []any `hcl:"admin"`
 	}
 
 	var cfg Config
@@ -762,7 +762,7 @@ func TestDecodeMapField(t *testing.T) {
 labels = { env = "prod", team = "infra" }
 `
 	type Config struct {
-		Labels map[string]interface{} `hcl:"labels"`
+		Labels map[string]any `hcl:"labels"`
 	}
 
 	var cfg Config
@@ -794,8 +794,8 @@ logging {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	blocks := m["logging"].([]interface{})
-	logging := blocks[0].(map[string]interface{})
+	blocks := m["logging"].([]any)
+	logging := blocks[0].(map[string]any)
 	if logging["level"] != "info" {
 		t.Errorf("level = %v, want %q", logging["level"], "info")
 	}
@@ -911,7 +911,7 @@ ports = [
 		t.Fatalf("parse error: %v", err)
 	}
 
-	ports := m["ports"].([]interface{})
+	ports := m["ports"].([]any)
 	if len(ports) != 3 {
 		t.Fatalf("ports has %d items, want 3", len(ports))
 	}
@@ -971,9 +971,9 @@ level1 {
 		t.Fatalf("parse error: %v", err)
 	}
 
-	l1 := m["level1"].([]interface{})[0].(map[string]interface{})
-	l2 := l1["level2"].([]interface{})[0].(map[string]interface{})
-	l3 := l2["level3"].([]interface{})[0].(map[string]interface{})
+	l1 := m["level1"].([]any)[0].(map[string]any)
+	l2 := l1["level2"].([]any)[0].(map[string]any)
+	l3 := l2["level3"].([]any)[0].(map[string]any)
 
 	if l3["value"] != "deep" {
 		t.Errorf("value = %v, want %q", l3["value"], "deep")
@@ -1185,11 +1185,11 @@ simple_key = 123
 		t.Errorf("simple_key = %v, want 123", m["simple_key"])
 	}
 
-	blocks := m["block_label"].([]interface{})
+	blocks := m["block_label"].([]any)
 	if len(blocks) != 1 {
 		t.Fatalf("expected 1 block, got %d", len(blocks))
 	}
-	block := blocks[0].(map[string]interface{})
+	block := blocks[0].(map[string]any)
 	labels := block["__labels__"].([]string)
 	if len(labels) != 2 || labels[0] != "label1" || labels[1] != "label2" {
 		t.Errorf("labels = %v, want [label1 label2]", labels)
@@ -1478,7 +1478,7 @@ func TestDecodeScalar_PointerField(t *testing.T) {
 func TestDecodeScalar_InterfaceField(t *testing.T) {
 	input := `value = 42`
 	type Config struct {
-		Value interface{} `hcl:"value"`
+		Value any `hcl:"value"`
 	}
 
 	var cfg Config

@@ -753,7 +753,7 @@ func TestJSONFormatter_Format(t *testing.T) {
 	tests := []struct {
 		name     string
 		indent   bool
-		data     interface{}
+		data     any
 		expected string
 	}{
 		{

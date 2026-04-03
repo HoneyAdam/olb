@@ -14,7 +14,7 @@ import (
 // Test helpers
 // ---------------------------------------------------------------------------
 
-func mustParse(t *testing.T, input string) map[string]interface{} {
+func mustParse(t *testing.T, input string) map[string]any {
 	t.Helper()
 	m, err := Parse([]byte(input))
 	if err != nil {
@@ -93,7 +93,7 @@ database.primary.host = "db1.example.com"
 `
 	m := mustParse(t, input)
 
-	server, ok := m["server"].(map[string]interface{})
+	server, ok := m["server"].(map[string]any)
 	if !ok {
 		t.Fatalf("server is not a map: %T", m["server"])
 	}
@@ -104,11 +104,11 @@ database.primary.host = "db1.example.com"
 		t.Errorf("server.port = %v", server["port"])
 	}
 
-	db, ok := m["database"].(map[string]interface{})
+	db, ok := m["database"].(map[string]any)
 	if !ok {
 		t.Fatalf("database is not a map")
 	}
-	primary, ok := db["primary"].(map[string]interface{})
+	primary, ok := db["primary"].(map[string]any)
 	if !ok {
 		t.Fatalf("database.primary is not a map")
 	}
@@ -132,7 +132,7 @@ name = "mydb"
 `
 	m := mustParse(t, input)
 
-	server := m["server"].(map[string]interface{})
+	server := m["server"].(map[string]any)
 	if server["host"] != "localhost" {
 		t.Errorf("server.host = %v", server["host"])
 	}
@@ -140,7 +140,7 @@ name = "mydb"
 		t.Errorf("server.port = %v", server["port"])
 	}
 
-	db := m["database"].(map[string]interface{})
+	db := m["database"].(map[string]any)
 	if db["name"] != "mydb" {
 		t.Errorf("database.name = %v", db["name"])
 	}
@@ -161,12 +161,12 @@ key = "/path/to/key.pem"
 `
 	m := mustParse(t, input)
 
-	server := m["server"].(map[string]interface{})
+	server := m["server"].(map[string]any)
 	if server["host"] != "localhost" {
 		t.Errorf("server.host = %v", server["host"])
 	}
 
-	tls := server["tls"].(map[string]interface{})
+	tls := server["tls"].(map[string]any)
 	if tls["cert"] != "/path/to/cert.pem" {
 		t.Errorf("server.tls.cert = %v", tls["cert"])
 	}
@@ -195,7 +195,7 @@ address = "10.0.0.3:80"
 `
 	m := mustParse(t, input)
 
-	backends, ok := m["backends"].([]interface{})
+	backends, ok := m["backends"].([]any)
 	if !ok {
 		t.Fatalf("backends is not a slice: %T", m["backends"])
 	}
@@ -203,15 +203,15 @@ address = "10.0.0.3:80"
 		t.Fatalf("len(backends) = %d, want 3", len(backends))
 	}
 
-	b1 := backends[0].(map[string]interface{})
+	b1 := backends[0].(map[string]any)
 	if b1["id"] != "web1" {
 		t.Errorf("backends[0].id = %v", b1["id"])
 	}
-	b2 := backends[1].(map[string]interface{})
+	b2 := backends[1].(map[string]any)
 	if b2["id"] != "web2" {
 		t.Errorf("backends[1].id = %v", b2["id"])
 	}
-	b3 := backends[2].(map[string]interface{})
+	b3 := backends[2].(map[string]any)
 	if b3["id"] != "web3" {
 		t.Errorf("backends[2].id = %v", b3["id"])
 	}
@@ -228,7 +228,7 @@ person = {name = "Tom", age = 30}
 `
 	m := mustParse(t, input)
 
-	point := m["point"].(map[string]interface{})
+	point := m["point"].(map[string]any)
 	if point["x"] != int64(1) {
 		t.Errorf("point.x = %v", point["x"])
 	}
@@ -236,7 +236,7 @@ person = {name = "Tom", age = 30}
 		t.Errorf("point.y = %v", point["y"])
 	}
 
-	person := m["person"].(map[string]interface{})
+	person := m["person"].(map[string]any)
 	if person["name"] != "Tom" {
 		t.Errorf("person.name = %v", person["name"])
 	}
@@ -257,7 +257,7 @@ hosts = ["alpha", "beta", "gamma"]
 `
 	m := mustParse(t, input)
 
-	ports := m["ports"].([]interface{})
+	ports := m["ports"].([]any)
 	if len(ports) != 3 {
 		t.Fatalf("len(ports) = %d", len(ports))
 	}
@@ -265,7 +265,7 @@ hosts = ["alpha", "beta", "gamma"]
 		t.Errorf("ports = %v", ports)
 	}
 
-	hosts := m["hosts"].([]interface{})
+	hosts := m["hosts"].([]any)
 	if len(hosts) != 3 {
 		t.Fatalf("len(hosts) = %d", len(hosts))
 	}
@@ -280,16 +280,16 @@ matrix = [[1, 2], [3, 4]]
 `
 	m := mustParse(t, input)
 
-	matrix := m["matrix"].([]interface{})
+	matrix := m["matrix"].([]any)
 	if len(matrix) != 2 {
 		t.Fatalf("len(matrix) = %d", len(matrix))
 	}
 
-	row1 := matrix[0].([]interface{})
+	row1 := matrix[0].([]any)
 	if row1[0] != int64(1) || row1[1] != int64(2) {
 		t.Errorf("row1 = %v", row1)
 	}
-	row2 := matrix[1].([]interface{})
+	row2 := matrix[1].([]any)
 	if row2[0] != int64(3) || row2[1] != int64(4) {
 		t.Errorf("row2 = %v", row2)
 	}
@@ -305,7 +305,7 @@ colors = [
 `
 	m := mustParse(t, input)
 
-	colors := m["colors"].([]interface{})
+	colors := m["colors"].([]any)
 	if len(colors) != 3 {
 		t.Fatalf("len(colors) = %d", len(colors))
 	}
@@ -780,7 +780,7 @@ weight = 200
 		t.Errorf("version = %v", m["version"])
 	}
 
-	admin := m["admin"].(map[string]interface{})
+	admin := m["admin"].(map[string]any)
 	if admin["address"] != ":8080" {
 		t.Errorf("admin.address = %v", admin["address"])
 	}
@@ -788,33 +788,33 @@ weight = 200
 		t.Errorf("admin.enabled = %v", admin["enabled"])
 	}
 
-	listeners := m["listeners"].([]interface{})
+	listeners := m["listeners"].([]any)
 	if len(listeners) != 2 {
 		t.Fatalf("len(listeners) = %d", len(listeners))
 	}
-	l1 := listeners[0].(map[string]interface{})
+	l1 := listeners[0].(map[string]any)
 	if l1["name"] != "http" {
 		t.Errorf("listeners[0].name = %v", l1["name"])
 	}
-	l2 := listeners[1].(map[string]interface{})
+	l2 := listeners[1].(map[string]any)
 	if l2["tls"] != true {
 		t.Errorf("listeners[1].tls = %v", l2["tls"])
 	}
 
-	pools := m["pools"].([]interface{})
+	pools := m["pools"].([]any)
 	if len(pools) != 1 {
 		t.Fatalf("len(pools) = %d", len(pools))
 	}
-	pool := pools[0].(map[string]interface{})
+	pool := pools[0].(map[string]any)
 	if pool["name"] != "web-pool" {
 		t.Errorf("pools[0].name = %v", pool["name"])
 	}
 
-	backends := pool["backends"].([]interface{})
+	backends := pool["backends"].([]any)
 	if len(backends) != 2 {
 		t.Fatalf("len(backends) = %d", len(backends))
 	}
-	b1 := backends[0].(map[string]interface{})
+	b1 := backends[0].(map[string]any)
 	if b1["id"] != "web1" {
 		t.Errorf("backends[0].id = %v", b1["id"])
 	}
@@ -936,12 +936,12 @@ empty_tbl = {}
 `
 	m := mustParse(t, input)
 
-	arr := m["empty_arr"].([]interface{})
+	arr := m["empty_arr"].([]any)
 	if len(arr) != 0 {
 		t.Errorf("empty_arr has %d elements", len(arr))
 	}
 
-	tbl := m["empty_tbl"].(map[string]interface{})
+	tbl := m["empty_tbl"].(map[string]any)
 	if len(tbl) != 0 {
 		t.Errorf("empty_tbl has %d keys", len(tbl))
 	}
@@ -957,8 +957,8 @@ point = {x.a = 1, x.b = 2}
 `
 	m := mustParse(t, input)
 
-	point := m["point"].(map[string]interface{})
-	x := point["x"].(map[string]interface{})
+	point := m["point"].(map[string]any)
+	x := point["x"].(map[string]any)
 	if x["a"] != int64(1) {
 		t.Errorf("point.x.a = %v", x["a"])
 	}
@@ -1055,7 +1055,7 @@ active = true
 }
 
 // ---------------------------------------------------------------------------
-// 30. Decode into interface{}
+// 30. Decode into any
 // ---------------------------------------------------------------------------
 
 func TestDecodeInterface(t *testing.T) {
@@ -1063,13 +1063,13 @@ func TestDecodeInterface(t *testing.T) {
 name = "test"
 count = 42
 `
-	var result interface{}
+	var result any
 	err := Decode([]byte(input), &result)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatalf("result is %T", result)
 	}
@@ -1166,28 +1166,28 @@ name = "plantain"
 `
 	m := mustParse(t, input)
 
-	fruits := m["fruits"].([]interface{})
+	fruits := m["fruits"].([]any)
 	if len(fruits) != 2 {
 		t.Fatalf("len(fruits) = %d, want 2", len(fruits))
 	}
 
-	apple := fruits[0].(map[string]interface{})
+	apple := fruits[0].(map[string]any)
 	if apple["name"] != "apple" {
 		t.Errorf("fruits[0].name = %v", apple["name"])
 	}
-	appleVars := apple["varieties"].([]interface{})
+	appleVars := apple["varieties"].([]any)
 	if len(appleVars) != 2 {
 		t.Fatalf("len(apple.varieties) = %d", len(appleVars))
 	}
-	if appleVars[0].(map[string]interface{})["name"] != "red delicious" {
+	if appleVars[0].(map[string]any)["name"] != "red delicious" {
 		t.Errorf("apple.varieties[0].name = %v", appleVars[0])
 	}
 
-	banana := fruits[1].(map[string]interface{})
+	banana := fruits[1].(map[string]any)
 	if banana["name"] != "banana" {
 		t.Errorf("fruits[1].name = %v", banana["name"])
 	}
-	bananaVars := banana["varieties"].([]interface{})
+	bananaVars := banana["varieties"].([]any)
 	if len(bananaVars) != 1 {
 		t.Fatalf("len(banana.varieties) = %d", len(bananaVars))
 	}
@@ -1220,11 +1220,11 @@ tbl = {a = 1}
 	if _, ok := m["bool_val"].(bool); !ok {
 		t.Errorf("bool_val is %T, not bool", m["bool_val"])
 	}
-	if _, ok := m["arr"].([]interface{}); !ok {
-		t.Errorf("arr is %T, not []interface{}", m["arr"])
+	if _, ok := m["arr"].([]any); !ok {
+		t.Errorf("arr is %T, not []any", m["arr"])
 	}
-	if _, ok := m["tbl"].(map[string]interface{}); !ok {
-		t.Errorf("tbl is %T, not map[string]interface{}", m["tbl"])
+	if _, ok := m["tbl"].(map[string]any); !ok {
+		t.Errorf("tbl is %T, not map[string]any", m["tbl"])
 	}
 }
 
@@ -1300,7 +1300,7 @@ name = "Tom"
 	if m["title"] != doc.Title {
 		t.Errorf("Parse title %q != Decode title %q", m["title"], doc.Title)
 	}
-	owner := m["owner"].(map[string]interface{})
+	owner := m["owner"].(map[string]any)
 	if owner["name"] != doc.Owner.Name {
 		t.Errorf("Parse owner.name %q != Decode owner.name %q", owner["name"], doc.Owner.Name)
 	}
@@ -1509,11 +1509,11 @@ flag_off = 0
 
 func TestDecodeInt_ToInterface(t *testing.T) {
 	input := `count = 42`
-	var result interface{}
+	var result any
 	if err := Decode([]byte(input), &result); err != nil {
 		t.Fatal(err)
 	}
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
 		t.Fatalf("result is %T, want map", result)
 	}
@@ -1704,11 +1704,11 @@ i64 = -8000000000000000000
 	}
 }
 
-// TestDecodeFloat_ToInterface tests decodeFloat to interface{}.
+// TestDecodeFloat_ToInterface tests decodeFloat to any.
 func TestDecodeFloat_ToInterface(t *testing.T) {
 	input := `val = 3.14`
 	type Cfg struct {
-		Val interface{} `toml:"val"`
+		Val any `toml:"val"`
 	}
 	var cfg Cfg
 	if err := Decode([]byte(input), &cfg); err != nil {
@@ -1739,11 +1739,11 @@ func TestDecodeFloat_ToBool(t *testing.T) {
 	}
 }
 
-// TestDecodeBool_ToInterface tests decodeBool to interface{}.
+// TestDecodeBool_ToInterface tests decodeBool to any.
 func TestDecodeBool_ToInterface(t *testing.T) {
 	input := `val = true`
 	type Cfg struct {
-		Val interface{} `toml:"val"`
+		Val any `toml:"val"`
 	}
 	var cfg Cfg
 	if err := Decode([]byte(input), &cfg); err != nil {
@@ -1899,11 +1899,11 @@ func TestDecodeScalar_InvalidFloat(t *testing.T) {
 	}
 }
 
-// TestDecodeScalar_ToInterface tests decoding a string into interface{}.
+// TestDecodeScalar_ToInterface tests decoding a string into any.
 func TestDecodeScalar_ToInterface(t *testing.T) {
 	input := `val = "hello"`
 	type Cfg struct {
-		Val interface{} `toml:"val"`
+		Val any `toml:"val"`
 	}
 	var cfg Cfg
 	if err := Decode([]byte(input), &cfg); err != nil {
@@ -2054,7 +2054,7 @@ func TestInlineTable_Empty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m, ok := result["val"].(map[string]interface{})
+	m, ok := result["val"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected map, got %T", result["val"])
 	}

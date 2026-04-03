@@ -350,7 +350,7 @@ func createTestCert(t *testing.T, cn string, parent *x509.Certificate) *x509.Cer
 	}
 
 	var parentCert *x509.Certificate
-	var parentKey interface{} = priv
+	var parentKey any = priv
 
 	if parent != nil {
 		parentCert = parent

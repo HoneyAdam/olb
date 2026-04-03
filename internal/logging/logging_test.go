@@ -376,7 +376,7 @@ func TestRotatingFileOutput(t *testing.T) {
 
 func TestFormatValue(t *testing.T) {
 	tests := []struct {
-		input    interface{}
+		input    any
 		expected string
 	}{
 		{"simple", "simple"},

@@ -24,11 +24,11 @@ func TestRecoveryMiddleware_NoPanic(t *testing.T) {
 }
 
 func TestRecoveryMiddleware_PanicRecovered(t *testing.T) {
-	var loggedPanic interface{}
+	var loggedPanic any
 	var loggedStack string
 
 	mw := NewRecoveryMiddleware(RecoveryConfig{
-		LogFunc: func(panicVal interface{}, stack string) {
+		LogFunc: func(panicVal any, stack string) {
 			loggedPanic = panicVal
 			loggedStack = stack
 		},

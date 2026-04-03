@@ -107,7 +107,7 @@ func TestError_WithContext(t *testing.T) {
 
 func TestError_WithContextMap(t *testing.T) {
 	err := New(CodeInternal, "error").
-		WithContextMap(map[string]interface{}{
+		WithContextMap(map[string]any{
 			"a": 1,
 			"b": 2,
 		})
@@ -788,56 +788,56 @@ func TestErrorfWithComplexFormat(t *testing.T) {
 	tests := []struct {
 		name     string
 		format   string
-		args     []interface{}
+		args     []any
 		expected string
 		code     Code
 	}{
 		{
 			name:     "multiple strings",
 			format:   "backend %s on host %s failed",
-			args:     []interface{}{"web01", "server1"},
+			args:     []any{"web01", "server1"},
 			expected: "INTERNAL: backend web01 on host server1 failed",
 			code:     CodeInternal,
 		},
 		{
 			name:     "mixed types",
 			format:   "request %s took %d ms, status %d",
-			args:     []interface{}{"/api/users", 150, 200},
+			args:     []any{"/api/users", 150, 200},
 			expected: "TIMEOUT: request /api/users took 150 ms, status 200",
 			code:     CodeTimeout,
 		},
 		{
 			name:     "float formatting",
 			format:   "latency: %.2f ms, rate: %.4f",
-			args:     []interface{}{123.456, 0.1234},
+			args:     []any{123.456, 0.1234},
 			expected: "RATE_LIMIT_EXCEEDED: latency: 123.46 ms, rate: 0.1234",
 			code:     CodeRateLimitExceeded,
 		},
 		{
 			name:     "boolean formatting",
 			format:   "healthy=%v, enabled=%t",
-			args:     []interface{}{true, false},
+			args:     []any{true, false},
 			expected: "BACKEND_UNHEALTHY: healthy=true, enabled=false",
 			code:     CodeBackendUnhealthy,
 		},
 		{
 			name:     "hex formatting",
 			format:   "address: 0x%x, decimal: %d",
-			args:     []interface{}{255, 255},
+			args:     []any{255, 255},
 			expected: "INTERNAL: address: 0xff, decimal: 255",
 			code:     CodeInternal,
 		},
 		{
 			name:     "quoted string",
 			format:   "invalid input: %q",
-			args:     []interface{}{"hello world"},
+			args:     []any{"hello world"},
 			expected: "INVALID_ARGUMENT: invalid input: \"hello world\"",
 			code:     CodeInvalidArg,
 		},
 		{
 			name:     "width and padding",
 			format:   "id: %05d, name: %10s",
-			args:     []interface{}{42, "test"},
+			args:     []any{42, "test"},
 			expected: "NOT_FOUND: id: 00042, name:       test",
 			code:     CodeNotFound,
 		},

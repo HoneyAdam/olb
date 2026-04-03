@@ -504,7 +504,7 @@ func (mw *WAFMiddleware) IPACL() *ipacl.IPAccessList { return mw.ipACL }
 func (mw *WAFMiddleware) Analytics() *Analytics { return mw.analytics }
 
 // RateLimiter returns the rate limiter for external management.
-func (mw *WAFMiddleware) RateLimiter() interface{} {
+func (mw *WAFMiddleware) RateLimiter() any {
 	if mw.rateLimiter == nil {
 		return nil
 	}

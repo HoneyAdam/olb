@@ -158,7 +158,7 @@ func startTestBackends(t *testing.T, count int, baseLatency time.Duration) []*te
 			localB.hits.Add(1)
 			w.Header().Set("X-Backend", localB.name)
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"backend": localB.name,
 				"time":    time.Now().UnixMicro(),
 			})

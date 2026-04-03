@@ -799,7 +799,7 @@ list:
   - item2
 `
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -813,9 +813,9 @@ list:
 	}
 
 	// Check nested map
-	nested, ok := result["nested"].(map[string]interface{})
+	nested, ok := result["nested"].(map[string]any)
 	if !ok {
-		t.Errorf("nested is not a map[string]interface{}")
+		t.Errorf("nested is not a map[string]any")
 	} else {
 		if nested["key1"] != "val1" {
 			t.Errorf("nested.key1 = %v, want %v", nested["key1"], "val1")
@@ -823,9 +823,9 @@ list:
 	}
 
 	// Check list
-	list, ok := result["list"].([]interface{})
+	list, ok := result["list"].([]any)
 	if !ok {
-		t.Errorf("list is not a []interface{}")
+		t.Errorf("list is not a []any")
 	} else if len(list) != 2 {
 		t.Errorf("len(list) = %d, want 2", len(list))
 	}
@@ -1038,7 +1038,7 @@ int_ptr: 42
 
 func TestDecoder_InterfaceField(t *testing.T) {
 	type Config struct {
-		Any interface{} `yaml:"any"`
+		Any any `yaml:"any"`
 	}
 
 	input := `
@@ -1097,7 +1097,7 @@ func TestDecoder_TypeErrors(t *testing.T) {
 	tests := []struct {
 		name  string
 		input string
-		dest  interface{}
+		dest  any
 	}{
 		{
 			name:  "string to int",
@@ -1367,7 +1367,7 @@ routes:
 	}
 
 	// Also test decoding to map
-	var cfg map[string]interface{}
+	var cfg map[string]any
 	if err := UnmarshalString(input, &cfg); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -1402,7 +1402,7 @@ multiline: |
   multiline string
 `
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -1412,18 +1412,18 @@ multiline: |
 		t.Errorf("string_value = %v, want %v", result["string_value"], "hello")
 	}
 
-	// Lists should be []interface{}
-	list, ok := result["list_value"].([]interface{})
+	// Lists should be []any
+	list, ok := result["list_value"].([]any)
 	if !ok {
-		t.Errorf("list_value is not []interface{}")
+		t.Errorf("list_value is not []any")
 	} else if len(list) != 3 {
 		t.Errorf("len(list_value) = %d, want 3", len(list))
 	}
 
-	// Nested objects should be map[string]interface{}
-	nested, ok := result["nested_object"].(map[string]interface{})
+	// Nested objects should be map[string]any
+	nested, ok := result["nested_object"].(map[string]any)
 	if !ok {
-		t.Errorf("nested_object is not map[string]interface{}")
+		t.Errorf("nested_object is not map[string]any")
 	} else if nested["key1"] != "val1" {
 		t.Errorf("nested_object.key1 = %v, want %v", nested["key1"], "val1")
 	}
@@ -1438,7 +1438,7 @@ empty_object: {}
 key_with_no_value:
 `
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
@@ -1622,14 +1622,14 @@ list:
   - b
 `
 
-	var result interface{}
+	var result any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("Result is not map[string]interface{}")
+		t.Fatalf("Result is not map[string]any")
 	}
 
 	if m["key1"] != "value1" {
@@ -1644,14 +1644,14 @@ func TestDecoder_DecodeSequenceToInterface(t *testing.T) {
 - third
 `
 
-	var result interface{}
+	var result any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	arr, ok := result.([]interface{})
+	arr, ok := result.([]any)
 	if !ok {
-		t.Fatalf("Result is not []interface{}")
+		t.Fatalf("Result is not []any")
 	}
 
 	if len(arr) != 3 {
@@ -1662,7 +1662,7 @@ func TestDecoder_DecodeSequenceToInterface(t *testing.T) {
 func TestDecoder_GuessType(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected interface{}
+		expected any
 	}{
 		{"42", int64(42)},
 		{"3.14", float64(3.14)},
@@ -2069,7 +2069,7 @@ func TestDecoder_DecodeUintErrors(t *testing.T) {
 	tests := []struct {
 		name  string
 		value string
-		dest  interface{}
+		dest  any
 	}{
 		{
 			name:  "negative to uint",
@@ -2117,15 +2117,15 @@ func TestDecoder_DecodeSequenceToInterfaceNested(t *testing.T) {
 - [1, 2, 3]
 `
 
-	var result interface{}
+	var result any
 	err := UnmarshalString(input, &result)
 	if err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	arr, ok := result.([]interface{})
+	arr, ok := result.([]any)
 	if !ok {
-		t.Fatalf("Result is not []interface{}")
+		t.Fatalf("Result is not []any")
 	}
 
 	if len(arr) != 3 {
@@ -2133,13 +2133,13 @@ func TestDecoder_DecodeSequenceToInterfaceNested(t *testing.T) {
 	}
 
 	// Check nested map
-	nested, ok := arr[1].(map[string]interface{})
+	nested, ok := arr[1].(map[string]any)
 	if !ok {
-		t.Errorf("Second element is not map[string]interface{}")
+		t.Errorf("Second element is not map[string]any")
 	} else {
-		inner, ok := nested["nested"].(map[string]interface{})
+		inner, ok := nested["nested"].(map[string]any)
 		if !ok {
-			t.Errorf("nested is not map[string]interface{}")
+			t.Errorf("nested is not map[string]any")
 		} else if inner["key"] != "value" {
 			t.Errorf("nested.key = %v, want %v", inner["key"], "value")
 		}
@@ -2228,7 +2228,7 @@ func TestParser_EmptyMapping(t *testing.T) {
 	input := `key: {}`
 
 	type Config struct {
-		Key map[string]interface{} `yaml:"key"`
+		Key map[string]any `yaml:"key"`
 	}
 
 	var cfg Config
@@ -2372,14 +2372,14 @@ key:
   - item2
 `
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	arr, ok := result["key"].([]interface{})
+	arr, ok := result["key"].([]any)
 	if !ok {
-		t.Fatalf("key is not []interface{}")
+		t.Fatalf("key is not []any")
 	}
 
 	if len(arr) != 2 {
@@ -2432,14 +2432,14 @@ func TestDecoder_DecodeIntoInterfacePointer(t *testing.T) {
 key: value
 `
 
-	var result interface{}
+	var result any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatalf("Result is not map[string]interface{}")
+		t.Fatalf("Result is not map[string]any")
 	}
 
 	if m["key"] != "value" {
@@ -2522,7 +2522,7 @@ routes:
 	type Route struct {
 		Path       string        `yaml:"path"`
 		Pool       string        `yaml:"pool"`
-		Middleware []interface{} `yaml:"middleware,omitempty"`
+		Middleware []any `yaml:"middleware,omitempty"`
 	}
 
 	type Config struct {
@@ -2628,7 +2628,7 @@ func TestDecoder_ReflectKindCases(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    string
-		expected interface{}
+		expected any
 	}{
 		{
 			name:     "int8",
@@ -2831,24 +2831,24 @@ level1:
       key: deep_value
 `
 
-	var result map[string]interface{}
+	var result map[string]any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	level1, ok := result["level1"].(map[string]interface{})
+	level1, ok := result["level1"].(map[string]any)
 	if !ok {
-		t.Fatal("level1 is not map[string]interface{}")
+		t.Fatal("level1 is not map[string]any")
 	}
 
-	level2, ok := level1["level2"].(map[string]interface{})
+	level2, ok := level1["level2"].(map[string]any)
 	if !ok {
-		t.Fatal("level2 is not map[string]interface{}")
+		t.Fatal("level2 is not map[string]any")
 	}
 
-	level3, ok := level2["level3"].(map[string]interface{})
+	level3, ok := level2["level3"].(map[string]any)
 	if !ok {
-		t.Fatal("level3 is not map[string]interface{}")
+		t.Fatal("level3 is not map[string]any")
 	}
 
 	if level3["key"] != "deep_value" {
@@ -2859,14 +2859,14 @@ level1:
 func TestDecoder_DecodeEmptySequenceToInterface(t *testing.T) {
 	input := `[]`
 
-	var result interface{}
+	var result any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	arr, ok := result.([]interface{})
+	arr, ok := result.([]any)
 	if !ok {
-		t.Fatal("Result is not []interface{}")
+		t.Fatal("Result is not []any")
 	}
 
 	if len(arr) != 0 {
@@ -2877,14 +2877,14 @@ func TestDecoder_DecodeEmptySequenceToInterface(t *testing.T) {
 func TestDecoder_DecodeEmptyMappingToInterface(t *testing.T) {
 	input := `{}`
 
-	var result interface{}
+	var result any
 	if err := UnmarshalString(input, &result); err != nil {
 		t.Fatalf("Unmarshal failed: %v", err)
 	}
 
-	m, ok := result.(map[string]interface{})
+	m, ok := result.(map[string]any)
 	if !ok {
-		t.Fatal("Result is not map[string]interface{}")
+		t.Fatal("Result is not map[string]any")
 	}
 
 	if len(m) != 0 {
@@ -2895,7 +2895,7 @@ func TestDecoder_DecodeEmptyMappingToInterface(t *testing.T) {
 func TestDecoder_DecodeScalarToInterface(t *testing.T) {
 	tests := []struct {
 		input    string
-		expected interface{}
+		expected any
 	}{
 		{`42`, int64(42)},
 		{`3.14`, float64(3.14)},
@@ -2906,7 +2906,7 @@ func TestDecoder_DecodeScalarToInterface(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			var result interface{}
+			var result any
 			if err := UnmarshalString(tt.input, &result); err != nil {
 				t.Fatalf("Unmarshal failed: %v", err)
 			}

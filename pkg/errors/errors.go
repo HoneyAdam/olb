@@ -209,7 +209,7 @@ type Error struct {
 	Code    Code
 	Message string
 	Cause   error
-	Context map[string]interface{}
+	Context map[string]any
 }
 
 // Error implements the error interface.
@@ -227,18 +227,18 @@ func (e *Error) Unwrap() error {
 
 // WithContext adds context fields to the error.
 // Returns the same error for chaining.
-func (e *Error) WithContext(key string, value interface{}) *Error {
+func (e *Error) WithContext(key string, value any) *Error {
 	if e.Context == nil {
-		e.Context = make(map[string]interface{})
+		e.Context = make(map[string]any)
 	}
 	e.Context[key] = value
 	return e
 }
 
 // WithContextMap adds multiple context fields at once.
-func (e *Error) WithContextMap(ctx map[string]interface{}) *Error {
+func (e *Error) WithContextMap(ctx map[string]any) *Error {
 	if e.Context == nil {
-		e.Context = make(map[string]interface{})
+		e.Context = make(map[string]any)
 	}
 	for k, v := range ctx {
 		e.Context[k] = v
@@ -290,7 +290,7 @@ func New(code Code, message string) *Error {
 }
 
 // Newf creates a new error with a formatted message.
-func Newf(code Code, format string, args ...interface{}) *Error {
+func Newf(code Code, format string, args ...any) *Error {
 	return &Error{
 		Code:    code,
 		Message: fmt.Sprintf(format, args...),
@@ -311,7 +311,7 @@ func Wrap(err error, code Code, message string) *Error {
 }
 
 // Wrapf wraps an existing error with a formatted message.
-func Wrapf(err error, code Code, format string, args ...interface{}) *Error {
+func Wrapf(err error, code Code, format string, args ...any) *Error {
 	if err == nil {
 		return nil
 	}
@@ -357,7 +357,7 @@ func Is(err, target error) bool {
 }
 
 // As attempts to convert err to target type.
-func As(err error, target interface{}) bool {
+func As(err error, target any) bool {
 	if target == nil {
 		panic("errors.As: target cannot be nil")
 	}
@@ -371,7 +371,7 @@ func As(err error, target interface{}) bool {
 	}
 
 	// Check if err has As method
-	if x, ok := err.(interface{ As(interface{}) bool }); ok {
+	if x, ok := err.(interface{ As(any) bool }); ok {
 		return x.As(target)
 	}
 
@@ -402,7 +402,7 @@ func IsCode(err error, code Code) bool {
 
 // WithContext wraps an error with context fields.
 // If err is nil or not an *Error, returns as-is.
-func WithContext(err error, key string, value interface{}) error {
+func WithContext(err error, key string, value any) error {
 	if err == nil {
 		return nil
 	}

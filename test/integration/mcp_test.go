@@ -20,14 +20,14 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockMetricsProvider struct {
-	data map[string]interface{}
+	data map[string]any
 }
 
-func (m *mockMetricsProvider) QueryMetrics(pattern string) map[string]interface{} {
+func (m *mockMetricsProvider) QueryMetrics(pattern string) map[string]any {
 	if pattern == "*" {
 		return m.data
 	}
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for k, v := range m.data {
 		if strings.Contains(k, pattern) {
 			result[k] = v
@@ -56,10 +56,10 @@ func (m *mockBackendProvider) ModifyBackend(action, pool, addr string) error {
 }
 
 type mockConfigProvider struct {
-	config interface{}
+	config any
 }
 
-func (m *mockConfigProvider) GetConfig() interface{} {
+func (m *mockConfigProvider) GetConfig() any {
 	return m.config
 }
 
@@ -85,10 +85,10 @@ func (m *mockLogProvider) GetLogs(count int, level string) []mcp.LogEntry {
 }
 
 type mockClusterProvider struct {
-	status interface{}
+	status any
 }
 
-func (m *mockClusterProvider) GetStatus() interface{} {
+func (m *mockClusterProvider) GetStatus() any {
 	return m.status
 }
 
@@ -112,7 +112,7 @@ func (m *mockRouteProvider) ModifyRoute(action, host, path, backend string) erro
 func newTestServer() *mcp.Server {
 	return mcp.NewServer(mcp.ServerConfig{
 		Metrics: &mockMetricsProvider{
-			data: map[string]interface{}{
+			data: map[string]any{
 				"requests_total":      float64(42000),
 				"requests_per_second": float64(150),
 				"latency_p50_ms":      float64(12),
@@ -142,9 +142,9 @@ func newTestServer() *mcp.Server {
 			},
 		},
 		Config: &mockConfigProvider{
-			config: map[string]interface{}{
+			config: map[string]any{
 				"version":   "1",
-				"listeners": []interface{}{"http://0.0.0.0:80"},
+				"listeners": []any{"http://0.0.0.0:80"},
 			},
 		},
 		Logs: &mockLogProvider{
@@ -155,7 +155,7 @@ func newTestServer() *mcp.Server {
 			},
 		},
 		Cluster: &mockClusterProvider{
-			status: map[string]interface{}{
+			status: map[string]any{
 				"mode":    "cluster",
 				"leader":  "node-1",
 				"members": 3,
@@ -170,8 +170,8 @@ func newTestServer() *mcp.Server {
 // ---------------------------------------------------------------------------
 
 // rpcRequest builds a JSON-RPC 2.0 request as raw bytes.
-func rpcRequest(id interface{}, method string, params interface{}) []byte {
-	req := map[string]interface{}{
+func rpcRequest(id any, method string, params any) []byte {
+	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      id,
 		"method":  method,
@@ -187,7 +187,7 @@ func rpcRequest(id interface{}, method string, params interface{}) []byte {
 // rpcResponse is the generic JSON-RPC 2.0 response envelope.
 type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      interface{}     `json:"id"`
+	ID      any     `json:"id"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *rpcResponseErr `json:"error,omitempty"`
 }
@@ -225,9 +225,9 @@ func TestMCPStdioTransport(t *testing.T) {
 	input.WriteByte('\n')
 	input.Write(rpcRequest(2, "tools/list", nil))
 	input.WriteByte('\n')
-	input.Write(rpcRequest(3, "tools/call", map[string]interface{}{
+	input.Write(rpcRequest(3, "tools/call", map[string]any{
 		"name":      "olb_query_metrics",
-		"arguments": map[string]interface{}{"metric": "requests_total"},
+		"arguments": map[string]any{"metric": "requests_total"},
 	}))
 	input.WriteByte('\n')
 
@@ -252,7 +252,7 @@ func TestMCPStdioTransport(t *testing.T) {
 	if resp1.Error != nil {
 		t.Fatalf("initialize error: %s", resp1.Error.Message)
 	}
-	var initResult map[string]interface{}
+	var initResult map[string]any
 	if err := json.Unmarshal(resp1.Result, &initResult); err != nil {
 		t.Fatalf("unmarshal initialize result: %v", err)
 	}
@@ -359,78 +359,78 @@ func TestMCPToolExecution(t *testing.T) {
 	tests := []struct {
 		name string
 		tool string
-		args map[string]interface{}
+		args map[string]any
 	}{
 		{
 			name: "query_metrics",
 			tool: "olb_query_metrics",
-			args: map[string]interface{}{"metric": "requests_total"},
+			args: map[string]any{"metric": "requests_total"},
 		},
 		{
 			name: "list_backends",
 			tool: "olb_list_backends",
-			args: map[string]interface{}{},
+			args: map[string]any{},
 		},
 		{
 			name: "list_backends_filtered",
 			tool: "olb_list_backends",
-			args: map[string]interface{}{"pool": "web", "status": "healthy"},
+			args: map[string]any{"pool": "web", "status": "healthy"},
 		},
 		{
 			name: "modify_backend",
 			tool: "olb_modify_backend",
-			args: map[string]interface{}{"action": "add", "pool": "web", "address": "10.0.0.4:8080"},
+			args: map[string]any{"action": "add", "pool": "web", "address": "10.0.0.4:8080"},
 		},
 		{
 			name: "modify_route",
 			tool: "olb_modify_route",
-			args: map[string]interface{}{"action": "add", "host": "example.com", "path": "/v2", "backend": "api"},
+			args: map[string]any{"action": "add", "host": "example.com", "path": "/v2", "backend": "api"},
 		},
 		{
 			name: "diagnose_full",
 			tool: "olb_diagnose",
-			args: map[string]interface{}{"mode": "full"},
+			args: map[string]any{"mode": "full"},
 		},
 		{
 			name: "diagnose_errors",
 			tool: "olb_diagnose",
-			args: map[string]interface{}{"mode": "errors"},
+			args: map[string]any{"mode": "errors"},
 		},
 		{
 			name: "diagnose_health",
 			tool: "olb_diagnose",
-			args: map[string]interface{}{"mode": "health"},
+			args: map[string]any{"mode": "health"},
 		},
 		{
 			name: "diagnose_capacity",
 			tool: "olb_diagnose",
-			args: map[string]interface{}{"mode": "capacity"},
+			args: map[string]any{"mode": "capacity"},
 		},
 		{
 			name: "diagnose_latency",
 			tool: "olb_diagnose",
-			args: map[string]interface{}{"mode": "latency"},
+			args: map[string]any{"mode": "latency"},
 		},
 		{
 			name: "get_logs",
 			tool: "olb_get_logs",
-			args: map[string]interface{}{"count": float64(10), "level": "error"},
+			args: map[string]any{"count": float64(10), "level": "error"},
 		},
 		{
 			name: "get_config",
 			tool: "olb_get_config",
-			args: map[string]interface{}{},
+			args: map[string]any{},
 		},
 		{
 			name: "cluster_status",
 			tool: "olb_cluster_status",
-			args: map[string]interface{}{},
+			args: map[string]any{},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reqBytes := rpcRequest(1, "tools/call", map[string]interface{}{
+			reqBytes := rpcRequest(1, "tools/call", map[string]any{
 				"name":      tt.tool,
 				"arguments": tt.args,
 			})
@@ -487,7 +487,7 @@ func TestMCPResourceRead(t *testing.T) {
 
 	for _, rc := range resources {
 		t.Run(rc.uri, func(t *testing.T) {
-			reqBytes := rpcRequest(1, "resources/read", map[string]interface{}{
+			reqBytes := rpcRequest(1, "resources/read", map[string]any{
 				"uri": rc.uri,
 			})
 
@@ -531,7 +531,7 @@ func TestMCPResourceRead(t *testing.T) {
 
 	// Verify unknown resource returns error.
 	t.Run("unknown_resource", func(t *testing.T) {
-		reqBytes := rpcRequest(1, "resources/read", map[string]interface{}{
+		reqBytes := rpcRequest(1, "resources/read", map[string]any{
 			"uri": "olb://nonexistent",
 		})
 		respBytes, _ := srv.HandleJSONRPC(reqBytes)
@@ -553,22 +553,22 @@ func TestMCPPromptGet(t *testing.T) {
 
 	prompts := []struct {
 		name     string
-		args     map[string]interface{}
+		args     map[string]any
 		contains string // substring expected in the first message text
 	}{
 		{
 			name:     "diagnose",
-			args:     map[string]interface{}{"target": "web"},
+			args:     map[string]any{"target": "web"},
 			contains: "Analyze the OpenLoadBalancer",
 		},
 		{
 			name:     "capacity_planning",
-			args:     map[string]interface{}{"pool": "api"},
+			args:     map[string]any{"pool": "api"},
 			contains: "capacity",
 		},
 		{
 			name: "canary_deploy",
-			args: map[string]interface{}{
+			args: map[string]any{
 				"route":       "/api",
 				"new_backend": "10.0.0.5:8080",
 				"percentage":  "5",
@@ -579,7 +579,7 @@ func TestMCPPromptGet(t *testing.T) {
 
 	for _, pc := range prompts {
 		t.Run(pc.name, func(t *testing.T) {
-			reqBytes := rpcRequest(1, "prompts/get", map[string]interface{}{
+			reqBytes := rpcRequest(1, "prompts/get", map[string]any{
 				"name":      pc.name,
 				"arguments": pc.args,
 			})
@@ -627,7 +627,7 @@ func TestMCPPromptGet(t *testing.T) {
 
 	// Unknown prompt.
 	t.Run("unknown_prompt", func(t *testing.T) {
-		reqBytes := rpcRequest(1, "prompts/get", map[string]interface{}{
+		reqBytes := rpcRequest(1, "prompts/get", map[string]any{
 			"name": "nonexistent",
 		})
 		respBytes, _ := srv.HandleJSONRPC(reqBytes)
@@ -649,7 +649,7 @@ func TestMCPFullWorkflow(t *testing.T) {
 
 	// Step 1: Initialize.
 	resp := callRPC(t, srv, 1, "initialize", nil)
-	var initResult map[string]interface{}
+	var initResult map[string]any
 	mustUnmarshal(t, resp.Result, &initResult)
 	if initResult["protocolVersion"] == nil {
 		t.Fatal("initialize: missing protocolVersion")
@@ -686,9 +686,9 @@ func TestMCPFullWorkflow(t *testing.T) {
 	t.Logf("step 2: listed %d tools", len(toolsResult.Tools))
 
 	// Step 3: Call diagnose.
-	resp = callRPC(t, srv, 3, "tools/call", map[string]interface{}{
+	resp = callRPC(t, srv, 3, "tools/call", map[string]any{
 		"name":      "olb_diagnose",
-		"arguments": map[string]interface{}{"mode": "full"},
+		"arguments": map[string]any{"mode": "full"},
 	})
 	var diagnoseResult struct {
 		Content []struct {
@@ -706,7 +706,7 @@ func TestMCPFullWorkflow(t *testing.T) {
 	t.Log("step 3: diagnose completed")
 
 	// Step 4: Read metrics resource.
-	resp = callRPC(t, srv, 4, "resources/read", map[string]interface{}{
+	resp = callRPC(t, srv, 4, "resources/read", map[string]any{
 		"uri": "olb://metrics",
 	})
 	var metricsRead struct {
@@ -781,7 +781,7 @@ func TestMCPErrorCases(t *testing.T) {
 	})
 
 	t.Run("wrong_jsonrpc_version", func(t *testing.T) {
-		req := map[string]interface{}{
+		req := map[string]any{
 			"jsonrpc": "1.0",
 			"id":      1,
 			"method":  "initialize",
@@ -798,8 +798,8 @@ func TestMCPErrorCases(t *testing.T) {
 	})
 
 	t.Run("tools_call_missing_name", func(t *testing.T) {
-		resp := callRPCExpectError(t, srv, 1, "tools/call", map[string]interface{}{
-			"arguments": map[string]interface{}{},
+		resp := callRPCExpectError(t, srv, 1, "tools/call", map[string]any{
+			"arguments": map[string]any{},
 		})
 		if resp.Error == nil {
 			t.Error("expected error for missing tool name")
@@ -807,9 +807,9 @@ func TestMCPErrorCases(t *testing.T) {
 	})
 
 	t.Run("tools_call_unknown_tool", func(t *testing.T) {
-		resp := callRPCExpectError(t, srv, 1, "tools/call", map[string]interface{}{
+		resp := callRPCExpectError(t, srv, 1, "tools/call", map[string]any{
 			"name":      "nonexistent_tool",
-			"arguments": map[string]interface{}{},
+			"arguments": map[string]any{},
 		})
 		if resp.Error == nil {
 			t.Error("expected error for unknown tool")
@@ -817,14 +817,14 @@ func TestMCPErrorCases(t *testing.T) {
 	})
 
 	t.Run("resources_read_missing_uri", func(t *testing.T) {
-		resp := callRPCExpectError(t, srv, 1, "resources/read", map[string]interface{}{})
+		resp := callRPCExpectError(t, srv, 1, "resources/read", map[string]any{})
 		if resp.Error == nil {
 			t.Error("expected error for missing URI")
 		}
 	})
 
 	t.Run("prompts_get_missing_name", func(t *testing.T) {
-		resp := callRPCExpectError(t, srv, 1, "prompts/get", map[string]interface{}{})
+		resp := callRPCExpectError(t, srv, 1, "prompts/get", map[string]any{})
 		if resp.Error == nil {
 			t.Error("expected error for missing prompt name")
 		}
@@ -900,7 +900,7 @@ func TestMCPHTTPConcurrent(t *testing.T) {
 
 // callRPC sends a JSON-RPC request and returns the parsed response, failing
 // the test on any transport or protocol error.
-func callRPC(t *testing.T, srv *mcp.Server, id interface{}, method string, params interface{}) rpcResponse {
+func callRPC(t *testing.T, srv *mcp.Server, id any, method string, params any) rpcResponse {
 	t.Helper()
 	reqBytes := rpcRequest(id, method, params)
 	respBytes, err := srv.HandleJSONRPC(reqBytes)
@@ -916,7 +916,7 @@ func callRPC(t *testing.T, srv *mcp.Server, id interface{}, method string, param
 
 // callRPCExpectError sends a JSON-RPC request and returns the response,
 // expecting it to contain an error.
-func callRPCExpectError(t *testing.T, srv *mcp.Server, id interface{}, method string, params interface{}) rpcResponse {
+func callRPCExpectError(t *testing.T, srv *mcp.Server, id any, method string, params any) rpcResponse {
 	t.Helper()
 	reqBytes := rpcRequest(id, method, params)
 	respBytes, err := srv.HandleJSONRPC(reqBytes)
@@ -927,7 +927,7 @@ func callRPCExpectError(t *testing.T, srv *mcp.Server, id interface{}, method st
 }
 
 // mustUnmarshal unmarshals JSON or fails the test.
-func mustUnmarshal(t *testing.T, data json.RawMessage, v interface{}) {
+func mustUnmarshal(t *testing.T, data json.RawMessage, v any) {
 	t.Helper()
 	if err := json.Unmarshal(data, v); err != nil {
 		t.Fatalf("unmarshal: %v\nraw: %s", err, string(data))

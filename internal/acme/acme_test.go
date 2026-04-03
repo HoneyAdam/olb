@@ -1033,7 +1033,7 @@ func TestClient_GetAuthorization_Error(t *testing.T) {
 			mock.handleNewAccount(w, r)
 		case r.URL.Path == "/authz-error":
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"type":   "urn:ietf:params:acme:error:unauthorized",
 				"detail": "forbidden",
 				"status": 403,
@@ -1065,7 +1065,7 @@ func TestClient_ValidateChallenge_Error(t *testing.T) {
 			mock.handleNewAccount(w, r)
 		case r.URL.Path == "/chall-error":
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"type":   "urn:ietf:params:acme:error:unauthorized",
 				"detail": "challenge validation failed",
 				"status": 403,
@@ -1165,7 +1165,7 @@ func TestClient_FinalizeOrder_Error(t *testing.T) {
 			mock.handleNewAccount(w, r)
 		case r.URL.Path == "/finalize-error":
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"type":   "urn:ietf:params:acme:error:unauthorized",
 				"detail": "finalize failed",
 				"status": 403,
@@ -1200,7 +1200,7 @@ func TestClient_CreateOrder_ServerError(t *testing.T) {
 		w.Header().Set("Replay-Nonce", mock.nextNonce())
 		switch {
 		case r.URL.Path == "/directory":
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"newNonce":   srv.URL + "/new-nonce",
 				"newAccount": srv.URL + "/new-account",
 				"newOrder":   srv.URL + "/new-order-fail",
@@ -1211,7 +1211,7 @@ func TestClient_CreateOrder_ServerError(t *testing.T) {
 			mock.handleNewAccount(w, r)
 		case r.URL.Path == "/new-order-fail":
 			w.WriteHeader(http.StatusForbidden)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"type":   "urn:ietf:params:acme:error:rateLimited",
 				"detail": "rate limited",
 				"status": 403,

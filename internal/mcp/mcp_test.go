@@ -16,14 +16,14 @@ import (
 // --- Mock providers ---
 
 type mockMetricsProvider struct {
-	data map[string]interface{}
+	data map[string]any
 }
 
-func (m *mockMetricsProvider) QueryMetrics(pattern string) map[string]interface{} {
+func (m *mockMetricsProvider) QueryMetrics(pattern string) map[string]any {
 	if pattern == "*" {
 		return m.data
 	}
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 	for k, v := range m.data {
 		if strings.Contains(k, pattern) {
 			result[k] = v
@@ -49,10 +49,10 @@ func (m *mockBackendProvider) ModifyBackend(action, pool, addr string) error {
 }
 
 type mockConfigProvider struct {
-	config interface{}
+	config any
 }
 
-func (m *mockConfigProvider) GetConfig() interface{} {
+func (m *mockConfigProvider) GetConfig() any {
 	return m.config
 }
 
@@ -78,10 +78,10 @@ func (m *mockLogProvider) GetLogs(count int, level string) []LogEntry {
 }
 
 type mockClusterProvider struct {
-	status interface{}
+	status any
 }
 
-func (m *mockClusterProvider) GetStatus() interface{} {
+func (m *mockClusterProvider) GetStatus() any {
 	return m.status
 }
 
@@ -101,7 +101,7 @@ func (m *mockRouteProvider) ModifyRoute(action, host, path, backend string) erro
 func newTestServer() *Server {
 	return NewServer(ServerConfig{
 		Metrics: &mockMetricsProvider{
-			data: map[string]interface{}{
+			data: map[string]any{
 				"requests_total":     int64(1000),
 				"active_connections": float64(42),
 				"latency_p99":        float64(0.125),
@@ -128,9 +128,9 @@ func newTestServer() *Server {
 			},
 		},
 		Config: &mockConfigProvider{
-			config: map[string]interface{}{
+			config: map[string]any{
 				"version": "1",
-				"listeners": []map[string]interface{}{
+				"listeners": []map[string]any{
 					{"name": "http", "address": ":8080"},
 				},
 			},
@@ -143,7 +143,7 @@ func newTestServer() *Server {
 			},
 		},
 		Cluster: &mockClusterProvider{
-			status: map[string]interface{}{
+			status: map[string]any{
 				"mode":   "cluster",
 				"leader": "node-1",
 				"nodes":  []string{"node-1", "node-2", "node-3"},
@@ -154,8 +154,8 @@ func newTestServer() *Server {
 	})
 }
 
-func makeRequest(method string, params interface{}) []byte {
-	req := map[string]interface{}{
+func makeRequest(method string, params any) []byte {
+	req := map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,
 		"method":  method,
@@ -255,9 +255,9 @@ func TestHandleJSONRPC_MethodNotFound(t *testing.T) {
 func TestInitialize(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("initialize", map[string]interface{}{
+	req := makeRequest("initialize", map[string]any{
 		"protocolVersion": mcpProtocolVersion,
-		"clientInfo": map[string]interface{}{
+		"clientInfo": map[string]any{
 			"name":    "test-client",
 			"version": "1.0.0",
 		},
@@ -273,7 +273,7 @@ func TestInitialize(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, ok := r.Result.(map[string]interface{})
+	result, ok := r.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Result is not a map")
 	}
@@ -282,7 +282,7 @@ func TestInitialize(t *testing.T) {
 		t.Errorf("protocolVersion = %v, want %s", result["protocolVersion"], mcpProtocolVersion)
 	}
 
-	caps, ok := result["capabilities"].(map[string]interface{})
+	caps, ok := result["capabilities"].(map[string]any)
 	if !ok {
 		t.Fatal("capabilities is not a map")
 	}
@@ -296,7 +296,7 @@ func TestInitialize(t *testing.T) {
 		t.Error("Missing prompts capability")
 	}
 
-	serverInfo, ok := result["serverInfo"].(map[string]interface{})
+	serverInfo, ok := result["serverInfo"].(map[string]any)
 	if !ok {
 		t.Fatal("serverInfo is not a map")
 	}
@@ -319,7 +319,7 @@ func TestToolsList(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, ok := r.Result.(map[string]interface{})
+	result, ok := r.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Result is not a map")
 	}
@@ -366,9 +366,9 @@ func TestToolsList(t *testing.T) {
 func TestToolsCall_QueryMetrics(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_query_metrics",
-		"arguments": map[string]interface{}{"metric": "requests_total"},
+		"arguments": map[string]any{"metric": "requests_total"},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -404,9 +404,9 @@ func TestToolsCall_QueryMetrics(t *testing.T) {
 func TestToolsCall_QueryMetrics_MissingParam(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_query_metrics",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -431,9 +431,9 @@ func TestToolsCall_QueryMetrics_MissingParam(t *testing.T) {
 func TestToolsCall_ListBackends(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_list_backends",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -470,9 +470,9 @@ func TestToolsCall_ListBackends(t *testing.T) {
 func TestToolsCall_ListBackends_FilterByPool(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_list_backends",
-		"arguments": map[string]interface{}{"pool": "web-pool"},
+		"arguments": map[string]any{"pool": "web-pool"},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -495,9 +495,9 @@ func TestToolsCall_ListBackends_FilterByPool(t *testing.T) {
 	}
 	// api-pool should not be in a filtered result
 	// The text is JSON, check the pools array
-	var resultData map[string]interface{}
+	var resultData map[string]any
 	json.Unmarshal([]byte(text), &resultData)
-	if pools, ok := resultData["pools"].([]interface{}); ok {
+	if pools, ok := resultData["pools"].([]any); ok {
 		if len(pools) != 1 {
 			t.Errorf("Expected 1 pool, got %d", len(pools))
 		}
@@ -507,9 +507,9 @@ func TestToolsCall_ListBackends_FilterByPool(t *testing.T) {
 func TestToolsCall_ModifyBackend(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_modify_backend",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"action":  "add",
 			"pool":    "web-pool",
 			"address": "10.0.0.4:8080",
@@ -546,9 +546,9 @@ func TestToolsCall_ModifyBackend_Error(t *testing.T) {
 		},
 	})
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_modify_backend",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"action":  "add",
 			"pool":    "nonexistent",
 			"address": "10.0.0.1:8080",
@@ -577,9 +577,9 @@ func TestToolsCall_ModifyBackend_Error(t *testing.T) {
 func TestToolsCall_ModifyRoute(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_modify_route",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"action":  "add",
 			"host":    "example.com",
 			"path":    "/api",
@@ -612,9 +612,9 @@ func TestToolsCall_Diagnose(t *testing.T) {
 	modes := []string{"errors", "latency", "capacity", "health", "full"}
 	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
-			req := makeRequest("tools/call", map[string]interface{}{
+			req := makeRequest("tools/call", map[string]any{
 				"name":      "olb_diagnose",
-				"arguments": map[string]interface{}{"mode": mode},
+				"arguments": map[string]any{"mode": mode},
 			})
 
 			resp, err := s.HandleJSONRPC(req)
@@ -649,9 +649,9 @@ func TestToolsCall_Diagnose(t *testing.T) {
 func TestToolsCall_GetLogs(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_get_logs",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"count": float64(10),
 			"level": "error",
 		},
@@ -684,9 +684,9 @@ func TestToolsCall_GetLogs(t *testing.T) {
 func TestToolsCall_GetLogs_WithFilter(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_get_logs",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"filter": "Backend",
 		},
 	})
@@ -706,7 +706,7 @@ func TestToolsCall_GetLogs_WithFilter(t *testing.T) {
 	json.Unmarshal(resultJSON, &toolResult)
 
 	// The filtered result should contain only the "Backend connection failed" entry
-	var resultData map[string]interface{}
+	var resultData map[string]any
 	json.Unmarshal([]byte(toolResult.Content[0].Text), &resultData)
 	count, ok := resultData["count"].(float64)
 	if !ok {
@@ -720,9 +720,9 @@ func TestToolsCall_GetLogs_WithFilter(t *testing.T) {
 func TestToolsCall_GetConfig(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_get_config",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -752,9 +752,9 @@ func TestToolsCall_GetConfig(t *testing.T) {
 func TestToolsCall_ClusterStatus(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_cluster_status",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -784,9 +784,9 @@ func TestToolsCall_ClusterStatus(t *testing.T) {
 func TestToolsCall_UnknownTool(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "nonexistent_tool",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -806,8 +806,8 @@ func TestToolsCall_UnknownTool(t *testing.T) {
 func TestToolsCall_MissingName(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
-		"arguments": map[string]interface{}{},
+	req := makeRequest("tools/call", map[string]any{
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -854,7 +854,7 @@ func TestResourcesList(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, ok := r.Result.(map[string]interface{})
+	result, ok := r.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Result is not a map")
 	}
@@ -890,7 +890,7 @@ func TestResourcesList(t *testing.T) {
 func TestResourcesRead_Metrics(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("resources/read", map[string]interface{}{"uri": "olb://metrics"})
+	req := makeRequest("resources/read", map[string]any{"uri": "olb://metrics"})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -901,7 +901,7 @@ func TestResourcesRead_Metrics(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, ok := r.Result.(map[string]interface{})
+	result, ok := r.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Result is not a map")
 	}
@@ -931,7 +931,7 @@ func TestResourcesRead_Metrics(t *testing.T) {
 func TestResourcesRead_Config(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("resources/read", map[string]interface{}{"uri": "olb://config"})
+	req := makeRequest("resources/read", map[string]any{"uri": "olb://config"})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -942,7 +942,7 @@ func TestResourcesRead_Config(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, _ := r.Result.(map[string]interface{})
+	result, _ := r.Result.(map[string]any)
 	contents, _ := result["contents"]
 	contentsJSON, _ := json.Marshal(contents)
 	var rc []ResourceContent
@@ -956,7 +956,7 @@ func TestResourcesRead_Config(t *testing.T) {
 func TestResourcesRead_Health(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("resources/read", map[string]interface{}{"uri": "olb://health"})
+	req := makeRequest("resources/read", map[string]any{"uri": "olb://health"})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -967,7 +967,7 @@ func TestResourcesRead_Health(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, _ := r.Result.(map[string]interface{})
+	result, _ := r.Result.(map[string]any)
 	contents, _ := result["contents"]
 	contentsJSON, _ := json.Marshal(contents)
 	var rc []ResourceContent
@@ -981,7 +981,7 @@ func TestResourcesRead_Health(t *testing.T) {
 func TestResourcesRead_Logs(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("resources/read", map[string]interface{}{"uri": "olb://logs"})
+	req := makeRequest("resources/read", map[string]any{"uri": "olb://logs"})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -992,7 +992,7 @@ func TestResourcesRead_Logs(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, _ := r.Result.(map[string]interface{})
+	result, _ := r.Result.(map[string]any)
 	contents, _ := result["contents"]
 	contentsJSON, _ := json.Marshal(contents)
 	var rc []ResourceContent
@@ -1006,7 +1006,7 @@ func TestResourcesRead_Logs(t *testing.T) {
 func TestResourcesRead_UnknownURI(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("resources/read", map[string]interface{}{"uri": "olb://unknown"})
+	req := makeRequest("resources/read", map[string]any{"uri": "olb://unknown"})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -1021,7 +1021,7 @@ func TestResourcesRead_UnknownURI(t *testing.T) {
 func TestResourcesRead_MissingURI(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("resources/read", map[string]interface{}{})
+	req := makeRequest("resources/read", map[string]any{})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -1047,7 +1047,7 @@ func TestPromptsList(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, ok := r.Result.(map[string]interface{})
+	result, ok := r.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Result is not a map")
 	}
@@ -1082,9 +1082,9 @@ func TestPromptsList(t *testing.T) {
 func TestPromptsGet_Diagnose(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("prompts/get", map[string]interface{}{
+	req := makeRequest("prompts/get", map[string]any{
 		"name":      "diagnose",
-		"arguments": map[string]interface{}{"target": "web-pool"},
+		"arguments": map[string]any{"target": "web-pool"},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -1097,7 +1097,7 @@ func TestPromptsGet_Diagnose(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, ok := r.Result.(map[string]interface{})
+	result, ok := r.Result.(map[string]any)
 	if !ok {
 		t.Fatal("Result is not a map")
 	}
@@ -1131,9 +1131,9 @@ func TestPromptsGet_Diagnose(t *testing.T) {
 func TestPromptsGet_CapacityPlanning(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("prompts/get", map[string]interface{}{
+	req := makeRequest("prompts/get", map[string]any{
 		"name":      "capacity_planning",
-		"arguments": map[string]interface{}{"pool": "api-pool"},
+		"arguments": map[string]any{"pool": "api-pool"},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -1146,7 +1146,7 @@ func TestPromptsGet_CapacityPlanning(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, _ := r.Result.(map[string]interface{})
+	result, _ := r.Result.(map[string]any)
 	messagesRaw, _ := result["messages"]
 	messagesJSON, _ := json.Marshal(messagesRaw)
 	var messages []PromptMessage
@@ -1160,9 +1160,9 @@ func TestPromptsGet_CapacityPlanning(t *testing.T) {
 func TestPromptsGet_CanaryDeploy(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("prompts/get", map[string]interface{}{
+	req := makeRequest("prompts/get", map[string]any{
 		"name": "canary_deploy",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"route":       "/api",
 			"new_backend": "10.0.0.5:8080",
 			"percentage":  "5",
@@ -1179,7 +1179,7 @@ func TestPromptsGet_CanaryDeploy(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, _ := r.Result.(map[string]interface{})
+	result, _ := r.Result.(map[string]any)
 	messagesRaw, _ := result["messages"]
 	messagesJSON, _ := json.Marshal(messagesRaw)
 	var messages []PromptMessage
@@ -1204,7 +1204,7 @@ func TestPromptsGet_CanaryDeploy(t *testing.T) {
 func TestPromptsGet_UnknownPrompt(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("prompts/get", map[string]interface{}{
+	req := makeRequest("prompts/get", map[string]any{
 		"name": "nonexistent_prompt",
 	})
 
@@ -1222,7 +1222,7 @@ func TestPromptsGet_UnknownPrompt(t *testing.T) {
 func TestPromptsGet_MissingName(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("prompts/get", map[string]interface{}{})
+	req := makeRequest("prompts/get", map[string]any{})
 	resp, err := s.HandleJSONRPC(req)
 	if err != nil {
 		t.Fatalf("HandleJSONRPC returned error: %v", err)
@@ -1240,18 +1240,18 @@ func TestNilProviders(t *testing.T) {
 	// tools/call should still work but return appropriate messages
 	tools := []struct {
 		name string
-		args map[string]interface{}
+		args map[string]any
 	}{
-		{"olb_query_metrics", map[string]interface{}{"metric": "test"}},
-		{"olb_list_backends", map[string]interface{}{}},
-		{"olb_get_logs", map[string]interface{}{}},
-		{"olb_get_config", map[string]interface{}{}},
-		{"olb_cluster_status", map[string]interface{}{}},
+		{"olb_query_metrics", map[string]any{"metric": "test"}},
+		{"olb_list_backends", map[string]any{}},
+		{"olb_get_logs", map[string]any{}},
+		{"olb_get_config", map[string]any{}},
+		{"olb_cluster_status", map[string]any{}},
 	}
 
 	for _, tc := range tools {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeRequest("tools/call", map[string]interface{}{
+			req := makeRequest("tools/call", map[string]any{
 				"name":      tc.name,
 				"arguments": tc.args,
 			})
@@ -1283,9 +1283,9 @@ func TestNilProviders_ModifyRequiresProvider(t *testing.T) {
 
 	// Modify operations should return errors when provider is nil
 	t.Run("modify_backend", func(t *testing.T) {
-		req := makeRequest("tools/call", map[string]interface{}{
+		req := makeRequest("tools/call", map[string]any{
 			"name": "olb_modify_backend",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"action":  "add",
 				"pool":    "test",
 				"address": "10.0.0.1:80",
@@ -1305,9 +1305,9 @@ func TestNilProviders_ModifyRequiresProvider(t *testing.T) {
 	})
 
 	t.Run("modify_route", func(t *testing.T) {
-		req := makeRequest("tools/call", map[string]interface{}{
+		req := makeRequest("tools/call", map[string]any{
 			"name": "olb_modify_route",
-			"arguments": map[string]interface{}{
+			"arguments": map[string]any{
 				"action": "add",
 				"host":   "test.com",
 			},
@@ -1331,7 +1331,7 @@ func TestStdioTransport(t *testing.T) {
 
 	// Prepare input: two JSON-RPC requests, one per line
 	var input bytes.Buffer
-	initReq := makeRequest("initialize", map[string]interface{}{})
+	initReq := makeRequest("initialize", map[string]any{})
 	input.Write(initReq)
 	input.WriteByte('\n')
 
@@ -1543,17 +1543,17 @@ func TestRegisterCustomTool(t *testing.T) {
 				"input": {Type: "string", Description: "Input value"},
 			},
 		},
-	}, func(params map[string]interface{}) (interface{}, error) {
+	}, func(params map[string]any) (any, error) {
 		input, _ := params["input"].(string)
-		return map[string]interface{}{
+		return map[string]any{
 			"echo": input,
 		}, nil
 	})
 
 	// Call the custom tool
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "custom_tool",
-		"arguments": map[string]interface{}{"input": "hello"},
+		"arguments": map[string]any{"input": "hello"},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -1578,9 +1578,9 @@ func TestRegisterCustomTool(t *testing.T) {
 func TestListBackends_FilterByStatus(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_list_backends",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"pool":   "web-pool",
 			"status": "healthy",
 		},
@@ -1601,16 +1601,16 @@ func TestListBackends_FilterByStatus(t *testing.T) {
 	json.Unmarshal(resultJSON, &toolResult)
 
 	// Parse the result data
-	var resultData map[string]interface{}
+	var resultData map[string]any
 	json.Unmarshal([]byte(toolResult.Content[0].Text), &resultData)
 
-	pools, ok := resultData["pools"].([]interface{})
+	pools, ok := resultData["pools"].([]any)
 	if !ok || len(pools) == 0 {
 		t.Fatal("No pools in result")
 	}
 
-	pool := pools[0].(map[string]interface{})
-	backends, ok := pool["backends"].([]interface{})
+	pool := pools[0].(map[string]any)
+	backends, ok := pool["backends"].([]any)
 	if !ok {
 		t.Fatal("No backends in pool")
 	}
@@ -1866,9 +1866,9 @@ func TestSSETransport_Message_AuditLog(t *testing.T) {
 		},
 	})
 
-	reqBody := makeRequest("tools/call", map[string]interface{}{
+	reqBody := makeRequest("tools/call", map[string]any{
 		"name":      "olb_query_metrics",
-		"arguments": map[string]interface{}{"metric": "test"},
+		"arguments": map[string]any{"metric": "test"},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
 	req.RemoteAddr = "1.2.3.4:5678"
@@ -2161,9 +2161,9 @@ func TestSSETransport_ClientCount(t *testing.T) {
 func TestDiagnose_DefaultMode(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name":      "olb_diagnose",
-		"arguments": map[string]interface{}{},
+		"arguments": map[string]any{},
 	})
 
 	resp, err := s.HandleJSONRPC(req)
@@ -2191,17 +2191,17 @@ func TestModifyBackend_MissingParams(t *testing.T) {
 
 	tests := []struct {
 		name string
-		args map[string]interface{}
+		args map[string]any
 		want string
 	}{
-		{"missing action", map[string]interface{}{"pool": "p", "address": "a:80"}, "action parameter is required"},
-		{"missing pool", map[string]interface{}{"action": "add", "address": "a:80"}, "pool parameter is required"},
-		{"missing address", map[string]interface{}{"action": "add", "pool": "p"}, "address parameter is required"},
+		{"missing action", map[string]any{"pool": "p", "address": "a:80"}, "action parameter is required"},
+		{"missing pool", map[string]any{"action": "add", "address": "a:80"}, "pool parameter is required"},
+		{"missing address", map[string]any{"action": "add", "pool": "p"}, "address parameter is required"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			req := makeRequest("tools/call", map[string]interface{}{
+			req := makeRequest("tools/call", map[string]any{
 				"name":      "olb_modify_backend",
 				"arguments": tc.args,
 			})
@@ -2225,9 +2225,9 @@ func TestModifyBackend_MissingParams(t *testing.T) {
 func TestModifyBackend_NilProvider(t *testing.T) {
 	s := NewServer(ServerConfig{}) // backends nil
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_modify_backend",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"action":  "add",
 			"pool":    "test-pool",
 			"address": "10.0.0.1:8080",
@@ -2251,9 +2251,9 @@ func TestModifyBackend_NilProvider(t *testing.T) {
 func TestModifyRoute_MissingAction(t *testing.T) {
 	s := newTestServer()
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_modify_route",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"host": "example.com",
 		},
 	})
@@ -2275,9 +2275,9 @@ func TestModifyRoute_MissingAction(t *testing.T) {
 func TestModifyRoute_NilProvider(t *testing.T) {
 	s := NewServer(ServerConfig{}) // routes nil
 
-	req := makeRequest("tools/call", map[string]interface{}{
+	req := makeRequest("tools/call", map[string]any{
 		"name": "olb_modify_route",
-		"arguments": map[string]interface{}{
+		"arguments": map[string]any{
 			"action": "add",
 		},
 	})
@@ -2350,7 +2350,7 @@ func TestUnknownPrompt_GeneratesDefault(t *testing.T) {
 		Description: "Custom test prompt",
 	})
 
-	req := makeRequest("prompts/get", map[string]interface{}{
+	req := makeRequest("prompts/get", map[string]any{
 		"name": "custom_test",
 	})
 	resp, _ := s.HandleJSONRPC(req)
@@ -2360,7 +2360,7 @@ func TestUnknownPrompt_GeneratesDefault(t *testing.T) {
 		t.Fatalf("Unexpected error: %v", r.Error)
 	}
 
-	result, _ := r.Result.(map[string]interface{})
+	result, _ := r.Result.(map[string]any)
 	messagesRaw, _ := result["messages"]
 	messagesJSON, _ := json.Marshal(messagesRaw)
 	var messages []PromptMessage

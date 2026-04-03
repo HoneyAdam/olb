@@ -97,7 +97,7 @@ func newAdvancedTestServer() *httptest.Server {
 	// Route test endpoint
 	mux.HandleFunc("/api/v1/routes/test", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			result := map[string]interface{}{
+			result := map[string]any{
 				"path":     r.URL.Query().Get("path"),
 				"backend":  "api",
 				"matched":  true,
@@ -117,7 +117,7 @@ func newAdvancedTestServer() *httptest.Server {
 			return
 		}
 		if r.Method == http.MethodGet {
-			certs := []map[string]interface{}{
+			certs := []map[string]any{
 				{"domain": "example.com", "issuer": "Let's Encrypt", "expiry": "2025-12-31", "auto": true},
 				{"domain": "api.example.com", "issuer": "Let's Encrypt", "expiry": "2025-12-31", "auto": true},
 			}
@@ -147,7 +147,7 @@ func newAdvancedTestServer() *httptest.Server {
 
 		// Get cert info: GET /api/v1/certificates/{domain}
 		if r.Method == http.MethodGet && len(parts) == 1 {
-			cert := map[string]interface{}{
+			cert := map[string]any{
 				"domain":  domain,
 				"issuer":  "Let's Encrypt",
 				"expiry":  "2025-12-31",
@@ -171,10 +171,10 @@ func newAdvancedTestServer() *httptest.Server {
 	// Config endpoint
 	mux.HandleFunc("/api/v1/config", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			config := map[string]interface{}{
+			config := map[string]any{
 				"version":   "1",
-				"listeners": []map[string]interface{}{{"name": "http", "address": ":8080"}},
-				"pools":     []map[string]interface{}{{"name": "default", "algorithm": "round_robin"}},
+				"listeners": []map[string]any{{"name": "http", "address": ":8080"}},
+				"pools":     []map[string]any{{"name": "default", "algorithm": "round_robin"}},
 			}
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(config)
@@ -891,12 +891,12 @@ func TestParseIntDefault(t *testing.T) {
 // Test printYAML helper function
 func TestPrintYAML(t *testing.T) {
 	// This should not panic
-	data := map[string]interface{}{
+	data := map[string]any{
 		"version": "1",
-		"listeners": []interface{}{
-			map[string]interface{}{"name": "http", "address": ":8080"},
+		"listeners": []any{
+			map[string]any{"name": "http", "address": ":8080"},
 		},
-		"nested": map[string]interface{}{
+		"nested": map[string]any{
 			"key": "value",
 		},
 	}
@@ -1788,9 +1788,9 @@ func TestPrintYAML_VariousTypes(t *testing.T) {
 	printYAML(42, 0)
 
 	// Test with nested structure
-	data := map[string]interface{}{
-		"level1": map[string]interface{}{
-			"level2": map[string]interface{}{
+	data := map[string]any{
+		"level1": map[string]any{
+			"level2": map[string]any{
 				"key": "value",
 			},
 		},
@@ -1798,10 +1798,10 @@ func TestPrintYAML_VariousTypes(t *testing.T) {
 	printYAML(data, 0)
 
 	// Test with mixed array
-	mixed := []interface{}{
+	mixed := []any{
 		"string",
 		42,
-		map[string]interface{}{"key": "value"},
+		map[string]any{"key": "value"},
 	}
 	printYAML(mixed, 0)
 }
@@ -1866,7 +1866,7 @@ func TestRouteTestCommand_QueryParam(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/v1/routes/test" {
 			queryPath = r.URL.Query().Get("path")
-			result := map[string]interface{}{
+			result := map[string]any{
 				"path":    queryPath,
 				"backend": "api",
 				"matched": true,

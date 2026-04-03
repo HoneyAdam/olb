@@ -566,12 +566,12 @@ func VerifyClientCertWithIntermediates(cert *x509.Certificate, intermediates []*
 }
 
 // GetClientCertInfo extracts information from a client certificate for logging/auditing.
-func GetClientCertInfo(cert *x509.Certificate) map[string]interface{} {
+func GetClientCertInfo(cert *x509.Certificate) map[string]any {
 	if cert == nil {
 		return nil
 	}
 
-	info := map[string]interface{}{
+	info := map[string]any{
 		"subject":    cert.Subject.String(),
 		"issuer":     cert.Issuer.String(),
 		"serial":     cert.SerialNumber.String(),

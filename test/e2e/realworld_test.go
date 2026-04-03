@@ -69,7 +69,7 @@ func TestRealWorld_ProductionSimulation(t *testing.T) {
 			localBS.hits.Add(1)
 			w.Header().Set("Content-Type", "application/json")
 			w.Header().Set("X-Backend", localBS.name)
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			json.NewEncoder(w).Encode(map[string]any{
 				"backend": localBS.name,
 				"ts":      time.Now().UnixMilli(),
 			})
@@ -229,7 +229,7 @@ pools:
 
 	// Status code distribution
 	t.Log("Status Codes:")
-	statusCodes.Range(func(key, value interface{}) bool {
+	statusCodes.Range(func(key, value any) bool {
 		t.Logf("  %s: %d", key, value)
 		return true
 	})
@@ -544,7 +544,7 @@ pools:
 	}
 
 	// Verify proxy headers forwarded to backend
-	receivedHeaders.Range(func(key, value interface{}) bool {
+	receivedHeaders.Range(func(key, value any) bool {
 		headers := value.(map[string]string)
 		if xff := headers["X-Forwarded-For"]; xff != "" {
 			t.Logf("  ✓ Real IP middleware: X-Forwarded-For = %s", xff)
