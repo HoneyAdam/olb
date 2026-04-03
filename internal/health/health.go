@@ -95,13 +95,13 @@ type Result struct {
 
 // Checker performs health checks for backends.
 type Checker struct {
-	mu               sync.RWMutex
-	checks           map[string]*checkState // backend ID -> check state
-	stopCh           chan struct{}
-	wg               sync.WaitGroup
-	httpClient       *http.Client // shared HTTP client for HTTP/HTTPS health checks
-	grpcClient       *http.Client // shared HTTP client for gRPC health checks (TLS + H2)
-	grpcPlainClient  *http.Client // shared HTTP client for gRPC fallback (plain H2C)
+	mu              sync.RWMutex
+	checks          map[string]*checkState // backend ID -> check state
+	stopCh          chan struct{}
+	wg              sync.WaitGroup
+	httpClient      *http.Client // shared HTTP client for HTTP/HTTPS health checks
+	grpcClient      *http.Client // shared HTTP client for gRPC health checks (TLS + H2)
+	grpcPlainClient *http.Client // shared HTTP client for gRPC fallback (plain H2C)
 }
 
 // checkState holds the state for a single backend's health check.
@@ -380,10 +380,10 @@ func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 	if err != nil {
 		// Fallback: if HTTPS fails (self-signed or no TLS), try plain HTTP/2
 		url = fmt.Sprintf("http://%s/grpc.health.v1.Health/Check", b.Address)
-			req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
-			if err != nil {
-				return Result{Healthy: false, Error: fmt.Errorf("grpc fallback request creation failed: %w", err)}
-			}
+		req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
+		if err != nil {
+			return Result{Healthy: false, Error: fmt.Errorf("grpc fallback request creation failed: %w", err)}
+		}
 		req.Header.Set("Content-Type", "application/grpc")
 		req.Header.Set("TE", "trailers")
 

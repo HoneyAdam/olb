@@ -187,7 +187,7 @@ func rpcRequest(id any, method string, params any) []byte {
 // rpcResponse is the generic JSON-RPC 2.0 response envelope.
 type rpcResponse struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      any     `json:"id"`
+	ID      any             `json:"id"`
 	Result  json.RawMessage `json:"result,omitempty"`
 	Error   *rpcResponseErr `json:"error,omitempty"`
 }

@@ -144,10 +144,10 @@ func NewServer(config *Config) (*Server, error) {
 		webUI:          config.WebUI,
 		configGetter:   config.ConfigGetter,
 		allowedOrigins: config.AllowedOrigins,
-		certLister:    config.CertLister,
-		wafStatus:     config.WAFStatus,
-		startTime:     time.Now(),
-		state:         "running",
+		certLister:     config.CertLister,
+		wafStatus:      config.WAFStatus,
+		startTime:      time.Now(),
+		state:          "running",
 	}
 
 	s.setupRoutes()

@@ -161,14 +161,14 @@ func (wh *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 // wsHopByHop lists headers that must not be forwarded in a WebSocket upgrade
 // request to prevent request smuggling between proxy and backend.
 var wsHopByHop = map[string]bool{
-	"Connection":         true,
-	"Keep-Alive":         true,
-	"Proxy-Authenticate": true,
+	"Connection":          true,
+	"Keep-Alive":          true,
+	"Proxy-Authenticate":  true,
 	"Proxy-Authorization": true,
-	"TE":                 true,
-	"Trailers":           true,
-	"Transfer-Encoding":  true,
-	"Content-Length":     true,
+	"TE":                  true,
+	"Trailers":            true,
+	"Transfer-Encoding":   true,
+	"Content-Length":      true,
 }
 
 // isWSHopByHop reports whether the named header should be stripped from the
@@ -360,7 +360,7 @@ func (wh *WebSocketHandler) copyWithIdleTimeout(dst, src net.Conn, timeout time.
 
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			
+
 			src.SetReadDeadline(time.Time{})
 			nw, writeErr := dst.Write(buf[:nr])
 			if writeErr != nil {

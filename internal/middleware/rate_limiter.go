@@ -34,10 +34,10 @@ type RateLimitConfig struct {
 
 // RateLimitMiddleware implements token bucket rate limiting per key.
 type RateLimitMiddleware struct {
-	config     RateLimitConfig
-	buckets    sync.Map // map[string]*tokenBucket
+	config      RateLimitConfig
+	buckets     sync.Map // map[string]*tokenBucket
 	trustedNets []*net.IPNet
-	stopCh     chan struct{}
+	stopCh      chan struct{}
 }
 
 // tokenBucket represents a single token bucket for rate limiting.

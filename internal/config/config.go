@@ -327,11 +327,11 @@ type MTLSConfig struct {
 
 // Route represents a routing rule.
 type Route struct {
-	Name       string                   `yaml:"name" json:"name"`
-	Path       string                   `yaml:"path" json:"path"`
-	Host       string                   `yaml:"host" json:"host"`
-	Methods    []string                 `yaml:"methods" json:"methods"`
-	Pool       string                   `yaml:"pool" json:"pool"`
+	Name       string           `yaml:"name" json:"name"`
+	Path       string           `yaml:"path" json:"path"`
+	Host       string           `yaml:"host" json:"host"`
+	Methods    []string         `yaml:"methods" json:"methods"`
+	Pool       string           `yaml:"pool" json:"pool"`
 	Middleware []map[string]any `yaml:"middleware" json:"middleware"`
 }
 

@@ -2520,9 +2520,9 @@ routes:
 	}
 
 	type Route struct {
-		Path       string        `yaml:"path"`
-		Pool       string        `yaml:"pool"`
-		Middleware []any `yaml:"middleware,omitempty"`
+		Path       string `yaml:"path"`
+		Pool       string `yaml:"pool"`
+		Middleware []any  `yaml:"middleware,omitempty"`
 	}
 
 	type Config struct {

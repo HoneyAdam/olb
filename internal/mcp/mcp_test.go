@@ -1750,8 +1750,8 @@ func TestSSETransport_SSE_MethodNotAllowed(t *testing.T) {
 func TestSSETransport_SSE_AuthRequired(t *testing.T) {
 	s := newTestServer()
 	transport := NewSSETransport(s, SSETransportConfig{
-		Addr:         "127.0.0.1:0",
-		BearerToken:  "test-token",
+		Addr:        "127.0.0.1:0",
+		BearerToken: "test-token",
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/sse", nil)
@@ -2095,33 +2095,33 @@ func TestSSETransport_Message_WithSessionID(t *testing.T) {
 
 func TestExtractToolInfo(t *testing.T) {
 	tests := []struct {
-		name      string
-		body      string
-		wantTool  string
+		name       string
+		body       string
+		wantTool   string
 		wantParams string
 	}{
 		{
-			name:      "valid tools/call",
-			body:      `{"method":"tools/call","params":{"name":"olb_query_metrics","arguments":{"metric":"test"}}}`,
-			wantTool:  "olb_query_metrics",
+			name:       "valid tools/call",
+			body:       `{"method":"tools/call","params":{"name":"olb_query_metrics","arguments":{"metric":"test"}}}`,
+			wantTool:   "olb_query_metrics",
 			wantParams: `{"metric":"test"}`,
 		},
 		{
-			name:      "not tools/call",
-			body:      `{"method":"initialize","params":{}}`,
-			wantTool:  "",
+			name:       "not tools/call",
+			body:       `{"method":"initialize","params":{}}`,
+			wantTool:   "",
 			wantParams: "",
 		},
 		{
-			name:      "invalid JSON",
-			body:      "not json",
-			wantTool:  "",
+			name:       "invalid JSON",
+			body:       "not json",
+			wantTool:   "",
 			wantParams: "",
 		},
 		{
-			name:      "tools/call without name",
-			body:      `{"method":"tools/call","params":{}}`,
-			wantTool:  "",
+			name:       "tools/call without name",
+			body:       `{"method":"tools/call","params":{}}`,
+			wantTool:   "",
 			wantParams: "",
 		},
 	}

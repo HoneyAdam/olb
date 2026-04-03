@@ -124,7 +124,7 @@ type ClusterManager struct {
 	seedAddrs []string
 
 	stopCh  chan struct{}
-	wg     sync.WaitGroup
+	wg      sync.WaitGroup
 	drainer ConnectionDrainer
 }
 
@@ -424,9 +424,9 @@ type joinRequest struct {
 
 // apiResponse is the standard API response envelope.
 type apiResponse struct {
-	Success bool        `json:"success"`
-	Data    any `json:"data,omitempty"`
-	Error   *apiError   `json:"error,omitempty"`
+	Success bool      `json:"success"`
+	Data    any       `json:"data,omitempty"`
+	Error   *apiError `json:"error,omitempty"`
 }
 
 // apiError represents a structured error in the API.

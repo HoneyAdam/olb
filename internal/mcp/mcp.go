@@ -48,7 +48,7 @@ const (
 // Request represents a JSON-RPC 2.0 request.
 type Request struct {
 	JSONRPC string          `json:"jsonrpc"`
-	ID      any     `json:"id,omitempty"`
+	ID      any             `json:"id,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
 }
@@ -56,16 +56,16 @@ type Request struct {
 // Response represents a JSON-RPC 2.0 response.
 type Response struct {
 	JSONRPC string         `json:"jsonrpc"`
-	ID      any    `json:"id,omitempty"`
-	Result  any    `json:"result,omitempty"`
+	ID      any            `json:"id,omitempty"`
+	Result  any            `json:"result,omitempty"`
 	Error   *ResponseError `json:"error,omitempty"`
 }
 
 // ResponseError represents a JSON-RPC 2.0 error.
 type ResponseError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    any `json:"data,omitempty"`
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 // --- MCP types ---
@@ -164,9 +164,9 @@ type BackendInfo struct {
 
 // LogEntry represents a single log entry.
 type LogEntry struct {
-	Timestamp string                 `json:"timestamp"`
-	Level     string                 `json:"level"`
-	Message   string                 `json:"message"`
+	Timestamp string         `json:"timestamp"`
+	Level     string         `json:"level"`
+	Message   string         `json:"message"`
 	Fields    map[string]any `json:"fields,omitempty"`
 }
 
@@ -560,7 +560,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (any, *ResponseError) {
 	}
 
 	var callParams struct {
-		Name      string                 `json:"name"`
+		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &callParams); err != nil {
@@ -758,7 +758,7 @@ func (s *Server) handlePromptsGet(params json.RawMessage) (any, *ResponseError) 
 	}
 
 	var getParams struct {
-		Name      string                 `json:"name"`
+		Name      string         `json:"name"`
 		Arguments map[string]any `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &getParams); err != nil {

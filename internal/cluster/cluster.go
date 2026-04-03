@@ -363,7 +363,7 @@ func (c *Cluster) startElection() {
 	// Wait for votes with timeout
 	done := make(chan struct{})
 	go func() {
-			close(done)
+		close(done)
 	}()
 
 	select {
@@ -494,7 +494,7 @@ func (c *Cluster) handleCommand(cmd *Command) {
 		output, err := c.stateMachine.Apply(cmd.Command)
 		c.commitIndex.Store(entry.Index)
 		c.lastApplied.Store(entry.Index)
-			c.maybeCompactLog()
+		c.maybeCompactLog()
 		cmd.Result <- &CommandResult{
 			Output: output,
 			Error:  err,
@@ -560,7 +560,7 @@ func (c *Cluster) handleCommand(cmd *Command) {
 		output, err := c.stateMachine.Apply(cmd.Command)
 		c.commitIndex.Store(entry.Index)
 		c.lastApplied.Store(entry.Index)
-			c.maybeCompactLog()
+		c.maybeCompactLog()
 		cmd.Result <- &CommandResult{
 			Output: output,
 			Error:  err,

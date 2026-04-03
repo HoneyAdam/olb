@@ -736,8 +736,8 @@ admin {
 		Enabled bool   `hcl:"enabled"`
 	}
 	type Config struct {
-		Version string        `hcl:"version"`
-		Admin   []any `hcl:"admin"`
+		Version string `hcl:"version"`
+		Admin   []any  `hcl:"admin"`
 	}
 
 	var cfg Config

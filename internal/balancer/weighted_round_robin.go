@@ -17,8 +17,8 @@ type weightedBackend struct {
 // WeightedRoundRobin implements a smooth weighted round-robin load balancing algorithm.
 // Based on the Nginx implementation for even distribution across weighted backends.
 type WeightedRoundRobin struct {
-	mu       sync.RWMutex
-	backends map[string]*weightedBackend
+	mu        sync.RWMutex
+	backends  map[string]*weightedBackend
 	callCount uint64
 }
 

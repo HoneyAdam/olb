@@ -293,7 +293,7 @@ func (p *RateLimitLoggerPlugin) Stop() error {
 //	    config:
 //	      log_headers: true
 //	      log_body: false
-func (p *RateLimitLoggerPlugin) middlewareFactory(config map[string]interface{}) (plugin.Middleware, error) {
+func (p *RateLimitLoggerPlugin) middlewareFactory(config map[string]any) (plugin.Middleware, error) {
 	// Parse configuration with defaults.
 	logHeaders := false
 	if v, ok := config["log_headers"]; ok {
@@ -428,7 +428,7 @@ func (p *RateLimitLoggerPlugin) onBackendStateChange(event plugin.Event) {
 	// changed state. The exact type depends on the OLB core implementation.
 	// Here we demonstrate safe type assertion with a fallback.
 	switch data := event.Data.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		if addr, ok := data["address"].(string); ok {
 			p.logger.Info("backend state details",
 				logging.String("address", addr),

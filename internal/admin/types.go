@@ -7,9 +7,9 @@ import (
 
 // Response is the standard API response format.
 type Response struct {
-	Success bool        `json:"success"`
-	Data    any `json:"data,omitempty"`
-	Error   *ErrorInfo  `json:"error,omitempty"`
+	Success bool       `json:"success"`
+	Data    any        `json:"data,omitempty"`
+	Error   *ErrorInfo `json:"error,omitempty"`
 }
 
 // ErrorInfo provides structured error information.
