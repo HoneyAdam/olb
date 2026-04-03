@@ -60,10 +60,15 @@ func (m *Maglev) Next(backends []*backend.Backend) *backend.Backend {
 		return nil
 	}
 
-	// Rebuild lookup table if needed
+	// Rebuild lookup table if needed. Upgrade to write lock with double-check
+	// to avoid the lock release/reacquire race condition.
 	if m.needRebuild {
 		m.mu.RUnlock()
-		m.rebuild()
+		m.mu.Lock()
+		if m.needRebuild {
+			m.rebuildLocked()
+		}
+		m.mu.Unlock()
 		m.mu.RLock()
 	}
 
@@ -268,6 +273,58 @@ func (m *Maglev) rebuild() {
 	// Populate lookup table using Maglev algorithm
 	next := make([]int, n)
 
+	for i := 0; i < MaglevTableSize; i++ {
+		minPos := uint64(^uint64(0))
+		minBackend := -1
+
+		for j := 0; j < n; j++ {
+			for next[j] < MaglevTableSize {
+				pos := m.permutations[j][next[j]]
+				if m.lookupTable[pos] == -1 {
+					if pos < minPos {
+						minPos = pos
+						minBackend = j
+					}
+					break
+				}
+				next[j]++
+			}
+		}
+
+		if minBackend >= 0 {
+			m.lookupTable[minPos] = minBackend
+			next[minBackend]++
+		}
+	}
+
+	m.needRebuild = false
+}
+
+// rebuildLocked rebuilds the lookup table assuming the caller holds m.mu.
+func (m *Maglev) rebuildLocked() {
+	if !m.needRebuild {
+		return
+	}
+
+	n := len(m.backends)
+	if n == 0 {
+		for i := range m.lookupTable {
+			m.lookupTable[i] = -1
+		}
+		m.needRebuild = false
+		return
+	}
+
+	m.permutations = make([][]uint64, n)
+	for i, backend := range m.backends {
+		m.permutations[i] = m.generatePermutation(backend)
+	}
+
+	for i := range m.lookupTable {
+		m.lookupTable[i] = -1
+	}
+
+	next := make([]int, n)
 	for i := 0; i < MaglevTableSize; i++ {
 		minPos := uint64(^uint64(0))
 		minBackend := -1

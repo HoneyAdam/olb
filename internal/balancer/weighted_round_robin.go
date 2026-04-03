@@ -19,6 +19,7 @@ type weightedBackend struct {
 type WeightedRoundRobin struct {
 	mu       sync.RWMutex
 	backends map[string]*weightedBackend
+	callCount uint64
 }
 
 // NewWeightedRoundRobin creates a new WeightedRoundRobin balancer.
@@ -85,6 +86,18 @@ func (wrr *WeightedRoundRobin) Next(backends []*backend.Backend) *backend.Backen
 
 	if best != nil {
 		best.currentWeight -= totalWeight
+
+		// Periodically normalize weights to prevent int32 overflow.
+		// After 1M calls, reset all currentWeight values toward zero
+		// while preserving relative ordering.
+		wrr.callCount++
+		if wrr.callCount >= 1_000_000 {
+			for _, wb := range weighted {
+				wb.currentWeight = wb.currentWeight / 2
+			}
+			wrr.callCount = 0
+		}
+
 		return best.backend
 	}
 

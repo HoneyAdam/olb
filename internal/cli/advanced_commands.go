@@ -1049,7 +1049,7 @@ func (c *ConfigValidateCommand) Run(args []string) error {
 
 	data, err := os.ReadFile(c.filePath)
 	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
+		return fmt.Errorf("config file not found: %w", err)
 	}
 
 	// Basic validation - check if it's valid YAML/JSON

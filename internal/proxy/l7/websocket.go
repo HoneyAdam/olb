@@ -349,19 +349,21 @@ func (wh *WebSocketHandler) proxyWebSocket(clientConn, backendConn net.Conn) err
 }
 
 // copyWithIdleTimeout copies data with an idle timeout.
+// If timeout is 0, a default of 5 minutes is used to prevent goroutines
+// from blocking indefinitely on unresponsive connections.
 func (wh *WebSocketHandler) copyWithIdleTimeout(dst, src net.Conn, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
 	buf := make([]byte, 32*1024)
 
 	for {
-		if timeout > 0 {
-			src.SetReadDeadline(time.Now().Add(timeout))
-		}
+		src.SetReadDeadline(time.Now().Add(timeout))
 
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			if timeout > 0 {
-				src.SetReadDeadline(time.Time{})
-			}
+			
+			src.SetReadDeadline(time.Time{})
 			nw, writeErr := dst.Write(buf[:nr])
 			if writeErr != nil {
 				return writeErr

@@ -199,6 +199,10 @@ func (rh *RingHash) rebuildRing() {
 			weight = 1
 		}
 		numVNodes := rh.vnodes * weight
+		// Cap virtual nodes to prevent memory exhaustion with large weights
+		if numVNodes > 10000 {
+			numVNodes = 10000
+		}
 
 		for i := 0; i < numVNodes; i++ {
 			key := b.ID + "#" + intToStr(i)

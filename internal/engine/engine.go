@@ -892,7 +892,9 @@ func (e *Engine) GetStatus() Status {
 func (e *Engine) GetConfig() *config.Config {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.config
+	// Return a shallow copy so callers cannot mutate the live config.
+	cfg := *e.config
+	return &cfg
 }
 
 // GetLogger returns the engine logger.

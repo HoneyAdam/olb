@@ -4,6 +4,7 @@ package cluster
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -20,6 +21,12 @@ const (
 	StateCandidate State = "candidate"
 	// StateLeader is the leader node.
 	StateLeader State = "leader"
+
+	// LogCompactionThreshold is the number of log entries that triggers
+	// automatic compaction on the leader. When the in-memory log exceeds
+	// this size, a background snapshot + compaction is initiated to
+	// prevent unbounded memory growth.
+	LogCompactionThreshold = 10000
 )
 
 // Config contains cluster configuration.
@@ -495,6 +502,7 @@ func (c *Cluster) handleCommand(cmd *Command) {
 		output, err := c.stateMachine.Apply(cmd.Command)
 		c.commitIndex.Store(entry.Index)
 		c.lastApplied.Store(entry.Index)
+			c.maybeCompactLog()
 		cmd.Result <- &CommandResult{
 			Output: output,
 			Error:  err,
@@ -560,6 +568,7 @@ func (c *Cluster) handleCommand(cmd *Command) {
 		output, err := c.stateMachine.Apply(cmd.Command)
 		c.commitIndex.Store(entry.Index)
 		c.lastApplied.Store(entry.Index)
+			c.maybeCompactLog()
 		cmd.Result <- &CommandResult{
 			Output: output,
 			Error:  err,
@@ -573,6 +582,28 @@ func (c *Cluster) handleCommand(cmd *Command) {
 			Term:  entry.Term,
 		}
 	}
+}
+
+// maybeCompactLog checks if the in-memory log has grown beyond
+// LogCompactionThreshold and, if so, triggers background compaction
+// to prevent unbounded memory growth.
+func (c *Cluster) maybeCompactLog() {
+	c.logMu.RLock()
+	logLen := len(c.log)
+	c.logMu.RUnlock()
+
+	if logLen < LogCompactionThreshold {
+		return
+	}
+
+	go func() {
+		_, err := c.CreateSnapshot()
+		if err != nil {
+			log.Printf("[cluster] auto-compaction failed: %v", err)
+		} else {
+			log.Printf("[cluster] log auto-compacted (previous entries: %d)", logLen)
+		}
+	}()
 }
 
 // getLastLogTermForIndex returns the term of the log entry at the given index.

@@ -229,21 +229,21 @@ func (p *TCPProxy) proxyConnections(clientConn, backendConn net.Conn) {
 }
 
 // copyWithTimeout copies data with an idle timeout.
+// If IdleTimeout is 0, a default of 5 minutes is used to prevent goroutines
+// from blocking indefinitely on unresponsive connections.
 func (p *TCPProxy) copyWithTimeout(dst, src net.Conn) error {
+	timeout := p.config.IdleTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
 	buf := make([]byte, p.config.BufferSize)
 
 	for {
-		// Set read deadline
-		if p.config.IdleTimeout > 0 {
-			src.SetReadDeadline(time.Now().Add(p.config.IdleTimeout))
-		}
+		src.SetReadDeadline(time.Now().Add(timeout))
 
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			// Clear deadline for write
-			if p.config.IdleTimeout > 0 {
-				src.SetReadDeadline(time.Time{})
-			}
+			src.SetReadDeadline(time.Time{})
 
 			nw, writeErr := dst.Write(buf[:nr])
 			if writeErr != nil {
