@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- Mock providers ---
@@ -1617,6 +1618,543 @@ func TestListBackends_FilterByStatus(t *testing.T) {
 	// Should only have healthy backends (web-1 and web-2, not web-3)
 	if len(backends) != 2 {
 		t.Errorf("Expected 2 healthy backends, got %d", len(backends))
+	}
+}
+
+func TestHTTPTransport_BearerAuth_Success(t *testing.T) {
+	s := newTestServer()
+	transport := NewHTTPTransport(s, ":0", "secret-token")
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer secret-token")
+	w := httptest.NewRecorder()
+	transport.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestHTTPTransport_BearerAuth_InvalidToken(t *testing.T) {
+	s := newTestServer()
+	transport := NewHTTPTransport(s, ":0", "secret-token")
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer wrong-token")
+	w := httptest.NewRecorder()
+	transport.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestHTTPTransport_BearerAuth_MissingHeader(t *testing.T) {
+	s := newTestServer()
+	transport := NewHTTPTransport(s, ":0", "secret-token")
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	transport.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+
+	if w.Header().Get("WWW-Authenticate") == "" {
+		t.Error("Missing WWW-Authenticate header")
+	}
+}
+
+func TestHTTPTransport_BearerAuth_InvalidScheme(t *testing.T) {
+	s := newTestServer()
+	transport := NewHTTPTransport(s, ":0", "secret-token")
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Basic dXNlcjpwYXNz")
+	w := httptest.NewRecorder()
+	transport.ServeHTTP(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+// --- SSE Transport tests ---
+
+func TestSSETransport_New(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr: ":0",
+	})
+	if transport == nil {
+		t.Fatal("NewSSETransport returned nil")
+	}
+}
+
+func TestSSETransport_StartStop(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr: "127.0.0.1:0",
+	})
+
+	if err := transport.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+
+	addr := transport.Addr()
+	if addr == "" {
+		t.Fatal("Addr is empty after Start")
+	}
+
+	if transport.ClientCount() != 0 {
+		t.Errorf("ClientCount = %d, want 0", transport.ClientCount())
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := transport.Stop(ctx); err != nil {
+		t.Fatalf("Stop failed: %v", err)
+	}
+}
+
+func TestSSETransport_AddrBeforeStart(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr: ":9999",
+	})
+
+	addr := transport.Addr()
+	if addr != ":9999" {
+		t.Errorf("Addr before start = %s, want :9999", addr)
+	}
+}
+
+func TestSSETransport_SSE_MethodNotAllowed(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	req := httptest.NewRequest(http.MethodPost, "/sse", nil)
+	w := httptest.NewRecorder()
+	transport.handleSSE(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestSSETransport_SSE_AuthRequired(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:         "127.0.0.1:0",
+		BearerToken:  "test-token",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/sse", nil)
+	w := httptest.NewRecorder()
+	transport.handleSSE(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestSSETransport_SSE_ConnectAndDisconnect(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+	if err := transport.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer transport.Stop(context.Background())
+
+	// Connect SSE client
+	url := fmt.Sprintf("http://%s/sse", transport.Addr())
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("SSE connection failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("SSE status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Errorf("Content-Type = %s, want text/event-stream", ct)
+	}
+
+	// Give a moment for client registration
+	time.Sleep(50 * time.Millisecond)
+	if transport.ClientCount() != 1 {
+		t.Errorf("ClientCount = %d, want 1", transport.ClientCount())
+	}
+}
+
+func TestSSETransport_Message_Handler(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type = %s, want application/json", ct)
+	}
+
+	r := parseResponse(t, w.Body.Bytes())
+	if r.Error != nil {
+		t.Errorf("Unexpected error: %v", r.Error)
+	}
+}
+
+func TestSSETransport_Message_MethodNotAllowed(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	req := httptest.NewRequest(http.MethodGet, "/message", nil)
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestSSETransport_Message_AuthRequired(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:        "127.0.0.1:0",
+		BearerToken: "test-token",
+	})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestSSETransport_Message_AuditLog(t *testing.T) {
+	s := newTestServer()
+
+	var auditTool, auditAddr string
+	var auditDur time.Duration
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:     "127.0.0.1:0",
+		AuditLog: true,
+		AuditFunc: func(tool, params, clientAddr string, dur time.Duration, err error) {
+			auditTool = tool
+			auditAddr = clientAddr
+			auditDur = dur
+		},
+	})
+
+	reqBody := makeRequest("tools/call", map[string]interface{}{
+		"name":      "olb_query_metrics",
+		"arguments": map[string]interface{}{"metric": "test"},
+	})
+	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
+	req.RemoteAddr = "1.2.3.4:5678"
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if auditTool != "olb_query_metrics" {
+		t.Errorf("Audit tool = %s, want olb_query_metrics", auditTool)
+	}
+	if auditAddr != "1.2.3.4:5678" {
+		t.Errorf("Audit addr = %s, want 1.2.3.4:5678", auditAddr)
+	}
+	if auditDur < 0 {
+		t.Error("Audit duration should be >= 0")
+	}
+}
+
+func TestSSETransport_LegacyHandler_Post(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	transport.handleLegacy(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestSSETransport_LegacyHandler_Options(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:           "127.0.0.1:0",
+		AllowedOrigins: []string{"http://example.com"},
+	})
+
+	req := httptest.NewRequest(http.MethodOptions, "/mcp", nil)
+	req.Header.Set("Origin", "http://example.com")
+	w := httptest.NewRecorder()
+	transport.handleLegacy(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusNoContent)
+	}
+	if w.Header().Get("Access-Control-Allow-Origin") != "http://example.com" {
+		t.Errorf("CORS origin = %s, want http://example.com", w.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestSSETransport_LegacyHandler_MethodNotAllowed(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
+	w := httptest.NewRecorder()
+	transport.handleLegacy(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestSSETransport_LegacyHandler_AuthRequired(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:        "127.0.0.1:0",
+		BearerToken: "test-token",
+	})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	transport.handleLegacy(w, req)
+
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestSSETransport_CORS_AllowedOrigin(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:           "127.0.0.1:0",
+		AllowedOrigins: []string{"http://localhost:3000", "https://example.com"},
+	})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
+	req.Header.Set("Origin", "http://localhost:3000")
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Header().Get("Access-Control-Allow-Origin") != "http://localhost:3000" {
+		t.Errorf("CORS origin = %s, want http://localhost:3000", w.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestSSETransport_CORS_BlockedOrigin(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{
+		Addr:           "127.0.0.1:0",
+		AllowedOrigins: []string{"http://localhost:3000"},
+	})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
+	req.Header.Set("Origin", "http://evil.com")
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Errorf("CORS origin should be empty for blocked origin, got %s", w.Header().Get("Access-Control-Allow-Origin"))
+	}
+}
+
+func TestSSETransport_CORS_NoOriginsConfigured(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/message", bytes.NewReader(reqBody))
+	req.Header.Set("Origin", "http://example.com")
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Header().Get("Access-Control-Allow-Origin") != "" {
+		t.Error("CORS origin should be empty when no origins configured")
+	}
+}
+
+func TestSSETransport_BroadcastToClient(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	// Manually register a fake client
+	client := &sseClient{
+		id:       "test-session",
+		addr:     "1.2.3.4:5678",
+		messages: make(chan []byte, 64),
+		done:     make(chan struct{}),
+	}
+	transport.mu.Lock()
+	transport.clients["test-session"] = client
+	transport.mu.Unlock()
+
+	transport.broadcastToClient("test-session", []byte(`{"test": true}`))
+
+	select {
+	case msg := <-client.messages:
+		if string(msg) != `{"test": true}` {
+			t.Errorf("Message = %s, want {\"test\": true}", string(msg))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Timed out waiting for message")
+	}
+}
+
+func TestSSETransport_BroadcastToClient_BufferFull(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	// Create a client with a tiny buffer
+	client := &sseClient{
+		id:       "test-session",
+		addr:     "1.2.3.4:5678",
+		messages: make(chan []byte, 1), // buffer size 1
+		done:     make(chan struct{}),
+	}
+	transport.mu.Lock()
+	transport.clients["test-session"] = client
+	transport.mu.Unlock()
+
+	// Fill the buffer
+	client.messages <- []byte("first")
+
+	// This should not block — message is dropped
+	transport.broadcastToClient("test-session", []byte("dropped"))
+}
+
+func TestSSETransport_BroadcastToClient_UnknownSession(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	// Should not panic for unknown session
+	transport.broadcastToClient("nonexistent", []byte("test"))
+}
+
+func TestSSETransport_Message_WithSessionID(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	// Register a fake client to receive the broadcast
+	client := &sseClient{
+		id:       "test-session-id",
+		addr:     "1.2.3.4:5678",
+		messages: make(chan []byte, 64),
+		done:     make(chan struct{}),
+	}
+	transport.mu.Lock()
+	transport.clients["test-session-id"] = client
+	transport.mu.Unlock()
+
+	reqBody := makeRequest("initialize", nil)
+	req := httptest.NewRequest(http.MethodPost, "/message?sessionId=test-session-id", bytes.NewReader(reqBody))
+	w := httptest.NewRecorder()
+	transport.handleMessage(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// The response should also be pushed to the SSE client
+	select {
+	case msg := <-client.messages:
+		if len(msg) == 0 {
+			t.Error("SSE client received empty message")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Timed out waiting for SSE broadcast")
+	}
+}
+
+func TestExtractToolInfo(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		wantTool  string
+		wantParams string
+	}{
+		{
+			name:      "valid tools/call",
+			body:      `{"method":"tools/call","params":{"name":"olb_query_metrics","arguments":{"metric":"test"}}}`,
+			wantTool:  "olb_query_metrics",
+			wantParams: `{"metric":"test"}`,
+		},
+		{
+			name:      "not tools/call",
+			body:      `{"method":"initialize","params":{}}`,
+			wantTool:  "",
+			wantParams: "",
+		},
+		{
+			name:      "invalid JSON",
+			body:      "not json",
+			wantTool:  "",
+			wantParams: "",
+		},
+		{
+			name:      "tools/call without name",
+			body:      `{"method":"tools/call","params":{}}`,
+			wantTool:  "",
+			wantParams: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tool, params := extractToolInfo([]byte(tc.body))
+			if tool != tc.wantTool {
+				t.Errorf("tool = %q, want %q", tool, tc.wantTool)
+			}
+			if params != tc.wantParams {
+				t.Errorf("params = %q, want %q", params, tc.wantParams)
+			}
+		})
+	}
+}
+
+func TestSSETransport_ClientCount(t *testing.T) {
+	s := newTestServer()
+	transport := NewSSETransport(s, SSETransportConfig{Addr: "127.0.0.1:0"})
+
+	if count := transport.ClientCount(); count != 0 {
+		t.Errorf("ClientCount = %d, want 0", count)
+	}
+
+	// Add fake clients
+	transport.mu.Lock()
+	transport.clients["a"] = &sseClient{id: "a", messages: make(chan []byte, 1), done: make(chan struct{})}
+	transport.clients["b"] = &sseClient{id: "b", messages: make(chan []byte, 1), done: make(chan struct{})}
+	transport.mu.Unlock()
+
+	if count := transport.ClientCount(); count != 2 {
+		t.Errorf("ClientCount = %d, want 2", count)
 	}
 }
 

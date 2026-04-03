@@ -1,3 +1,7 @@
+// Package detection defines the scoring engine and detector interface for the WAF
+// subsystem. Individual attack detectors (SQLi, XSS, command injection, etc.)
+// implement the Detector interface and are orchestrated by the Engine to produce
+// scored findings that drive block or log decisions.
 package detection
 
 // Detector is the interface for WAF attack detectors.

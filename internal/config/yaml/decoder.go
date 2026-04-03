@@ -1,3 +1,6 @@
+// Package yaml implements a zero-dependency YAML parser and decoder for
+// OpenLoadBalancer configuration files. It provides tokenization, parsing,
+// and reflection-based decoding into Go structs.
 package yaml
 
 import (

@@ -53,7 +53,7 @@ EXPOSE 80 443 8080 7946
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD ["/usr/local/bin/olb", "health"] || exit 1
+    CMD /usr/local/bin/olb health || exit 1
 
 # Default command
 ENTRYPOINT ["/usr/local/bin/olb"]

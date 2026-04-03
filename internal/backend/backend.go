@@ -1,3 +1,6 @@
+// Package backend provides the backend server representation and state management
+// for OpenLoadBalancer. It tracks connection statistics, health status, and latency
+// metrics for each backend target.
 package backend
 
 import (

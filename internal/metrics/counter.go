@@ -1,3 +1,5 @@
+// Package metrics provides Prometheus-style metrics collection for OpenLoadBalancer.
+// It exposes counters, gauges, and histograms with both JSON and Prometheus exposition formats.
 package metrics
 
 import (
