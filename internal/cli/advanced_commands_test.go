@@ -775,7 +775,9 @@ pools:
 
 func TestConfigValidateCommand_FileNotFound(t *testing.T) {
 	cmd := &ConfigValidateCommand{}
-	err := cmd.Run([]string{"--config", "/nonexistent/path/config.yaml"})
+	tmpDir := t.TempDir()
+	nonexistent := filepath.Join(tmpDir, "nonexistent", "config.yaml")
+	err := cmd.Run([]string{"--config", nonexistent})
 	if err == nil {
 		t.Error("Expected error for non-existent file")
 	}
@@ -1070,13 +1072,12 @@ func TestMetricsExportCommand_InvalidOutputPath(t *testing.T) {
 
 // Test config diff with missing file
 func TestConfigDiffCommand_MissingFile(t *testing.T) {
-	server := newAdvancedTestServer()
-	defer server.Close()
+	tmpDir := t.TempDir()
+	nonexistent := filepath.Join(tmpDir, "nonexistent", "config.yaml")
 
 	cmd := &ConfigDiffCommand{}
 	err := cmd.Run([]string{
-		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
-		"--file", "/nonexistent/path/config.yaml",
+		"--file", nonexistent,
 	})
 	if err == nil {
 		t.Error("Expected error when config file not found")
