@@ -5,10 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Certificate represents a loaded TLS certificate with metadata.
@@ -83,6 +85,13 @@ func (m *Manager) LoadCertificateFromPEM(certPEM, keyPEM []byte) (*Certificate, 
 			isWildcard = true
 			break
 		}
+	}
+
+	// Warn if certificate is expired or about to expire
+	if time.Now().After(x509Cert.NotAfter) {
+		log.Printf("WARNING: TLS certificate for %v has expired (expired %s)", names, x509Cert.NotAfter.Format(time.RFC3339))
+	} else if time.Until(x509Cert.NotAfter) < 30*24*time.Hour {
+		log.Printf("WARNING: TLS certificate for %v expires in %d days (%s)", names, int(time.Until(x509Cert.NotAfter).Hours()/24), x509Cert.NotAfter.Format(time.RFC3339))
 	}
 
 	return &Certificate{

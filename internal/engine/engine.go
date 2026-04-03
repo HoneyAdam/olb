@@ -600,18 +600,33 @@ func (e *Engine) Start() error {
 }
 
 // startConfigWatcher creates and starts a file watcher for the config file.
-// On change, it triggers a Reload().
+// On change, it triggers a debounced Reload() to coalesce rapid file changes
+// from editors that perform multiple write operations.
 func (e *Engine) startConfigWatcher() {
-	watcher, err := config.NewWatcher(
-		e.configPath,
-		2*time.Second,
-		func(path string, data []byte) {
+	var debounceTimer *time.Timer
+	var debounceMu sync.Mutex
+
+	debouncedReload := func(path string) {
+		debounceMu.Lock()
+		if debounceTimer != nil {
+			debounceTimer.Stop()
+		}
+		debounceTimer = time.AfterFunc(500*time.Millisecond, func() {
 			e.logger.Info("Config file changed, triggering reload",
 				logging.String("path", path),
 			)
 			if err := e.Reload(); err != nil {
 				e.logger.Error("Auto-reload failed", logging.Error(err))
 			}
+		})
+		debounceMu.Unlock()
+	}
+
+	watcher, err := config.NewWatcher(
+		e.configPath,
+		2*time.Second,
+		func(path string, data []byte) {
+			debouncedReload(path)
 		},
 		func(path string, err error) {
 			e.logger.Warn("Config watcher error",

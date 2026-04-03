@@ -110,6 +110,7 @@ type checkState struct {
 	consecutiveFail int
 	lastResult      *Result
 	mu              sync.RWMutex
+	stopCh          chan struct{} // closed by Unregister to signal goroutine exit
 }
 
 // NewChecker creates a new health checker.
@@ -140,6 +141,7 @@ func (c *Checker) Register(b *backend.Backend, config *Check) error {
 		backend: b,
 		config:  config,
 		status:  StatusUnknown,
+		stopCh:  make(chan struct{}),
 	}
 	c.checks[b.ID] = state
 
@@ -150,16 +152,20 @@ func (c *Checker) Register(b *backend.Backend, config *Check) error {
 	return nil
 }
 
-// Unregister removes a backend from health checking.
+// Unregister removes a backend from health checking and stops its goroutine.
 func (c *Checker) Unregister(backendID string) {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
-	if state, exists := c.checks[backendID]; exists {
-		delete(c.checks, backendID)
-		// The goroutine will exit on next iteration due to state being removed
-		_ = state
+	state, exists := c.checks[backendID]
+	if !exists {
+		c.mu.Unlock()
+		return
 	}
+	delete(c.checks, backendID)
+	c.mu.Unlock()
+
+	// Signal the goroutine to exit by closing its per-backend stop channel.
+	close(state.stopCh)
 }
 
 // GetStatus returns the current health status of a backend.
@@ -209,6 +215,8 @@ func (c *Checker) runCheck(state *checkState) {
 		case <-ticker.C:
 			c.performCheck(state)
 		case <-c.stopCh:
+			return
+		case <-state.stopCh:
 			return
 		}
 	}
@@ -358,7 +366,10 @@ func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 	if err != nil {
 		// Fallback: if HTTPS fails (self-signed or no TLS), try plain HTTP/2
 		url = fmt.Sprintf("http://%s/grpc.health.v1.Health/Check", b.Address)
-		req, _ = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
+			req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
+			if err != nil {
+				return Result{Healthy: false, Error: fmt.Errorf("grpc fallback request creation failed: %w", err)}
+			}
 		req.Header.Set("Content-Type", "application/grpc")
 		req.Header.Set("TE", "trailers")
 

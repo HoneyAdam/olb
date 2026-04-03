@@ -158,6 +158,25 @@ func (wh *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 	return wh.proxyWebSocket(clientConn, backendConn)
 }
 
+// wsHopByHop lists headers that must not be forwarded in a WebSocket upgrade
+// request to prevent request smuggling between proxy and backend.
+var wsHopByHop = map[string]bool{
+	"Connection":         true,
+	"Keep-Alive":         true,
+	"Proxy-Authenticate": true,
+	"Proxy-Authorization": true,
+	"TE":                 true,
+	"Trailers":           true,
+	"Transfer-Encoding":  true,
+	"Content-Length":     true,
+}
+
+// isWSHopByHop reports whether the named header should be stripped from the
+// forwarded WebSocket upgrade request.
+func isWSHopByHop(name string) bool {
+	return wsHopByHop[http.CanonicalHeaderKey(name)]
+}
+
 // writeUpgradeRequest writes the WebSocket upgrade HTTP request to the backend.
 func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, b *backend.Backend) error {
 	path := r.URL.RequestURI()
@@ -169,8 +188,11 @@ func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, 
 	buf.WriteString(fmt.Sprintf("GET %s HTTP/1.1\r\n", path))
 	buf.WriteString(fmt.Sprintf("Host: %s\r\n", r.Host))
 
-	// Forward all original headers
+	// Forward original headers, stripping hop-by-hop headers to prevent smuggling
 	for key, vals := range r.Header {
+		if isWSHopByHop(key) {
+			continue
+		}
 		for _, val := range vals {
 			buf.WriteString(fmt.Sprintf("%s: %s\r\n", key, val))
 		}

@@ -1,9 +1,9 @@
 package utils
 
 import (
+	"math"
 	"sync/atomic"
 	"time"
-	"unsafe"
 )
 
 // AtomicFloat64 provides atomic operations on float64 values.
@@ -52,12 +52,12 @@ func (af *AtomicFloat64) CompareAndSwap(old, new float64) bool {
 
 // float64ToBits converts float64 to uint64 bits.
 func float64ToBits(f float64) uint64 {
-	return *(*uint64)(unsafe.Pointer(&f))
+	return math.Float64bits(f)
 }
 
 // bitsToFloat64 converts uint64 bits to float64.
 func bitsToFloat64(u uint64) float64 {
-	return *(*float64)(unsafe.Pointer(&u))
+	return math.Float64frombits(u)
 }
 
 // AtomicDuration provides atomic operations on time.Duration values.

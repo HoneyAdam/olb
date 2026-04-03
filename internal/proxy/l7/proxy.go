@@ -571,7 +571,7 @@ func defaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 	}
 
 	response := ErrorResponse{
-		Error:   err.Error(),
+		Error:   "", // Do not expose internal error details to clients
 		Code:    code,
 		Message: message,
 	}

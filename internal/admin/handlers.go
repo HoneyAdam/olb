@@ -195,7 +195,7 @@ func (s *Server) reloadConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.onReload(); err != nil {
-		writeError(w, http.StatusInternalServerError, "RELOAD_FAILED", err.Error())
+		writeError(w, http.StatusInternalServerError, "RELOAD_FAILED", "configuration reload failed")
 		return
 	}
 
@@ -276,11 +276,11 @@ func (s *Server) addBackend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req AddBackendRequest
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON payload")
 		return
 	}
-	defer r.Body.Close()
 
 	// Validate required fields
 	if req.ID == "" {
@@ -312,7 +312,7 @@ func (s *Server) addBackend(w http.ResponseWriter, r *http.Request) {
 
 	if err := pool.AddBackend(b); err != nil {
 		if errors.Is(err, errors.ErrAlreadyExist) {
-			writeError(w, http.StatusConflict, "ALREADY_EXISTS", err.Error())
+			writeError(w, http.StatusConflict, "ALREADY_EXISTS", "backend already exists")
 			return
 		}
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error")
@@ -395,11 +395,11 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req UpdateBackendRequest
+	defer r.Body.Close()
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON: "+err.Error())
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON payload")
 		return
 	}
-	defer r.Body.Close()
 
 	if req.Weight != nil {
 		if *req.Weight < 0 || *req.Weight > 1000 {

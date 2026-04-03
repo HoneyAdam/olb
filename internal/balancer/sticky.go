@@ -1,6 +1,8 @@
 package balancer
 
 import (
+	crypto_rand "crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"sync"
 	"time"
@@ -314,28 +316,28 @@ func (s *Sticky) CleanupSessions(availableBackends map[string]bool) {
 	}
 }
 
-// generateSessionID generates a unique session ID.
-// Uses timestamp + random for uniqueness.
+// generateSessionID generates a cryptographically random session ID.
 func generateSessionID() string {
-	// Simple implementation using timestamp and counter
-	// In production, use crypto/rand for better randomness
 	return generateRandomID()
+}
+
+func generateRandomID() string {
+	b := make([]byte, 16)
+	_, err := crypto_rand.Read(b)
+	if err != nil {
+		// Fallback to timestamp-based if crypto/rand fails (extremely unlikely)
+		sessionMu.Lock()
+		sessionCounter++
+		now := time.Now().UnixNano()
+		id := encodeBase36(now) + encodeBase36(int64(sessionCounter))
+		sessionMu.Unlock()
+		return id
+	}
+	return hex.EncodeToString(b)
 }
 
 var sessionCounter uint64
 var sessionMu sync.Mutex
-
-func generateRandomID() string {
-	sessionMu.Lock()
-	defer sessionMu.Unlock()
-
-	// Increment counter
-	sessionCounter++
-
-	// Generate ID: timestamp + counter
-	now := time.Now().UnixNano()
-	return encodeBase36(now) + encodeBase36(int64(sessionCounter))
-}
 
 // encodeBase36 encodes an int64 to base36 string.
 func encodeBase36(n int64) string {
