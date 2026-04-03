@@ -527,6 +527,9 @@ func (e *Engine) Start() error {
 			if e.config.Admin != nil && e.config.Admin.MCPToken != "" {
 				sseConfig.BearerToken = e.config.Admin.MCPToken
 			}
+			if e.config.Middleware != nil && e.config.Middleware.CORS != nil {
+				sseConfig.AllowedOrigins = e.config.Middleware.CORS.AllowedOrigins
+			}
 			if sseConfig.AuditLog {
 				sseConfig.AuditFunc = func(tool, params, clientAddr string, dur time.Duration, err error) {
 					e.logger.Info("MCP tool call",

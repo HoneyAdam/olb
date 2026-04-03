@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"fmt"
 	"math"
 	"net"
 	"net/http"
@@ -23,13 +24,20 @@ type RateLimitConfig struct {
 	CleanupInterval time.Duration
 	// CleanupTimeout is the bucket expiry time (default: 10m)
 	CleanupTimeout time.Duration
+	// TrustedProxies is a list of CIDR ranges for trusted proxy servers.
+	// When set, X-Forwarded-For and X-Real-IP headers are only trusted if
+	// the direct connection (RemoteAddr) originates from a trusted proxy.
+	// When empty (default), forwarded headers are ignored and only RemoteAddr
+	// is used, preventing header-spoofing bypass attacks.
+	TrustedProxies []string
 }
 
 // RateLimitMiddleware implements token bucket rate limiting per key.
 type RateLimitMiddleware struct {
-	config  RateLimitConfig
-	buckets sync.Map // map[string]*tokenBucket
-	stopCh  chan struct{}
+	config     RateLimitConfig
+	buckets    sync.Map // map[string]*tokenBucket
+	trustedNets []*net.IPNet
+	stopCh     chan struct{}
 }
 
 // tokenBucket represents a single token bucket for rate limiting.
@@ -39,38 +47,59 @@ type tokenBucket struct {
 	mu        sync.Mutex
 }
 
-// defaultKeyFunc extracts the real client IP from the request.
-// It checks X-Forwarded-For and X-Real-IP headers before falling
-// back to RemoteAddr, so rate limiting works correctly behind proxies.
-func defaultKeyFunc(r *http.Request) string {
-	// Check X-Forwarded-For (first IP in chain is the original client)
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first (leftmost) IP — the original client
-		if idx := strings.Index(xff, ","); idx != -1 {
-			return strings.TrimSpace(xff[:idx])
+// keyFunc extracts the client IP to use as the rate-limit key.
+// If trusted proxy networks are configured and the direct connection
+// originates from one of them, X-Forwarded-For and X-Real-IP headers
+// are consulted. Otherwise, only RemoteAddr is used.
+func (m *RateLimitMiddleware) keyFunc(r *http.Request) string {
+	remoteIP := remoteAddrIP(r.RemoteAddr)
+
+	if m.isTrustedProxy(remoteIP) {
+		// Check X-Forwarded-For (first IP in chain is the original client)
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if idx := strings.Index(xff, ","); idx != -1 {
+				return strings.TrimSpace(xff[:idx])
+			}
+			return strings.TrimSpace(xff)
 		}
-		return strings.TrimSpace(xff)
+
+		// Check X-Real-IP
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
 	}
 
-	// Check X-Real-IP
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
+	return remoteIP
+}
 
-	// Fallback to direct connection address
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+// remoteAddrIP extracts the host portion from an address in "host:port" form.
+func remoteAddrIP(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		return remoteAddr
 	}
 	return host
+}
+
+// isTrustedProxy reports whether ip belongs to one of the configured trusted
+// proxy networks. If no trusted networks are configured it always returns
+// false, which means forwarded headers are never trusted.
+func (m *RateLimitMiddleware) isTrustedProxy(ipStr string) bool {
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return false
+	}
+	for _, cidr := range m.trustedNets {
+		if cidr.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // NewRateLimitMiddleware creates a new rate limiter middleware.
 func NewRateLimitMiddleware(config RateLimitConfig) (*RateLimitMiddleware, error) {
 	// Set defaults
-	if config.KeyFunc == nil {
-		config.KeyFunc = defaultKeyFunc
-	}
 	if config.CleanupInterval <= 0 {
 		config.CleanupInterval = time.Minute
 	}
@@ -78,9 +107,37 @@ func NewRateLimitMiddleware(config RateLimitConfig) (*RateLimitMiddleware, error
 		config.CleanupTimeout = 10 * time.Minute
 	}
 
+	// Parse trusted proxy CIDRs
+	var trustedNets []*net.IPNet
+	for _, cidr := range config.TrustedProxies {
+		// Allow bare IPs (treat as /32 or /128)
+		if !strings.Contains(cidr, "/") {
+			ip := net.ParseIP(cidr)
+			if ip == nil {
+				return nil, fmt.Errorf("invalid trusted proxy IP: %s", cidr)
+			}
+			if ipv4 := ip.To4(); ipv4 != nil {
+				cidr += "/32"
+			} else {
+				cidr += "/128"
+			}
+		}
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy CIDR %q: %w", cidr, err)
+		}
+		trustedNets = append(trustedNets, ipNet)
+	}
+
 	m := &RateLimitMiddleware{
-		config: config,
-		stopCh: make(chan struct{}),
+		config:      config,
+		trustedNets: trustedNets,
+		stopCh:      make(chan struct{}),
+	}
+
+	// Wire the default key function only when none was provided.
+	if config.KeyFunc == nil {
+		m.config.KeyFunc = m.keyFunc
 	}
 
 	// Start cleanup goroutine

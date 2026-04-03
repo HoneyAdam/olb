@@ -2,6 +2,7 @@ package l7
 
 import (
 	"bytes"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -552,16 +553,21 @@ func TestGRPCHandler_HandleGRPC_BackendError(t *testing.T) {
 		Timeout:    1 * time.Second,
 	})
 
-	// Use an address that refuses connections
-	be := backend.NewBackend("grpc-backend-bad", "127.0.0.1:1")
+	// Use a port that is guaranteed to refuse connections
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to allocate port: %v", err)
+	}
+	listener.Close()
+	be := backend.NewBackend("grpc-backend-bad", listener.Addr().String())
 	be.SetState(backend.StateUp)
 
 	req := httptest.NewRequest("POST", "/my.service/MyMethod", bytes.NewReader([]byte("grpc request")))
 	req.Header.Set("Content-Type", "application/grpc")
 
 	rec := httptest.NewRecorder()
-	err := handler.HandleGRPC(rec, req, be)
-	if err == nil {
+	handleErr := handler.HandleGRPC(rec, req, be)
+	if handleErr == nil {
 		t.Error("Expected error when backend connection fails")
 	}
 }

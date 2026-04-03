@@ -482,20 +482,89 @@ func TestRateLimitMiddleware_ConcurrentAccess(t *testing.T) {
 }
 
 func TestRateLimitMiddleware_DefaultKeyFunc(t *testing.T) {
-	// Test the default key function directly
+	// Without TrustedProxies, forwarded headers should be ignored and only
+	// RemoteAddr should be used.
+	mw, err := NewRateLimitMiddleware(RateLimitConfig{
+		RequestsPerSecond: 10.0,
+		BurstSize:         5,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+	defer mw.Stop()
+
+	// Basic RemoteAddr extraction
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.RemoteAddr = "192.168.1.100:54321"
+	// Set spoofed forwarded headers — must be ignored
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+	req.Header.Set("X-Real-IP", "10.0.0.2")
 
-	key := defaultKeyFunc(req)
+	key := mw.config.KeyFunc(req)
 	if key != "192.168.1.100" {
 		t.Errorf("Expected key '192.168.1.100', got '%s'", key)
 	}
 
 	// Test with invalid RemoteAddr (no port)
 	req.RemoteAddr = "192.168.1.100"
-	key = defaultKeyFunc(req)
+	key = mw.config.KeyFunc(req)
 	if key != "192.168.1.100" {
 		t.Errorf("Expected key '192.168.1.100' for invalid addr, got '%s'", key)
+	}
+}
+
+func TestRateLimitMiddleware_TrustedProxies(t *testing.T) {
+	// Configure with a trusted proxy range
+	mw, err := NewRateLimitMiddleware(RateLimitConfig{
+		RequestsPerSecond: 10.0,
+		BurstSize:         5,
+		TrustedProxies:    []string{"10.0.0.0/24", "172.16.0.1"},
+	})
+	if err != nil {
+		t.Fatalf("Failed to create middleware: %v", err)
+	}
+	defer mw.Stop()
+
+	// Request from a trusted proxy — X-Forwarded-For should be honoured
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.50:1234"
+	req.Header.Set("X-Forwarded-For", "203.0.113.10, 70.41.3.18")
+
+	key := mw.config.KeyFunc(req)
+	if key != "203.0.113.10" {
+		t.Errorf("Expected key from XFF '203.0.113.10', got '%s'", key)
+	}
+
+	// Request from a trusted proxy — X-Real-IP fallback (no XFF)
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "172.16.0.1:4321"
+	req.Header.Set("X-Real-IP", "198.51.100.5")
+
+	key = mw.config.KeyFunc(req)
+	if key != "198.51.100.5" {
+		t.Errorf("Expected key from X-Real-IP '198.51.100.5', got '%s'", key)
+	}
+
+	// Request from an untrusted source — headers must be ignored
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.1:9999"
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	req.Header.Set("X-Real-IP", "198.51.100.5")
+
+	key = mw.config.KeyFunc(req)
+	if key != "192.168.1.1" {
+		t.Errorf("Expected key '192.168.1.1' (untrusted source), got '%s'", key)
+	}
+}
+
+func TestRateLimitMiddleware_TrustedProxies_InvalidCIDR(t *testing.T) {
+	_, err := NewRateLimitMiddleware(RateLimitConfig{
+		RequestsPerSecond: 10.0,
+		BurstSize:         5,
+		TrustedProxies:    []string{"not-a-valid-cidr"},
+	})
+	if err == nil {
+		t.Error("Expected error for invalid trusted proxy CIDR")
 	}
 }
 

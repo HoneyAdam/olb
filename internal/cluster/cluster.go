@@ -417,8 +417,11 @@ func (c *Cluster) sendHeartbeats() {
 	}
 	c.nodesMu.RUnlock()
 
+	var wg sync.WaitGroup
 	for _, addr := range peerAddrs {
+		wg.Add(1)
 		go func(addr string) {
+			defer wg.Done()
 			if c.transport != nil {
 				resp, err := c.transport.SendAppendEntries(addr, &AppendEntries{
 					Term:         term,
@@ -439,6 +442,7 @@ func (c *Cluster) sendHeartbeats() {
 			}
 		}(addr)
 	}
+	wg.Wait()
 }
 
 // handleCommand handles a command to be applied.

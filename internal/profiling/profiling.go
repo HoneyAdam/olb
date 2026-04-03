@@ -6,6 +6,7 @@ package profiling
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -287,7 +288,9 @@ func Apply(cfg ProfileConfig) (cleanup func(), err error) {
 		}
 		go func() {
 			// ListenAndServe returns ErrServerClosed on clean shutdown.
-			_ = srv.ListenAndServe()
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("profiling: server error: %v", err)
+			}
 		}()
 		cleanups = append(cleanups, func() {
 			_ = srv.Close()

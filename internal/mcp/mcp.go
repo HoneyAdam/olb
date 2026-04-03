@@ -460,7 +460,7 @@ func (s *Server) HandleJSONRPC(request []byte) ([]byte, error) {
 			JSONRPC: jsonRPCVersion,
 			Error: &ResponseError{
 				Code:    errCodeParse,
-				Message: "Parse error: " + err.Error(),
+				Message: "Parse error",
 			},
 		}
 		return json.Marshal(resp)
@@ -566,7 +566,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (interface{}, *Response
 	if err := json.Unmarshal(params, &callParams); err != nil {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: "Invalid params: " + err.Error(),
+			Message: "Invalid params",
 		}
 	}
 
@@ -604,7 +604,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (interface{}, *Response
 	resultJSON, marshalErr := json.MarshalIndent(result, "", "  ")
 	if marshalErr != nil {
 		return ToolResult{
-			Content: []ToolContent{{Type: "text", Text: fmt.Sprintf("Error marshaling result: %s", marshalErr.Error())}},
+			Content: []ToolContent{{Type: "text", Text: fmt.Sprintf("Error: %s", marshalErr.Error())}},
 			IsError: true,
 		}, nil
 	}
@@ -644,7 +644,7 @@ func (s *Server) handleResourcesRead(params json.RawMessage) (interface{}, *Resp
 	if err := json.Unmarshal(params, &readParams); err != nil {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: "Invalid params: " + err.Error(),
+			Message: "Invalid params",
 		}
 	}
 
@@ -726,7 +726,7 @@ func (s *Server) readResource(uri string) (string, *ResponseError) {
 	if err != nil {
 		return "", &ResponseError{
 			Code:    errCodeInternal,
-			Message: "Failed to marshal resource: " + err.Error(),
+			Message: "Failed to read resource",
 		}
 	}
 
@@ -764,7 +764,7 @@ func (s *Server) handlePromptsGet(params json.RawMessage) (interface{}, *Respons
 	if err := json.Unmarshal(params, &getParams); err != nil {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: "Invalid params: " + err.Error(),
+			Message: "Invalid params",
 		}
 	}
 

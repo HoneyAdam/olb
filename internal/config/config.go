@@ -377,7 +377,7 @@ type Admin struct {
 	Address    string `yaml:"address" json:"address"`
 	Enabled    bool   `yaml:"enabled" json:"enabled"`
 	MCPAddress string `yaml:"mcp_address" json:"mcp_address"`
-	MCPToken   string `yaml:"mcp_token" json:"mcp_token"`
+	MCPToken   string `yaml:"mcp_token" json:"-"`
 	MCPAudit   bool   `yaml:"mcp_audit" json:"mcp_audit"`
 }
 

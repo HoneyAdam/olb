@@ -23,6 +23,10 @@ type SSETransportConfig struct {
 	// BearerToken is the required auth token. If empty, auth is disabled.
 	BearerToken string
 
+	// AllowedOrigins restricts CORS origins. If empty, defaults to same-origin
+	// (no CORS headers are sent, which is the safest default).
+	AllowedOrigins []string
+
 	// AuditLog enables logging of all MCP tool calls.
 	AuditLog bool
 
@@ -191,7 +195,7 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	t.setCORSHeaders(w, r)
 	w.WriteHeader(http.StatusOK)
 
 	// Send endpoint event — tells client where to POST messages
@@ -268,7 +272,7 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 	// Send response directly via HTTP
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	t.setCORSHeaders(w, r)
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
 
@@ -283,7 +287,7 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 
 func (t *SSETransport) handleLegacy(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		t.setCORSHeaders(w, r)
 		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		w.WriteHeader(http.StatusNoContent)
@@ -325,12 +329,39 @@ func (t *SSETransport) handleLegacy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	t.setCORSHeaders(w, r)
 	w.WriteHeader(http.StatusOK)
 	w.Write(resp)
 }
 
 // --- Helpers ---
+
+// corsOrigin returns the appropriate Access-Control-Allow-Origin value
+// based on the request's Origin header and the configured allowed origins.
+// If no allowed origins are configured, no CORS header is set (same-origin policy).
+func (t *SSETransport) corsOrigin(r *http.Request) string {
+	if len(t.config.AllowedOrigins) == 0 {
+		return ""
+	}
+	origin := r.Header.Get("Origin")
+	for _, allowed := range t.config.AllowedOrigins {
+		if origin == allowed {
+			return origin
+		}
+	}
+	return ""
+}
+
+func (t *SSETransport) setCORSHeaders(w http.ResponseWriter, r *http.Request) {
+	origin := t.corsOrigin(r)
+	if origin == "" {
+		return
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+}
 
 func (t *SSETransport) broadcastToClient(sessionID string, data []byte) {
 	t.mu.RLock()
