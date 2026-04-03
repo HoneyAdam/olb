@@ -209,16 +209,20 @@ func (e *Engine) applyConfig(newCfg *config.Config) error {
 	e.proxy = newProxy
 	e.mu.Unlock()
 
-	// Close old proxy after drain window
+	// Close old proxy after drain window (tracked so engine shutdown waits)
 	if oldProxy != nil {
+		e.wg.Add(1)
 		go func(p *l7.HTTPProxy) {
+			defer e.wg.Done()
 			time.Sleep(5 * time.Second)
 			p.Close()
 		}(oldProxy)
 	}
 
-	// Stop old health checker after drain window
+	// Stop old health checker after drain window (tracked so engine shutdown waits)
+	e.wg.Add(1)
 	go func(hc *health.Checker) {
+		defer e.wg.Done()
 		time.Sleep(10 * time.Second)
 		hc.Stop()
 	}(oldHealthChecker)

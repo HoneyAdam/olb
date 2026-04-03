@@ -237,30 +237,28 @@ func (m *Manager) release(id string, sourceHost string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.connections[id]; exists {
-		delete(m.connections, id)
-		m.sourceCounts[sourceHost]--
-		if m.sourceCounts[sourceHost] <= 0 {
-			delete(m.sourceCounts, sourceHost)
-		}
-
-		// Decrement backend count if set
-		backendID := ""
-		for _, conn := range m.connections {
-			if conn.id == id {
-				backendID = conn.backendID
-				break
-			}
-		}
-		if backendID != "" {
-			m.backendCounts[backendID]--
-			if m.backendCounts[backendID] <= 0 {
-				delete(m.backendCounts, backendID)
-			}
-		}
-
-		m.totalCount.Add(-1)
+	tracked, exists := m.connections[id]
+	if !exists {
+		return
 	}
+
+	// Capture backendID before deleting from map
+	backendID := tracked.backendID
+	delete(m.connections, id)
+
+	m.sourceCounts[sourceHost]--
+	if m.sourceCounts[sourceHost] <= 0 {
+		delete(m.sourceCounts, sourceHost)
+	}
+
+	if backendID != "" {
+		m.backendCounts[backendID]--
+		if m.backendCounts[backendID] <= 0 {
+			delete(m.backendCounts, backendID)
+		}
+	}
+
+	m.totalCount.Add(-1)
 }
 
 // AssociateBackend associates a connection with a backend.
