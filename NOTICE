@@ -1,0 +1,13 @@
+OpenLoadBalancer
+Copyright 2025 The OpenLoadBalancer Authors
+
+This product includes software developed for load balancing and traffic
+management by the OpenLoadBalancer project team.
+
+This product uses the following third-party components:
+
+- golang.org/x/crypto - BSD-3-Clause License
+  Copyright (c) 2009 The Go Authors. All rights reserved.
+
+For the complete list of dependencies and their licenses, see:
+https://github.com/openloadbalancer/olb/blob/main/go.mod
