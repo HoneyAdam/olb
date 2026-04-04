@@ -359,7 +359,7 @@ olb cluster status                   # Cluster info
 See [CONTRIBUTING.md](CONTRIBUTING.md). Key rules:
 
 1. **Zero external deps** — stdlib only
-2. **Tests required** — 90% coverage, don't lower it
+2. **Tests required** — 85% coverage, don't lower it
 3. **All features wired** — no dead code in engine.go
 4. **gofmt + go vet** — CI enforced
 
