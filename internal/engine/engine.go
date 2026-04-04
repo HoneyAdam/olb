@@ -1022,6 +1022,8 @@ func (e *Engine) initializePools() error {
 			bal = balancer.NewWeightedRandom()
 		case "ring_hash", "ringhash":
 			bal = balancer.NewRingHash()
+		case "rendezvous", "rendezvous_hash":
+			bal = balancer.NewRendezvousHash()
 		case "sticky":
 			bal = balancer.NewSticky(balancer.NewRoundRobin(), nil)
 		case "peak_ewma", "pewma":
