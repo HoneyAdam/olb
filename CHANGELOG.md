@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Grafana dashboard with 20+ monitoring panels
 - SECURITY.md with vulnerability reporting policy
 - Integration tests for GeoDNS package (90.7% coverage)
+- OpenAPI 3.0 spec for Admin API
+- Migration guide from NGINX, HAProxy, Traefik, Envoy, AWS ALB
+- Getting started tutorial
+- Terraform AWS module
+- Prometheus alerting rules
+- Docker Compose full stack
 
 ### Changed
 - CI/CD workflow fixed (binary and release jobs separated)

@@ -341,12 +341,13 @@ olb cluster status                   # Cluster info
 
 | Guide | Description |
 |-------|-------------|
-| [Getting Started](docs/getting-started.md) | 5-minute quick start |
+| [Getting Started](docs/tutorials/getting-started.md) | Step-by-step tutorial |
 | [Configuration](docs/configuration.md) | All config options |
 | [Production Deployment](docs/production-deployment.md) | Production deployment guide |
 | [Troubleshooting](docs/troubleshooting.md) | Troubleshooting playbook |
+| [Migration Guide](docs/migration-guide.md) | Migrate from NGINX/HAProxy/Traefik |
 | [Algorithms](docs/algorithms.md) | Algorithm details |
-| [API Reference](docs/api.md) | Admin REST API |
+| [API Reference](docs/api/openapi.yaml) | OpenAPI/Swagger spec |
 | [Clustering](docs/clustering.md) | Multi-node setup |
 | [WAF](docs/waf.md) | Web Application Firewall (6-layer defense) |
 | [MCP / AI](docs/mcp.md) | AI integration |
