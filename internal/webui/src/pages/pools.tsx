@@ -3,10 +3,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Layers, Plus, Search, Trash2, Edit, Activity, Clock } from "lucide-react"
 import { toast } from "sonner"
-import type { Pool } from "@/types"
+import type { Pool, Backend } from "@/types"
 
 const mockPools: Pool[] = [
   {
@@ -57,10 +75,37 @@ const algorithmLabels: Record<string, string> = {
   first: "First",
 }
 
+const algorithms = [
+  { value: "round_robin", label: "Round Robin" },
+  { value: "least_connections", label: "Least Connections" },
+  { value: "ip_hash", label: "IP Hash" },
+  { value: "weighted_round_robin", label: "Weighted Round Robin" },
+  { value: "random", label: "Random" },
+  { value: "first", label: "First" },
+]
+
 export function PoolsPage() {
-  const [pools] = useState<Pool[]>(mockPools)
+  const [pools, setPools] = useState<Pool[]>(mockPools)
   const [search, setSearch] = useState("")
   const [selectedPool, setSelectedPool] = useState<Pool | null>(mockPools[0])
+
+  // Create Pool Dialog State
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [newPool, setNewPool] = useState({
+    name: "",
+    algorithm: "round_robin",
+    healthCheckEnabled: true,
+    healthCheckType: "http",
+    healthCheckPath: "/health",
+    healthCheckInterval: "10s",
+  })
+
+  // Add Backend Dialog State
+  const [backendDialogOpen, setBackendDialogOpen] = useState(false)
+  const [newBackend, setNewBackend] = useState({
+    address: "",
+    weight: 1,
+  })
 
   const filteredPools = pools.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
@@ -83,6 +128,70 @@ export function PoolsPage() {
     }
   }
 
+  const handleCreatePool = () => {
+    const pool: Pool = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: newPool.name,
+      algorithm: newPool.algorithm,
+      backends: [],
+      health_check: newPool.healthCheckEnabled ? {
+        enabled: true,
+        type: newPool.healthCheckType,
+        path: newPool.healthCheckPath,
+        interval: newPool.healthCheckInterval,
+      } : undefined,
+      total_requests: 0,
+      active_connections: 0,
+    }
+    setPools([...pools, pool])
+    setCreateDialogOpen(false)
+    setNewPool({
+      name: "",
+      algorithm: "round_robin",
+      healthCheckEnabled: true,
+      healthCheckType: "http",
+      healthCheckPath: "/health",
+      healthCheckInterval: "10s",
+    })
+    toast.success(`Pool "${pool.name}" created successfully`)
+  }
+
+  const handleAddBackend = () => {
+    if (!selectedPool) return
+    const backend: Backend = {
+      id: Math.random().toString(36).substr(2, 9),
+      address: newBackend.address,
+      weight: newBackend.weight,
+      status: "up",
+      health: "unknown",
+      response_time_ms: 0,
+      active_connections: 0,
+      total_requests: 0,
+    }
+    const updatedPool = { ...selectedPool, backends: [...selectedPool.backends, backend] }
+    setPools(pools.map(p => p.id === selectedPool.id ? updatedPool : p))
+    setSelectedPool(updatedPool)
+    setBackendDialogOpen(false)
+    setNewBackend({ address: "", weight: 1 })
+    toast.success(`Backend "${backend.address}" added successfully`)
+  }
+
+  const handleDeletePool = (poolId: string) => {
+    setPools(pools.filter(p => p.id !== poolId))
+    if (selectedPool?.id === poolId) {
+      setSelectedPool(null)
+    }
+    toast.success("Pool deleted successfully")
+  }
+
+  const handleDeleteBackend = (backendId: string) => {
+    if (!selectedPool) return
+    const updatedPool = { ...selectedPool, backends: selectedPool.backends.filter(b => b.id !== backendId) }
+    setPools(pools.map(p => p.id === selectedPool.id ? updatedPool : p))
+    setSelectedPool(updatedPool)
+    toast.success("Backend removed successfully")
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -90,10 +199,113 @@ export function PoolsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Pools</h1>
           <p className="text-muted-foreground">Manage backend pools and load balancing</p>
         </div>
-        <Button onClick={() => toast.info("Create pool dialog would open")}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Pool
-        </Button>
+        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Pool
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Create New Pool</DialogTitle>
+              <DialogDescription>
+                Configure a new backend pool with load balancing settings.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="name">Pool Name</Label>
+                <Input
+                  id="name"
+                  placeholder="e.g., api-pool"
+                  value={newPool.name}
+                  onChange={(e) => setNewPool({ ...newPool, name: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="algorithm">Algorithm</Label>
+                <Select
+                  value={newPool.algorithm}
+                  onValueChange={(value: string) => setNewPool({ ...newPool, algorithm: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select algorithm" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {algorithms.map((algo) => (
+                      <SelectItem key={algo.value} value={algo.value}>
+                        {algo.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="health-check">Enable Health Checks</Label>
+                <Switch
+                  id="health-check"
+                  checked={newPool.healthCheckEnabled}
+                  onCheckedChange={(checked) => setNewPool({ ...newPool, healthCheckEnabled: checked })}
+                />
+              </div>
+              {newPool.healthCheckEnabled && (
+                <>
+                  <div className="grid gap-2">
+                    <Label htmlFor="hc-type">Health Check Type</Label>
+                    <Select
+                      value={newPool.healthCheckType}
+                      onValueChange={(value: string) => setNewPool({ ...newPool, healthCheckType: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="http">HTTP</SelectItem>
+                        <SelectItem value="tcp">TCP</SelectItem>
+                        <SelectItem value="grpc">gRPC</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="hc-path">Health Check Path</Label>
+                    <Input
+                      id="hc-path"
+                      placeholder="/health"
+                      value={newPool.healthCheckPath}
+                      onChange={(e) => setNewPool({ ...newPool, healthCheckPath: e.target.value })}
+                    />
+                  </div>
+                  <div className="grid gap-2">
+                    <Label htmlFor="hc-interval">Interval</Label>
+                    <Select
+                      value={newPool.healthCheckInterval}
+                      onValueChange={(value: string) => setNewPool({ ...newPool, healthCheckInterval: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="5s">5 seconds</SelectItem>
+                        <SelectItem value="10s">10 seconds</SelectItem>
+                        <SelectItem value="30s">30 seconds</SelectItem>
+                        <SelectItem value="1m">1 minute</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreatePool} disabled={!newPool.name}>
+                Create Pool
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="flex gap-4">
@@ -131,7 +343,15 @@ export function PoolsPage() {
                     <Button variant="ghost" size="icon" className="h-8 w-8">
                       <Edit className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDeletePool(pool.id)
+                      }}
+                    >
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </div>
@@ -167,10 +387,51 @@ export function PoolsPage() {
               <TabsContent value="backends" className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium">Backends</h3>
-                  <Button size="sm" onClick={() => toast.info("Add backend dialog would open")}>
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add Backend
-                  </Button>
+                  <Dialog open={backendDialogOpen} onOpenChange={setBackendDialogOpen}>
+                    <DialogTrigger asChild>
+                      <Button size="sm">
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Backend
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="sm:max-w-[400px]">
+                      <DialogHeader>
+                        <DialogTitle>Add Backend</DialogTitle>
+                        <DialogDescription>
+                          Add a new backend server to this pool.
+                        </DialogDescription>
+                      </DialogHeader>
+                      <div className="grid gap-4 py-4">
+                        <div className="grid gap-2">
+                          <Label htmlFor="address">Backend Address</Label>
+                          <Input
+                            id="address"
+                            placeholder="e.g., 10.0.1.10:8080"
+                            value={newBackend.address}
+                            onChange={(e) => setNewBackend({ ...newBackend, address: e.target.value })}
+                          />
+                        </div>
+                        <div className="grid gap-2">
+                          <Label htmlFor="weight">Weight</Label>
+                          <Input
+                            id="weight"
+                            type="number"
+                            min={1}
+                            value={newBackend.weight}
+                            onChange={(e) => setNewBackend({ ...newBackend, weight: parseInt(e.target.value) || 1 })}
+                          />
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setBackendDialogOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={handleAddBackend} disabled={!newBackend.address}>
+                          Add Backend
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                 </div>
 
                 <div className="grid gap-4">
@@ -203,7 +464,12 @@ export function PoolsPage() {
                               <Button variant="ghost" size="icon" className="h-8 w-8">
                                 <Edit className="h-4 w-4" />
                               </Button>
-                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive"
+                                onClick={() => handleDeleteBackend(backend.id)}
+                              >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
                             </div>

@@ -2,28 +2,75 @@ import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Activity, Layers, Radio, Server, Clock, TrendingUp, AlertCircle, CheckCircle } from "lucide-react"
+import { useHealth, useSystemInfo } from "@/hooks/use-query"
+import { LoadingCard } from "@/components/ui/loading"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 
 export function DashboardPage() {
-  const [systemInfo] = useState<{version: string; uptime: string; go_version: string} | null>(null)
-  const [health] = useState<{status: 'healthy' | 'unhealthy'; checks?: Record<string, {status: string; message: string}>} | null>(null)
+  const { data: health, isLoading: healthLoading, error: healthError } = useHealth()
+  const { data: systemInfo, isLoading: infoLoading, error: infoError } = useSystemInfo()
   const [stats, setStats] = useState({
-    pools: 0,
-    listeners: 0,
-    backends: 0,
-    requestsPerSecond: 0,
-    totalRequests: 0,
+    pools: 4,
+    listeners: 3,
+    backends: 8,
+    healthyBackends: 6,
+    unhealthyBackends: 2,
+    requestsPerSecond: 1247,
+    totalRequests: 1523456789,
   })
 
   useEffect(() => {
-    // Mock data - API calls would go here
-    setStats({
-      pools: 4,
-      listeners: 3,
-      backends: 8,
-      requestsPerSecond: 1247,
-      totalRequests: 1523456789,
-    })
+    // This would come from metrics API in real implementation
+    const interval = setInterval(() => {
+      setStats(prev => ({
+        ...prev,
+        requestsPerSecond: Math.floor(1000 + Math.random() * 500),
+      }))
+    }, 5000)
+    return () => clearInterval(interval)
   }, [])
+
+  const isLoading = healthLoading || infoLoading
+  const hasError = healthError || infoError
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your OpenLoadBalancer instance</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <LoadingCard />
+          <LoadingCard />
+          <LoadingCard />
+          <LoadingCard />
+        </div>
+        <div className="grid gap-4 md:grid-cols-2">
+          <LoadingCard className="h-64" />
+          <LoadingCard className="h-64" />
+        </div>
+      </div>
+    )
+  }
+
+  if (hasError) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">Overview of your OpenLoadBalancer instance</p>
+        </div>
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>
+            Failed to load dashboard data. Please check your connection and try again.
+          </AlertDescription>
+        </Alert>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6">
@@ -63,7 +110,10 @@ export function DashboardPage() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.backends}</div>
             <p className="text-xs text-muted-foreground">
-              <span className="text-green-500">6 healthy</span>, <span className="text-red-500">2 unhealthy</span>
+              <span className="text-green-500">{stats.healthyBackends} healthy</span>
+              {stats.unhealthyBackends > 0 && (
+                <>, <span className="text-red-500">{stats.unhealthyBackends} unhealthy</span></>
+              )}
             </p>
           </CardContent>
         </Card>
@@ -92,8 +142,15 @@ export function DashboardPage() {
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Status</span>
-              <Badge variant={health?.status === 'healthy' ? 'default' : 'destructive'} className="flex items-center gap-1">
-                {health?.status === 'healthy' ? <CheckCircle className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+              <Badge
+                variant={health?.status === 'healthy' ? 'default' : 'destructive'}
+                className="flex items-center gap-1"
+              >
+                {health?.status === 'healthy' ? (
+                  <CheckCircle className="h-3 w-3" />
+                ) : (
+                  <AlertCircle className="h-3 w-3" />
+                )}
                 {health?.status || 'Unknown'}
               </Badge>
             </div>
@@ -124,7 +181,10 @@ export function DashboardPage() {
             {health?.checks && Object.entries(health.checks).map(([name, check]) => (
               <div key={name} className="flex items-center justify-between">
                 <span className="text-sm capitalize">{name.replace(/_/g, ' ')}</span>
-                <Badge variant={check.status === 'healthy' ? 'outline' : 'destructive'} className="text-xs">
+                <Badge
+                  variant={check.status === 'healthy' ? 'outline' : 'destructive'}
+                  className="text-xs"
+                >
                   {check.status}
                 </Badge>
               </div>
