@@ -24,6 +24,8 @@ import (
 	"github.com/openloadbalancer/olb/internal/balancer"
 	"github.com/openloadbalancer/olb/internal/config"
 	olbListener "github.com/openloadbalancer/olb/internal/listener"
+	"github.com/openloadbalancer/olb/internal/logging"
+	"github.com/openloadbalancer/olb/internal/metrics"
 	"github.com/openloadbalancer/olb/internal/router"
 	"github.com/openloadbalancer/olb/internal/waf"
 )
@@ -3411,6 +3413,1244 @@ func TestCreateMiddlewareChainDefaults(t *testing.T) {
 	if engine.middlewareChain == nil {
 		t.Fatal("middlewareChain should not be nil")
 	}
+}
+
+// ============================================================================
+// Tests for convertGeoDNSRules (0% coverage)
+// ============================================================================
+
+func TestConvertGeoDNSRulesEmpty(t *testing.T) {
+	result := convertGeoDNSRules(nil)
+	if result == nil {
+		t.Error("convertGeoDNSRules(nil) should return non-nil slice")
+	}
+	if len(result) != 0 {
+		t.Errorf("convertGeoDNSRules(nil) = %d rules, want 0", len(result))
+	}
+}
+
+func TestConvertGeoDNSRulesMultiple(t *testing.T) {
+	rules := []config.GeoDNSRule{
+		{
+			ID:       "us-east",
+			Country:  "US",
+			Region:   "VA",
+			Pool:     "us-pool",
+			Fallback: "default-pool",
+			Weight:   100,
+			Headers:  map[string]string{"X-Region": "us-east"},
+		},
+		{
+			ID:       "eu-west",
+			Country:  "DE",
+			Region:   "BY",
+			Pool:     "eu-pool",
+			Fallback: "",
+			Weight:   50,
+			Headers:  nil,
+		},
+		{
+			ID:       "wildcard",
+			Country:  "*",
+			Region:   "",
+			Pool:     "default-pool",
+			Fallback: "",
+			Weight:   0,
+			Headers:  map[string]string{},
+		},
+	}
+
+	result := convertGeoDNSRules(rules)
+	if len(result) != 3 {
+		t.Fatalf("convertGeoDNSRules() = %d rules, want 3", len(result))
+	}
+
+	// Verify first rule
+	if result[0].ID != "us-east" {
+		t.Errorf("result[0].ID = %q, want %q", result[0].ID, "us-east")
+	}
+	if result[0].Country != "US" {
+		t.Errorf("result[0].Country = %q, want %q", result[0].Country, "US")
+	}
+	if result[0].Region != "VA" {
+		t.Errorf("result[0].Region = %q, want %q", result[0].Region, "VA")
+	}
+	if result[0].Pool != "us-pool" {
+		t.Errorf("result[0].Pool = %q, want %q", result[0].Pool, "us-pool")
+	}
+	if result[0].Fallback != "default-pool" {
+		t.Errorf("result[0].Fallback = %q, want %q", result[0].Fallback, "default-pool")
+	}
+	if result[0].Weight != 100 {
+		t.Errorf("result[0].Weight = %d, want 100", result[0].Weight)
+	}
+	if result[0].Headers["X-Region"] != "us-east" {
+		t.Errorf("result[0].Headers['X-Region'] = %q, want %q", result[0].Headers["X-Region"], "us-east")
+	}
+
+	// Verify second rule
+	if result[1].ID != "eu-west" {
+		t.Errorf("result[1].ID = %q, want %q", result[1].ID, "eu-west")
+	}
+	if result[1].Country != "DE" {
+		t.Errorf("result[1].Country = %q, want %q", result[1].Country, "DE")
+	}
+
+	// Verify third rule
+	if result[2].ID != "wildcard" {
+		t.Errorf("result[2].ID = %q, want %q", result[2].ID, "wildcard")
+	}
+	if result[2].Country != "*" {
+		t.Errorf("result[2].Country = %q, want %q", result[2].Country, "*")
+	}
+}
+
+// ============================================================================
+// Tests for createMiddlewareChain — additional branches (48.6% coverage)
+// ============================================================================
+
+func TestCreateMiddlewareChainWithTrace(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Trace: &config.TraceConfig{
+			Enabled:         true,
+			ServiceName:     "test-service",
+			ServiceVersion:  "1.0",
+			Propagators:     []string{"w3c"},
+			SampleRate:      0.5,
+			BaggageHeaders:  []string{"X-Baggage"},
+			ExcludePaths:    []string{"/health"},
+			MaxBaggageItems: 10,
+			MaxBaggageSize:  4096,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithRealIP(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		RealIP: &config.RealIPConfig{
+			Enabled:         true,
+			Headers:         []string{"X-Forwarded-For", "X-Real-IP"},
+			TrustedProxies:  []string{"10.0.0.0/8"},
+			RejectUntrusted: true,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithRequestLogging(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Logging: &config.LoggingConfig{
+			Enabled:         true,
+			Format:          "json",
+			CustomFormat:    "",
+			Fields:          []string{"method", "path", "status"},
+			ExcludePaths:    []string{"/health"},
+			ExcludeStatus:   []int{404},
+			MinDuration:     "10ms",
+			RequestHeaders:  []string{"X-Request-ID"},
+			ResponseHeaders: []string{"X-Response-Time"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithForceSSL(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		ForceSSL: &config.ForceSSLConfig{
+			Enabled:      true,
+			Permanent:    true,
+			ExcludePaths: []string{"/health"},
+			ExcludeHosts: []string{"localhost"},
+			Port:         443,
+			HeaderKey:    "X-Forwarded-Proto",
+			HeaderValue:  "https",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithMiddlewareMetrics(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Metrics: &config.MetricsConfig{
+			Enabled:        true,
+			Namespace:      "olb",
+			Subsystem:      "http",
+			ExcludePaths:   []string{"/health"},
+			ExcludeMethods: []string{"OPTIONS"},
+			EnableLatency:  true,
+			EnableSize:     true,
+			EnableActive:   true,
+			LatencyBuckets: []float64{0.01, 0.05, 0.1, 0.5, 1.0},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithRequestID(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		RequestID: &config.RequestIDConfig{
+			Enabled:      true,
+			Header:       "X-Request-ID",
+			Generate:     true,
+			Length:       16,
+			Response:     true,
+			ExcludePaths: []string{"/health"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithBotDetection(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		BotDetection: &config.BotDetectionConfig{
+			Enabled:              true,
+			Action:               "block",
+			BlockKnownBots:       true,
+			AllowVerified:        false,
+			RequestRateThreshold: 100,
+			JA3Fingerprints:      []string{"abc123"},
+			ChallengePath:        "/challenge",
+			ExcludePaths:         []string{"/api"},
+			UserAgentRules: []config.BotUserAgentRule{
+				{Pattern: "badbot", Action: "block", Name: "bad-bot"},
+			},
+			CustomHeaders: []config.BotHeaderRule{
+				{Header: "X-Suspicious", Pattern: "yes", Action: "log", Name: "suspicious"},
+			},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithMaxBodySize(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		MaxBodySize: &config.MaxBodySizeConfig{
+			Enabled: true,
+			MaxSize: 5 * 1024 * 1024, // 5 MB
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithMaxBodySizeDefault(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		MaxBodySize: &config.MaxBodySizeConfig{
+			Enabled: true,
+			MaxSize: 0, // should default to 10 MB
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithCacheDefaults(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Cache: &config.CacheConfig{
+			Enabled: true,
+			// All other fields zero/empty — should use defaults
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithCacheCustom(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Cache: &config.CacheConfig{
+			Enabled:      true,
+			DefaultTTL:   "10m",
+			MaxSize:      100 << 20,
+			MaxEntries:   10000,
+			Methods:      []string{"GET"},
+			StatusCodes:  []int{200, 301},
+			VaryHeaders:  []string{"Accept-Encoding"},
+			ExcludePaths: []string{"/api"},
+			CachePrivate: true,
+			CacheCookies: true,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithRewrite(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Rewrite: &config.RewriteConfig{
+			Enabled: true,
+			Rules: []config.RewriteRule{
+				{Pattern: "/old/(.*)", Replacement: "/new/$1", Flag: "redirect"},
+				{Pattern: "/v1/(.*)", Replacement: "/v2/$1", Flag: "permanent"},
+			},
+			ExcludePaths: []string{"/health"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithStripPrefix(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		StripPrefix: &config.StripPrefixConfig{
+			Enabled:       true,
+			Prefix:        "/api/v1",
+			RedirectSlash: true,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithValidator(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Validator: &config.ValidatorConfig{
+			Enabled:          true,
+			ValidateRequest:  true,
+			ValidateResponse: false,
+			MaxBodySize:      1024,
+			ContentTypes:     []string{"application/json"},
+			RequiredHeaders:  map[string]string{"Content-Type": ".*"},
+			ForbiddenHeaders: []string{"X-Internal"},
+			QueryRules:       map[string]string{"page": "uint"},
+			PathPatterns:     map[string]string{"/api": ".*"},
+			ExcludePaths:     []string{"/health"},
+			RejectOnFailure:  true,
+			LogOnly:          false,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithCoalesce(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Coalesce: &config.CoalesceConfig{
+			Enabled:      true,
+			TTL:          "200ms",
+			MaxRequests:  10,
+			ExcludePaths: []string{"/health"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithCoalesceDefaults(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Coalesce: &config.CoalesceConfig{
+			Enabled: true,
+			TTL:     "", // should default to 100ms
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithJWT(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		JWT: &config.JWTConfig{
+			Enabled:      true,
+			Secret:       "test-secret-key",
+			Algorithm:    "HS256",
+			Header:       "Authorization",
+			Prefix:       "Bearer ",
+			Required:     true,
+			ExcludePaths: []string{"/health"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithJWTEdDSAFile(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		JWT: &config.JWTConfig{
+			Enabled:   true,
+			Algorithm: "EdDSA",
+			PublicKey: "/nonexistent/key.pub",
+			Header:    "Authorization",
+			Prefix:    "Bearer ",
+			Required:  false,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithJWTEdDSABase64Invalid(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		JWT: &config.JWTConfig{
+			Enabled:   true,
+			Algorithm: "EdDSA",
+			PublicKey: "!!!not-base64!!!",
+			Header:    "Authorization",
+			Prefix:    "Bearer ",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithOAuth2(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		OAuth2: &config.OAuth2Config{
+			Enabled:          true,
+			IssuerURL:        "https://auth.example.com",
+			ClientID:         "test-client",
+			ClientSecret:     "test-secret",
+			JwksURL:          "https://auth.example.com/.well-known/jwks.json",
+			Audience:         "api",
+			Scopes:           []string{"openid"},
+			Header:           "Authorization",
+			Prefix:           "Bearer ",
+			ExcludePaths:     []string{"/health"},
+			IntrospectionURL: "https://auth.example.com/introspect",
+			CacheDuration:    "5m",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithHMAC(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		HMAC: &config.HMACConfig{
+			Enabled:         true,
+			Secret:          "hmac-secret",
+			Algorithm:       "SHA256",
+			Header:          "X-Signature",
+			Prefix:          "",
+			Encoding:        "hex",
+			UseBody:         true,
+			ExcludePaths:    []string{"/health"},
+			TimestampHeader: "X-Timestamp",
+			MaxAge:          "5m",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithAPIKey(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		APIKey: &config.APIKeyConfig{
+			Enabled:      true,
+			Keys:         map[string]string{"key1": "secret1", "key2": "secret2"},
+			Header:       "X-API-Key",
+			QueryParam:   "api_key",
+			ExcludePaths: []string{"/health"},
+			Hash:         "",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithBasicAuth(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		BasicAuth: &config.BasicAuthConfig{
+			Enabled:      true,
+			Users:        map[string]string{"admin": "$2a$10$testhash"},
+			Realm:        "Restricted",
+			ExcludePaths: []string{"/health"},
+			Hash:         "bcrypt",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithCSRF(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		CSRF: &config.CSRFConfig{
+			Enabled:        true,
+			CookieName:     "_csrf",
+			HeaderName:     "X-CSRF-Token",
+			FieldName:      "_token",
+			ExcludePaths:   []string{"/api"},
+			ExcludeMethods: []string{"GET", "HEAD"},
+			CookiePath:     "/",
+			CookieDomain:   "",
+			CookieMaxAge:   3600,
+			CookieSecure:   true,
+			CookieHTTPOnly: true,
+			TokenLength:    32,
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithTimeout(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Timeout: &config.TimeoutConfig{
+			Enabled: true,
+			Timeout: "30s",
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithCSP(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		CSP: &config.CSPConfig{
+			Enabled:         true,
+			DefaultSrc:      []string{"'self'"},
+			ScriptSrc:       []string{"'self'", "'unsafe-inline'"},
+			StyleSrc:        []string{"'self'"},
+			ImgSrc:          []string{"'self'", "data:"},
+			ConnectSrc:      []string{"'self'"},
+			FontSrc:         []string{"'self'"},
+			ObjectSrc:       []string{"'none'"},
+			MediaSrc:        nil,
+			FrameSrc:        nil,
+			FrameAncestors:  []string{"'none'"},
+			FormAction:      []string{"'self'"},
+			BaseURI:         []string{"'self'"},
+			UpgradeInsecure: true,
+			BlockAllMixed:   false,
+			ReportURI:       "/csp-report",
+			ReportTo:        "",
+			NonceScript:     false,
+			NonceStyle:      false,
+			UnsafeInline:    false,
+			UnsafeEval:      false,
+			ExcludePaths:    []string{"/api"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithSecureHeaders(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		SecureHeaders: &config.SecureHeadersConfig{
+			Enabled:                       true,
+			XFrameOptions:                 "DENY",
+			XContentTypeOptions:           true,
+			XXSSProtection:                "1; mode=block",
+			ReferrerPolicy:                "strict-origin-when-cross-origin",
+			ContentSecurityPolicy:         "default-src 'self'",
+			StrictTransportPolicy:         &config.HSTSConfig{MaxAge: 31536000, IncludeSubdomains: true, Preload: false},
+			XPermittedCrossDomainPolicies: "none",
+			XDownloadOptions:              "noopen",
+			XDNSPrefetchControl:           "off",
+			PermissionsPolicy:             "geolocation=()",
+			CrossOriginEmbedderPolicy:     "require-corp",
+			CrossOriginOpenerPolicy:       "same-origin",
+			CrossOriginResourcePolicy:     "same-origin",
+			CacheControl:                  "no-store",
+			ExcludePaths:                  []string{"/health"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithTransformer(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = &config.MiddlewareConfig{
+		Transformer: &config.TransformerConfig{
+			Enabled:         true,
+			Compress:        true,
+			CompressLevel:   6,
+			MinCompressSize: 256,
+			AddHeaders:      map[string]string{"X-Transformed": "true"},
+			RemoveHeaders:   []string{"Server"},
+			RewriteBody:     map[string]string{"old": "new"},
+			ExcludePaths:    []string{"/health"},
+		},
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainNilMiddleware(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Middleware = nil
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+func TestCreateMiddlewareChainWithWAFEnforce(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.WAF = &config.WAFConfig{
+		Enabled: true,
+		Mode:    "enforce",
+	}
+
+	chain := createMiddlewareChain(cfg, createTestLogger(t), metrics.NewRegistry())
+	if chain == nil {
+		t.Error("createMiddlewareChain() returned nil")
+	}
+}
+
+// ============================================================================
+// Tests for startListeners — UDP protocol branch (66.7% coverage)
+// ============================================================================
+
+func TestStartListenersUDP(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Listeners: []*config.Listener{
+			{
+				Name:     "test-udp",
+				Address:  "127.0.0.1:0",
+				Protocol: "udp",
+				Pool:     "test-pool",
+			},
+		},
+		Pools: []*config.Pool{
+			{
+				Name:      "test-pool",
+				Algorithm: "round_robin",
+				HealthCheck: &config.HealthCheck{
+					Type:     "http",
+					Path:     "/health",
+					Interval: "10s",
+					Timeout:  "5s",
+				},
+				Backends: []*config.Backend{
+					{ID: "b1", Address: "127.0.0.1:8081", Weight: 100},
+				},
+			},
+		},
+		Admin: &config.Admin{Enabled: true, Address: "127.0.0.1:0"},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	if err := engine.initializePools(); err != nil {
+		t.Fatalf("initializePools() error = %v", err)
+	}
+
+	err = engine.startListeners()
+	if err != nil {
+		t.Fatalf("startListeners() error = %v", err)
+	}
+
+	if len(engine.udpProxies) == 0 {
+		t.Error("Expected at least one UDP proxy")
+	}
+
+	// Clean up
+	for _, p := range engine.udpProxies {
+		p.Stop()
+	}
+}
+
+func TestStartListenersMixedProtocols(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Listeners: []*config.Listener{
+			{
+				Name:     "test-http",
+				Address:  "127.0.0.1:0",
+				Protocol: "http",
+				Routes:   []*config.Route{{Path: "/", Pool: "test-pool"}},
+			},
+			{
+				Name:     "test-tcp",
+				Address:  "127.0.0.1:0",
+				Protocol: "tcp",
+				Pool:     "test-pool",
+			},
+			{
+				Name:     "test-udp",
+				Address:  "127.0.0.1:0",
+				Protocol: "udp",
+				Pool:     "test-pool",
+			},
+		},
+		Pools: []*config.Pool{
+			{
+				Name:      "test-pool",
+				Algorithm: "round_robin",
+				HealthCheck: &config.HealthCheck{
+					Type:     "http",
+					Path:     "/health",
+					Interval: "10s",
+					Timeout:  "5s",
+				},
+				Backends: []*config.Backend{
+					{ID: "b1", Address: "127.0.0.1:8081", Weight: 100},
+				},
+			},
+		},
+		Admin: &config.Admin{Enabled: true, Address: "127.0.0.1:0"},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	if err := engine.initializePools(); err != nil {
+		t.Fatalf("initializePools() error = %v", err)
+	}
+
+	err = engine.startListeners()
+	if err != nil {
+		t.Fatalf("startListeners() error = %v", err)
+	}
+
+	// Should have 2 listeners (HTTP + TCP) and 1 UDP proxy
+	if len(engine.listeners) != 2 {
+		t.Errorf("Expected 2 listeners (HTTP + TCP), got %d", len(engine.listeners))
+	}
+	if len(engine.udpProxies) != 1 {
+		t.Errorf("Expected 1 UDP proxy, got %d", len(engine.udpProxies))
+	}
+
+	// Clean up
+	for _, l := range engine.listeners {
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		l.Stop(ctx)
+		cancel()
+	}
+	for _, p := range engine.udpProxies {
+		p.Stop()
+	}
+}
+
+func TestStartListenersTCPMissingPool(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Listeners: []*config.Listener{
+			{
+				Name:     "test-tcp",
+				Address:  "127.0.0.1:0",
+				Protocol: "tcp",
+				Pool:     "nonexistent",
+			},
+		},
+		Pools:      []*config.Pool{},
+		Admin:      &config.Admin{Enabled: false},
+		WAF:        &config.WAFConfig{Enabled: false},
+		Middleware: &config.MiddlewareConfig{},
+	}
+
+	e := &Engine{
+		config:      cfg,
+		poolManager: backend.NewPoolManager(),
+		logger:      logging.New(logging.NewJSONOutput(os.Stdout)),
+	}
+
+	err := e.startListeners()
+	if err == nil {
+		t.Error("startListeners() expected error for missing TCP pool")
+	}
+}
+
+func TestStartListenersUDPMissingPool(t *testing.T) {
+	cfg := &config.Config{
+		Version: "1",
+		Listeners: []*config.Listener{
+			{
+				Name:     "test-udp",
+				Address:  "127.0.0.1:0",
+				Protocol: "udp",
+				Pool:     "nonexistent",
+			},
+		},
+		Pools:      []*config.Pool{},
+		Admin:      &config.Admin{Enabled: false},
+		WAF:        &config.WAFConfig{Enabled: false},
+		Middleware: &config.MiddlewareConfig{},
+	}
+
+	e := &Engine{
+		config:      cfg,
+		poolManager: backend.NewPoolManager(),
+		logger:      logging.New(logging.NewJSONOutput(os.Stdout)),
+	}
+
+	err := e.startListeners()
+	if err == nil {
+		t.Error("startListeners() expected error for missing UDP pool")
+	}
+}
+
+// ============================================================================
+// Tests for New — GeoDNS, Shadow, ACME, profiling paths (64% coverage)
+// ============================================================================
+
+func TestNewWithGeoDNS(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.GeoDNS = &config.GeoDNSConfig{
+		Enabled:     true,
+		DefaultPool: "default-pool",
+		Rules: []config.GeoDNSRule{
+			{
+				ID:       "us-rule",
+				Country:  "US",
+				Pool:     "us-pool",
+				Fallback: "default-pool",
+				Weight:   100,
+				Headers:  map[string]string{"X-Region": "us"},
+			},
+			{
+				ID:      "eu-rule",
+				Country: "DE",
+				Pool:    "eu-pool",
+				Weight:  50,
+			},
+		},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with GeoDNS error = %v", err)
+	}
+
+	if engine.geoDNS == nil {
+		t.Error("geoDNS should not be nil when GeoDNS is enabled")
+	}
+}
+
+func TestNewWithGeoDNSDisabled(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.GeoDNS = &config.GeoDNSConfig{
+		Enabled:     false,
+		DefaultPool: "default-pool",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with disabled GeoDNS error = %v", err)
+	}
+
+	if engine.geoDNS != nil {
+		t.Error("geoDNS should be nil when GeoDNS is disabled")
+	}
+}
+
+func TestNewWithShadow(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Shadow = &config.ShadowConfig{
+		Enabled:     true,
+		Percentage:  10.0,
+		CopyHeaders: true,
+		CopyBody:    true,
+		Timeout:     "5s",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with Shadow error = %v", err)
+	}
+
+	if engine.shadowMgr == nil {
+		t.Error("shadowMgr should not be nil when Shadow is enabled")
+	}
+}
+
+func TestNewWithShadowDefaultTimeout(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Shadow = &config.ShadowConfig{
+		Enabled:     true,
+		Percentage:  50.0,
+		CopyHeaders: false,
+		CopyBody:    false,
+		Timeout:     "", // should use 30s default
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with Shadow (default timeout) error = %v", err)
+	}
+
+	if engine.shadowMgr == nil {
+		t.Error("shadowMgr should not be nil when Shadow is enabled")
+	}
+}
+
+func TestNewWithShadowDisabled(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Shadow = &config.ShadowConfig{
+		Enabled: false,
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with disabled Shadow error = %v", err)
+	}
+
+	if engine.shadowMgr != nil {
+		t.Error("shadowMgr should be nil when Shadow is disabled")
+	}
+}
+
+func TestNewWithACME(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.TLS = &config.TLSConfig{
+		ACME: &config.ACME{
+			Enabled: true,
+			Email:   "admin@example.com",
+		},
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with ACME error = %v", err)
+	}
+
+	// acmeClient may or may not be nil depending on whether the ACME directory is reachable
+	// The important thing is that it doesn't panic
+	_ = engine.acmeClient
+}
+
+func TestNewWithProfiling(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Profiling = &config.ProfilingConfig{
+		Enabled:              true,
+		CPUProfilePath:       "",
+		MemProfilePath:       "",
+		BlockProfileRate:     0,
+		MutexProfileFraction: 0,
+		PprofAddr:            "127.0.0.1:0",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with profiling error = %v", err)
+	}
+
+	if engine.profilingCleanup == nil {
+		t.Error("profilingCleanup should not be nil when profiling is enabled")
+	}
+
+	// Clean up profiling
+	if engine.profilingCleanup != nil {
+		engine.profilingCleanup()
+	}
+}
+
+func TestNewWithProfilingDefaultAddr(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Profiling = &config.ProfilingConfig{
+		Enabled:   true,
+		PprofAddr: "", // should use default "localhost:6060"
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() with profiling (default addr) error = %v", err)
+	}
+
+	if engine.profilingCleanup == nil {
+		t.Error("profilingCleanup should not be nil")
+	}
+
+	// Clean up
+	if engine.profilingCleanup != nil {
+		engine.profilingCleanup()
+	}
+}
+
+func TestNewWithNilAdmin(t *testing.T) {
+	cfg := createTestConfig()
+	cfg.Admin = nil
+
+	_, err := New(cfg, "")
+	// Should either succeed with default admin or fail validation
+	// Either way, must not panic
+	_ = err
+}
+
+// ============================================================================
+// Tests for Start — additional branches (73.4% coverage)
+// ============================================================================
+
+func TestStartWithNilConfigPath(t *testing.T) {
+	cfg := createTestConfig()
+
+	engine, err := New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	// Start should work even with empty configPath (no config watcher)
+	if err := engine.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if !engine.IsRunning() {
+		t.Error("Engine should be running")
+	}
+
+	// configWatcher should be nil since configPath is empty
+	if engine.configWatcher != nil {
+		t.Error("configWatcher should be nil with empty configPath")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	engine.Shutdown(ctx)
+}
+
+func TestStartWithClusterConfigNoPeers(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := createTestConfig()
+	cfg.Cluster = &config.ClusterConfig{
+		Enabled:       true,
+		NodeID:        "test-node",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		DataDir:       tmpDir,
+		Peers:         []string{}, // no peers — standalone mode
+		ElectionTick:  "2s",
+		HeartbeatTick: "500ms",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := engine.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if !engine.IsRunning() {
+		t.Error("Engine should be running")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	engine.Shutdown(ctx)
+}
+
+func TestStartWithClusterConfigWithPeers(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := createTestConfig()
+	cfg.Cluster = &config.ClusterConfig{
+		Enabled:       true,
+		NodeID:        "test-node",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		DataDir:       tmpDir,
+		Peers:         []string{"127.0.0.1:9091", "127.0.0.1:9092"},
+		ElectionTick:  "2s",
+		HeartbeatTick: "500ms",
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := engine.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if !engine.IsRunning() {
+		t.Error("Engine should be running")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	engine.Shutdown(ctx)
+}
+
+// ============================================================================
+// Tests for startConfigWatcher — additional coverage (40% coverage)
+// ============================================================================
+
+func TestStartConfigWatcherWithValidFile(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+
+	engine.startConfigWatcher()
+
+	if engine.configWatcher == nil {
+		t.Fatal("configWatcher should not be nil")
+	}
+
+	// Write a change to trigger the watcher callback
+	time.Sleep(100 * time.Millisecond)
+	newContent := `
+version: "1"
+listeners:
+  - name: test-http
+    address: 127.0.0.1:0
+    protocol: http
+    routes:
+      - path: /
+        pool: test-pool
+pools:
+  - name: test-pool
+    algorithm: round_robin
+    health_check:
+      type: http
+      path: /health
+      interval: 10s
+      timeout: 5s
+    backends:
+      - id: backend-1
+        address: 127.0.0.1:8081
+        weight: 100
+admin:
+  enabled: true
+  address: 127.0.0.1:0
+`
+	if err := os.WriteFile(configPath, []byte(newContent), 0644); err != nil {
+		t.Fatalf("Failed to write updated config: %v", err)
+	}
+
+	// Give the watcher time to detect the change
+	time.Sleep(3 * time.Second)
+
+	engine.configWatcher.Stop()
+}
+
+// createTestLogger is a helper that creates a logger for tests.
+func createTestLogger(t *testing.T) *logging.Logger {
+	t.Helper()
+	return logging.New(logging.NewJSONOutput(os.Stdout))
 }
 
 // generateTestCert creates a self-signed TLS certificate for testing.

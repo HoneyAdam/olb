@@ -926,3 +926,693 @@ func TestSNIProxy_HandleConnection_WithSNI(t *testing.T) {
 func buildServerHello() []byte {
 	return []byte{0x16, 0x03, 0x01, 0x00, 0x05, 0x02, 0x00, 0x00, 0x00, 0x00}
 }
+
+// --- Additional RouteConnection coverage ---
+
+func TestSNIRouter_RouteConnection_NoRouteNoDefault(t *testing.T) {
+	router := NewSNIRouter(DefaultSNIRouterConfig())
+	// No DefaultBackend, no routes
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	clientHello := buildClientHelloWithSNI("unknown.example.com")
+	go func() {
+		clientConn.Write(clientHello)
+		clientConn.Close()
+	}()
+
+	err := router.RouteConnection(serverConn)
+	if err == nil {
+		t.Error("Expected error for SNI with no route and no default backend")
+	}
+}
+
+func TestSNIRouter_RouteConnection_WithDefaultBackend(t *testing.T) {
+	router := NewSNIRouter(&SNIRouterConfig{
+		Passthrough:      true,
+		ReadTimeout:      5 * time.Second,
+		MaxHandshakeSize: 16 * 1024,
+	})
+
+	// Start a backend listener
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		conn.Close()
+	}()
+
+	be := backend.NewBackend("default-backend", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+	router.AddRoute("example.com", be)
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	clientHello := buildClientHelloWithSNI("example.com")
+	go func() {
+		clientConn.Write(clientHello)
+		clientConn.Close()
+	}()
+
+	err = router.RouteConnection(serverConn)
+	// May succeed or fail depending on timing (backend closes), but should not panic
+	_ = err
+}
+
+func TestSNIRouter_RouteConnection_ReadError(t *testing.T) {
+	router := NewSNIRouter(DefaultSNIRouterConfig())
+
+	// Already-closed connection causes immediate read error
+	clientConn, serverConn := net.Pipe()
+	clientConn.Close()
+
+	err := router.RouteConnection(serverConn)
+	if err == nil {
+		t.Error("Expected error for read on closed connection")
+	}
+}
+
+// --- acceptLoop coverage ---
+
+func TestSNIBasedProxy_AcceptLoop_StopWhileRunning(t *testing.T) {
+	proxy := NewSNIBasedProxy(DefaultSNIRouterConfig())
+
+	err := proxy.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen error: %v", err)
+	}
+
+	err = proxy.Start()
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Stop while acceptLoop is running — should trigger the !running check
+	err = proxy.Stop()
+	if err != nil {
+		t.Errorf("Stop error: %v", err)
+	}
+
+	if proxy.running.Load() {
+		t.Error("Proxy should not be running after stop")
+	}
+}
+
+func TestSNIBasedProxy_AcceptLoop_HandlesConnections(t *testing.T) {
+	// Create a backend
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	backendDone := make(chan struct{})
+	go func() {
+		defer close(backendDone)
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		conn.Close()
+	}()
+
+	proxy := NewSNIBasedProxy(DefaultSNIRouterConfig())
+	be := backend.NewBackend("b1", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+	proxy.AddRoute("test.com", be)
+
+	err = proxy.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen error: %v", err)
+	}
+
+	err = proxy.Start()
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer proxy.Stop()
+
+	// Connect as a client with TLS ClientHello
+	conn, err := net.Dial("tcp", proxy.listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer conn.Close()
+
+	// Send a TLS ClientHello with SNI
+	clientHello := buildClientHelloWithSNI("test.com")
+	conn.Write(clientHello)
+
+	// Give the accept loop time to process
+	time.Sleep(200 * time.Millisecond)
+}
+
+// --- SNIProxy HandleConnection coverage ---
+
+func TestSNIProxy_HandleConnection_WithDefaultBackend(t *testing.T) {
+	// Start a backend echo server
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Read the peeked data that gets forwarded
+		buf := make([]byte, 4096)
+		n, err := conn.Read(buf)
+		if err != nil {
+			return
+		}
+		// Echo it back
+		conn.Write(buf[:n])
+	}()
+
+	config := &SNIRouterConfig{
+		Passthrough:      true,
+		ReadTimeout:      2 * time.Second,
+		MaxHandshakeSize: 16 * 1024,
+		DefaultBackend:   backendListener.Addr().String(),
+	}
+	proxy := NewSNIProxy(config)
+
+	client, server := net.Pipe()
+
+	clientHello := buildClientHelloWithSNI("unmatched.example.com")
+	go func() {
+		client.Write(clientHello)
+		client.Write([]byte("test-data"))
+		time.Sleep(500 * time.Millisecond)
+		client.Close()
+	}()
+
+	// HandleConnection should route to default backend
+	done := make(chan struct{})
+	go func() {
+		proxy.HandleConnection(server)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — HandleConnection completed
+	case <-time.After(5 * time.Second):
+		t.Error("HandleConnection should complete within timeout")
+	}
+}
+
+func TestSNIProxy_HandleConnection_ReadError(t *testing.T) {
+	config := DefaultSNIRouterConfig()
+	proxy := NewSNIProxy(config)
+
+	// Use a closed pipe — ExtractSNI will fail immediately
+	client, server := net.Pipe()
+	client.Close()
+
+	// Should return gracefully without panic
+	proxy.HandleConnection(server)
+}
+
+// --- parseClientHello additional coverage ---
+
+func TestParseClientHelloSNI_InvalidVersion(t *testing.T) {
+	// Build a ClientHello with invalid version in the ClientHello body
+	buf := new(bytes.Buffer)
+
+	// TLS record header
+	buf.WriteByte(0x16)
+	binary.Write(buf, binary.BigEndian, uint16(0x0301)) // TLS 1.0
+
+	// Handshake header placeholder
+	handshakeStart := buf.Len()
+	buf.WriteByte(0x01)                 // ClientHello type
+	buf.Write([]byte{0x00, 0x00, 0x00}) // length placeholder
+
+	// Invalid ClientHello version (0x0200 = SSL 2.0, out of range)
+	binary.Write(buf, binary.BigEndian, uint16(0x0200))
+	buf.Write(make([]byte, 32)) // Random
+	buf.WriteByte(0x00)         // Session ID length
+	binary.Write(buf, binary.BigEndian, uint16(2))
+	binary.Write(buf, binary.BigEndian, uint16(0x002f))
+	buf.WriteByte(0x01) // Compression methods length
+	buf.WriteByte(0x00) // No compression
+
+	// Update lengths
+	handshakeLen := buf.Len() - handshakeStart - 4
+	data := buf.Bytes()
+	data[handshakeStart+1] = byte(handshakeLen >> 16)
+	data[handshakeStart+2] = byte(handshakeLen >> 8)
+	data[handshakeStart+3] = byte(handshakeLen)
+
+	// Update record length
+	record := make([]byte, 5+len(data[5:]))
+	copy(record, data[:5])
+	binary.BigEndian.PutUint16(record[3:5], uint16(len(data[5:])))
+	copy(record[5:], data[5:])
+
+	_, err := ParseClientHelloSNI(record)
+	if err == nil {
+		t.Error("Expected error for invalid ClientHello version")
+	}
+}
+
+func TestParseClientHelloSNI_DataTooShort(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{"empty", []byte{}},
+		{"1 byte", []byte{0x16}},
+		{"2 bytes", []byte{0x16, 0x03}},
+		{"3 bytes", []byte{0x16, 0x03, 0x01}},
+		{"4 bytes", []byte{0x16, 0x03, 0x01, 0x00}},
+		{"5 bytes wrong type", []byte{0x17, 0x03, 0x01, 0x00, 0x05}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ParseClientHelloSNI(tt.data)
+			if err == nil {
+				t.Error("Expected error for short/invalid data")
+			}
+		})
+	}
+}
+
+func TestParseClientHelloSNI_IncompleteRecord(t *testing.T) {
+	// Build a header that claims more data than provided
+	buf := new(bytes.Buffer)
+	buf.WriteByte(0x16)                                 // Handshake
+	binary.Write(buf, binary.BigEndian, uint16(0x0301)) // TLS 1.0
+	binary.Write(buf, binary.BigEndian, uint16(0xFF))   // Claim 255 bytes
+	buf.WriteByte(0x01)                                 // ClientHello
+
+	// Only provide a few bytes — not enough
+	buf.Write(make([]byte, 10))
+
+	_, err := ParseClientHelloSNI(buf.Bytes())
+	if err == nil {
+		t.Error("Expected error for incomplete record")
+	}
+}
+
+func TestParseClientHelloSNI_VersionOutOfRange(t *testing.T) {
+	// TLS record with version outside valid range
+	buf := new(bytes.Buffer)
+	buf.WriteByte(0x16)
+	binary.Write(buf, binary.BigEndian, uint16(0x0500)) // Invalid TLS version
+	binary.Write(buf, binary.BigEndian, uint16(0x05))
+	buf.Write([]byte{0x01, 0x00, 0x00, 0x00, 0x00})
+
+	_, err := ParseClientHelloSNI(buf.Bytes())
+	if err == nil {
+		t.Error("Expected error for invalid TLS version in record header")
+	}
+}
+
+func TestParseClientHelloSNI_IncompleteHandshake(t *testing.T) {
+	// Valid record header but handshake is too short
+	buf := new(bytes.Buffer)
+	buf.WriteByte(0x16)
+	binary.Write(buf, binary.BigEndian, uint16(0x0301)) // TLS 1.0
+	binary.Write(buf, binary.BigEndian, uint16(5))
+	buf.WriteByte(0x01)                 // ClientHello
+	buf.Write([]byte{0x00, 0x00, 0x01}) // handshake length = 1
+	buf.WriteByte(0x03)                 // Only 1 byte — not enough for version
+
+	_, err := ParseClientHelloSNI(buf.Bytes())
+	if err == nil {
+		t.Error("Expected error for incomplete handshake data")
+	}
+}
+
+func TestParseClientHelloSNI_NoExtensions(t *testing.T) {
+	// ClientHello without extensions section
+	buf := new(bytes.Buffer)
+
+	handshakeStart := buf.Len()
+	buf.WriteByte(0x01)
+	buf.Write([]byte{0x00, 0x00, 0x00})
+
+	binary.Write(buf, binary.BigEndian, uint16(0x0303))
+	buf.Write(make([]byte, 32)) // Random
+	buf.WriteByte(0x00)         // Session ID length
+	binary.Write(buf, binary.BigEndian, uint16(2))
+	binary.Write(buf, binary.BigEndian, uint16(0x002f))
+	buf.WriteByte(0x01) // Compression length
+	buf.WriteByte(0x00) // No compression
+
+	// No extensions — the data ends here after compression
+
+	handshakeLen := buf.Len() - handshakeStart - 4
+	data := buf.Bytes()
+	data[handshakeStart+1] = byte(handshakeLen >> 16)
+	data[handshakeStart+2] = byte(handshakeLen >> 8)
+	data[handshakeStart+3] = byte(handshakeLen)
+
+	record := make([]byte, 5+len(data[handshakeStart:]))
+	record[0] = 0x16
+	binary.BigEndian.PutUint16(record[1:3], 0x0301)
+	binary.BigEndian.PutUint16(record[3:5], uint16(len(data[handshakeStart:])))
+	copy(record[5:], data[handshakeStart:])
+
+	_, err := ParseClientHelloSNI(record)
+	if err == nil {
+		t.Error("Expected error for ClientHello without extensions")
+	}
+}
+
+// --- parseSNIList additional coverage ---
+
+func TestParseSNIList_TooShort(t *testing.T) {
+	_, err := parseSNIList([]byte{0x00})
+	if err == nil {
+		t.Error("Expected error for too-short SNI list data")
+	}
+}
+
+func TestParseSNIList_Empty(t *testing.T) {
+	_, err := parseSNIList([]byte{})
+	if err == nil {
+		t.Error("Expected error for empty SNI list data")
+	}
+}
+
+func TestParseSNIList_ListLengthExceedsData(t *testing.T) {
+	// Claim list length of 100 but only provide 2 bytes
+	data := []byte{0x00, 0x64} // list length = 100
+	_, err := parseSNIList(data)
+	if err == nil {
+		t.Error("Expected error when SNI list length exceeds data")
+	}
+}
+
+func TestParseSNIList_EntryLengthExceedsData(t *testing.T) {
+	buf := new(bytes.Buffer)
+	binary.Write(buf, binary.BigEndian, uint16(5))   // list length
+	buf.WriteByte(0x00)                              // host name type
+	binary.Write(buf, binary.BigEndian, uint16(100)) // entry claims 100 bytes
+	buf.Write([]byte("hi"))                          // but only 2
+
+	_, err := parseSNIList(buf.Bytes())
+	if err == nil {
+		t.Error("Expected error when SNI entry length exceeds data")
+	}
+}
+
+func TestParseSNIList_NonHostNameType(t *testing.T) {
+	buf := new(bytes.Buffer)
+
+	// SNI list length
+	sniData := []byte{0x05, 'h', 'e', 'l', 'l', 'o'}
+	binary.Write(buf, binary.BigEndian, uint16(len(sniData)+3))
+
+	// Entry with non-hostname type (0x01)
+	buf.WriteByte(0x01) // Not hostname type
+	binary.Write(buf, binary.BigEndian, uint16(5))
+	buf.Write([]byte("hello"))
+
+	_, err := parseSNIList(buf.Bytes())
+	if err == nil {
+		t.Error("Expected error when no host name SNI type found")
+	}
+}
+
+func TestParseSNIList_ValidHostName(t *testing.T) {
+	buf := new(bytes.Buffer)
+
+	sni := "test.example.com"
+	sniData := []byte(sni)
+	binary.Write(buf, binary.BigEndian, uint16(len(sniData)+3))
+
+	buf.WriteByte(0x00) // hostname type
+	binary.Write(buf, binary.BigEndian, uint16(len(sniData)))
+	buf.Write(sniData)
+
+	result, err := parseSNIList(buf.Bytes())
+	if err != nil {
+		t.Fatalf("parseSNIList error: %v", err)
+	}
+	if result != sni {
+		t.Errorf("SNI = %q, want %q", result, sni)
+	}
+}
+
+// --- proxyToBackend coverage ---
+
+func TestSNIRouter_ProxyToBackend_Success(t *testing.T) {
+	// Create a backend echo server
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			conn.Write(buf[:n])
+		}
+	}()
+
+	router := NewSNIRouter(DefaultSNIRouterConfig())
+	be := backend.NewBackend("backend-1", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	clientHello := buildClientHelloWithSNI("example.com")
+
+	go func() {
+		clientConn.Write(clientHello)
+		clientConn.Write([]byte("test-data"))
+		time.Sleep(300 * time.Millisecond)
+		clientConn.Close()
+	}()
+
+	// peekClientHello to get a peekedConn, then proxyToBackend
+	sni, peeked, err := router.peekClientHello(serverConn)
+	if err != nil {
+		t.Fatalf("peekClientHello error: %v", err)
+	}
+	if sni != "example.com" {
+		t.Errorf("SNI = %q, want example.com", sni)
+	}
+
+	err = router.proxyToBackend(peeked, be)
+	// Should complete without panic; may return nil or an error depending on timing
+	_ = err
+}
+
+func TestSNIRouter_ProxyToBackend_ConnectionRefused(t *testing.T) {
+	router := NewSNIRouter(DefaultSNIRouterConfig())
+	be := backend.NewBackend("backend-1", "127.0.0.1:1") // Unreachable
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	go func() {
+		clientConn.Write([]byte("data"))
+		clientConn.Close()
+	}()
+
+	err := router.proxyToBackend(serverConn, be)
+	if err == nil {
+		t.Error("Expected error when backend is unreachable")
+	}
+
+	if be.TotalErrors() == 0 {
+		t.Error("Expected error to be recorded on backend")
+	}
+}
+
+func TestSNIRouter_ProxyToBackend_MaxConns(t *testing.T) {
+	router := NewSNIRouter(DefaultSNIRouterConfig())
+	be := backend.NewBackend("backend-1", "127.0.0.1:0")
+	be.SetState(backend.StateUp)
+	be.MaxConns = 1
+	// Saturate the conn slot
+	be.AcquireConn()
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+
+	err := router.proxyToBackend(serverConn, be)
+	if err == nil {
+		t.Error("Expected error when backend at max connections")
+	}
+
+	be.ReleaseConn()
+}
+
+// --- BufferedConn.Read additional coverage ---
+
+func TestBufferedConn_Read_UnderlyingConn(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	// Write data on the client side
+	go func() {
+		client.Write([]byte("underlying data"))
+		client.Close()
+	}()
+
+	// Create BufferedConn with no initial buffer
+	bufConn := NewBufferedConn(server, nil)
+
+	buf := make([]byte, 100)
+	n, err := bufConn.Read(buf)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if string(buf[:n]) != "underlying data" {
+		t.Errorf("Read = %q, want underlying data", string(buf[:n]))
+	}
+}
+
+func TestBufferedConn_Read_BufferThenConn(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		client.Write([]byte("from-conn"))
+		client.Close()
+	}()
+
+	bufConn := NewBufferedConn(server, []byte("from-buf"))
+
+	// First read should come from buffer
+	buf1 := make([]byte, 9)
+	n1, err := bufConn.Read(buf1)
+	if err != nil {
+		t.Fatalf("First read error: %v", err)
+	}
+	if string(buf1[:n1]) != "from-buf" {
+		t.Errorf("First read = %q, want from-buf", string(buf1[:n1]))
+	}
+
+	// Second read should come from underlying connection
+	buf2 := make([]byte, 100)
+	n2, err := bufConn.Read(buf2)
+	if err != nil {
+		t.Fatalf("Second read error: %v", err)
+	}
+	if string(buf2[:n2]) != "from-conn" {
+		t.Errorf("Second read = %q, want from-conn", string(buf2[:n2]))
+	}
+}
+
+func TestBufferedConn_Read_EmptyBuffer(t *testing.T) {
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	go func() {
+		client.Write([]byte("hello"))
+		client.Close()
+	}()
+
+	bufConn := NewBufferedConn(server, []byte{})
+
+	buf := make([]byte, 100)
+	n, err := bufConn.Read(buf)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if string(buf[:n]) != "hello" {
+		t.Errorf("Read = %q, want hello", string(buf[:n]))
+	}
+}
+
+// --- SNIMatcher wildcard edge case ---
+
+func TestSNIMatcher_WildcardNotExactMatch(t *testing.T) {
+	matcher := NewSNIMatcher()
+	matcher.Add("*.example.com")
+
+	// Wildcard pattern "example.com" itself should not match
+	// The suffix is ".example.com", and sni == wildcard check prevents exact base match
+	if matcher.Match("example.com") {
+		t.Error("example.com should not match *.example.com")
+	}
+}
+
+// --- SNIProxy_HandleConnection_WithMatchingRoute ---
+
+func TestSNIProxy_HandleConnection_WithMatchingRoute(t *testing.T) {
+	// Create a backend listener that echoes data
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			conn.Write(buf[:n])
+		}
+	}()
+
+	config := DefaultSNIRouterConfig()
+	proxy := NewSNIProxy(config)
+	proxy.AddRoute("test.com", backendListener.Addr().String())
+
+	client, server := net.Pipe()
+
+	clientHello := buildClientHelloWithSNI("test.com")
+	go func() {
+		client.Write(clientHello)
+		client.Write([]byte("payload"))
+		time.Sleep(500 * time.Millisecond)
+		client.Close()
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		proxy.HandleConnection(server)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Completed successfully
+	case <-time.After(5 * time.Second):
+		t.Error("HandleConnection should complete")
+	}
+}

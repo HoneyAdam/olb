@@ -902,3 +902,207 @@ func TestCopyWithBuffer(t *testing.T) {
 
 	// Test passed if we got here without panic
 }
+
+// --- HandleConnection additional coverage ---
+
+func TestTCPProxy_HandleConnection_WithBackend(t *testing.T) {
+	// Create a real backend listener (echo server)
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	// Accept and echo
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 1024)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			conn.Write(buf[:n])
+		}
+	}()
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	config := &TCPProxyConfig{
+		DialTimeout:        1 * time.Second,
+		IdleTimeout:        500 * time.Millisecond,
+		BufferSize:         1024,
+		MaxConnections:     0,
+		EnableTCPKeepalive: false,
+	}
+	proxy := NewTCPProxy(pool, balancer, config)
+
+	be := backend.NewBackend("backend-1", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	// Create a listener so HandleConnection is invoked by a real connection
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer listener.Close()
+
+	// Accept and hand off to proxy
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		proxy.HandleConnection(conn)
+	}()
+
+	// Connect as a client
+	client, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+	defer client.Close()
+
+	// Send data and verify echo
+	client.SetWriteDeadline(time.Now().Add(time.Second))
+	client.Write([]byte("hello"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 100)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if string(buf[:n]) != "hello" {
+		t.Errorf("Echo = %q, want hello", string(buf[:n]))
+	}
+}
+
+func TestTCPProxy_HandleConnection_BalancerReturnsNil(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	// Use a balancer that always returns nil
+	balancer := &nilBalancer{}
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	be := backend.NewBackend("backend-1", "127.0.0.1:0")
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	client, server := net.Pipe()
+	defer client.Close()
+
+	go proxy.HandleConnection(server)
+
+	// Should close quickly since balancer returns nil
+	client.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	buf := make([]byte, 1)
+	_, err := client.Read(buf)
+	if err == nil {
+		t.Error("Expected connection close when balancer returns nil")
+	}
+}
+
+func TestTCPProxy_HandleConnection_BackendDialFails(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	config := &TCPProxyConfig{
+		DialTimeout: 200 * time.Millisecond,
+	}
+	proxy := NewTCPProxy(pool, balancer, config)
+
+	// Backend with unreachable address
+	be := backend.NewBackend("backend-1", "127.0.0.1:1")
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	client, server := net.Pipe()
+	defer client.Close()
+
+	go proxy.HandleConnection(server)
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 1)
+	_, err := client.Read(buf)
+	if err == nil {
+		t.Error("Expected connection close when backend dial fails")
+	}
+
+	// Verify error was recorded
+	if be.TotalErrors() == 0 {
+		t.Error("Expected error to be recorded on backend")
+	}
+}
+
+func TestTCPProxy_HandleConnection_BackendConnRefused(t *testing.T) {
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	be := backend.NewBackend("backend-1", "127.0.0.1:1")
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	client, server := net.Pipe()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		proxy.HandleConnection(server)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — HandleConnection returned
+	case <-time.After(3 * time.Second):
+		t.Error("HandleConnection should return when backend dial fails")
+	}
+}
+
+func TestTCPProxy_HandleConnection_MaxConnectionsReached(t *testing.T) {
+	config := &TCPProxyConfig{
+		DialTimeout:    1 * time.Second,
+		IdleTimeout:    1 * time.Second,
+		BufferSize:     1024,
+		MaxConnections: 1,
+	}
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, config)
+
+	be := backend.NewBackend("backend-1", "127.0.0.1:0")
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	// Saturate the connection counter
+	proxy.activeConns.Store(1)
+
+	client, server := net.Pipe()
+	defer client.Close()
+
+	done := make(chan struct{})
+	go func() {
+		proxy.HandleConnection(server)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Expected — HandleConnection should exit immediately
+	case <-time.After(2 * time.Second):
+		t.Error("HandleConnection should return immediately when max connections reached")
+	}
+}
+
+// nilBalancer always returns nil to test the nil backend path.
+type nilBalancer struct{}
+
+func (b *nilBalancer) Next(backends []*backend.Backend) *backend.Backend {
+	return nil
+}

@@ -419,10 +419,10 @@ func TestShadowTarget(t *testing.T) {
 
 func TestShadowConfig(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     ShadowConfig
+		name        string
+		config      ShadowConfig
 		wantEnabled bool
-		wantPct    float64
+		wantPct     float64
 	}{
 		{
 			name: "full config",

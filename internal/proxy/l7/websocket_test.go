@@ -739,4 +739,3 @@ func TestWebSocketProxy_NewWebSocketProxy(t *testing.T) {
 		t.Error("wsHandler not initialized")
 	}
 }
-

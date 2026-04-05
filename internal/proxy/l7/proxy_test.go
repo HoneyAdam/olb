@@ -2,6 +2,7 @@ package l7
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2075,4 +2076,402 @@ func TestSelectBackend(t *testing.T) {
 			t.Errorf("selectBackend().ID = %q, want multi-b1 or multi-b2", result.ID)
 		}
 	})
+}
+
+// ============================================================================
+// Tests for HandleGRPCWeb success path
+// ============================================================================
+
+func TestGRPCWebHandler_Enabled_DelegatesToGRPC(t *testing.T) {
+	// Create a mock gRPC backend server
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Grpc-Status", "0")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("grpc-web response body"))
+	}))
+	defer backendServer.Close()
+
+	config := &GRPCConfig{
+		EnableGRPC:    true,
+		EnableGRPCWeb: true,
+		Timeout:       5 * time.Second,
+	}
+	grpcHandler := NewGRPCHandler(config)
+	webHandler := NewGRPCWebHandler(grpcHandler)
+
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("grpc-web-backend-1", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("POST", "/my.service/MyMethod", bytes.NewReader([]byte("grpc-web request")))
+	req.Header.Set("Content-Type", "application/grpc-web")
+	req.Host = "example.com"
+
+	rec := httptest.NewRecorder()
+	err := webHandler.HandleGRPCWeb(rec, req, be)
+	if err != nil {
+		t.Fatalf("HandleGRPCWeb() error = %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, want %d", rec.Code, http.StatusOK)
+	}
+
+	body := rec.Body.String()
+	if body != "grpc-web response body" {
+		t.Errorf("Body = %q, want %q", body, "grpc-web response body")
+	}
+}
+
+// ============================================================================
+// Tests for createTransport with connection pool path
+// ============================================================================
+
+func TestCreateTransport_WithConnPoolManager(t *testing.T) {
+	connPoolManager := conn.NewPoolManager(nil)
+	config := &Config{
+		PoolManager:     backend.NewPoolManager(),
+		ConnPoolManager: connPoolManager,
+		Router:          router.NewRouter(),
+		MiddlewareChain: middleware.NewChain(),
+		HealthChecker:   health.NewChecker(),
+		DialTimeout:     1 * time.Second,
+		ProxyTimeout:    5 * time.Second,
+		MaxRetries:      3,
+	}
+	proxy := NewHTTPProxy(config)
+
+	transport := proxy.createTransport()
+	if transport == nil {
+		t.Fatal("expected transport to be non-nil")
+	}
+
+	// Test the DialContext function with backendIDKey in context
+	// This exercises the connPoolManager.GetPool path
+	ctx := context.WithValue(context.Background(), backendIDKey, "test-backend-id")
+	_, err := transport.DialContext(ctx, "tcp", "127.0.0.1:1")
+	// The connection should fail (no server on port 1), but the pool path is exercised
+	if err == nil {
+		t.Error("expected error dialing invalid address")
+	}
+}
+
+func TestCreateTransport_WithoutConnPoolManager(t *testing.T) {
+	config := &Config{
+		PoolManager:     backend.NewPoolManager(),
+		ConnPoolManager: nil, // No connection pool manager
+		Router:          router.NewRouter(),
+		MiddlewareChain: middleware.NewChain(),
+		HealthChecker:   health.NewChecker(),
+		DialTimeout:     1 * time.Second,
+		ProxyTimeout:    5 * time.Second,
+		MaxRetries:      3,
+	}
+	proxy := NewHTTPProxy(config)
+
+	transport := proxy.createTransport()
+	if transport == nil {
+		t.Fatal("expected transport to be non-nil")
+	}
+
+	// Test direct dial fallback (no backendIDKey in context, no connPoolManager)
+	ctx := context.Background()
+	_, err := transport.DialContext(ctx, "tcp", "127.0.0.1:1")
+	if err == nil {
+		t.Error("expected error dialing invalid address")
+	}
+}
+
+// ============================================================================
+// Tests for NewHTTPProxy with partial/zero-value configs
+// ============================================================================
+
+func TestNewHTTPProxy_WithZeroValues(t *testing.T) {
+	// Test that zero-duration timeouts get defaulted
+	config := &Config{
+		Router:          router.NewRouter(),
+		PoolManager:     backend.NewPoolManager(),
+		ConnPoolManager: conn.NewPoolManager(nil),
+		HealthChecker:   health.NewChecker(),
+		MiddlewareChain: middleware.NewChain(),
+		ProxyTimeout:    0, // should default to 60s
+		DialTimeout:     0, // should default to 10s
+		MaxRetries:      0, // should default to 3
+	}
+	proxy := NewHTTPProxy(config)
+	if proxy == nil {
+		t.Fatal("expected proxy to not be nil")
+	}
+	if proxy.proxyTimeout != 60*time.Second {
+		t.Errorf("expected default proxy timeout 60s, got %v", proxy.proxyTimeout)
+	}
+	if proxy.dialTimeout != 10*time.Second {
+		t.Errorf("expected default dial timeout 10s, got %v", proxy.dialTimeout)
+	}
+	if proxy.maxRetries != 3 {
+		t.Errorf("expected default max retries 3, got %d", proxy.maxRetries)
+	}
+	if proxy.client == nil {
+		t.Error("expected client to be initialized")
+	}
+	if proxy.client.Timeout != 60*time.Second {
+		t.Errorf("expected client timeout 60s, got %v", proxy.client.Timeout)
+	}
+}
+
+func TestNewHTTPProxy_WithNilSubComponents(t *testing.T) {
+	// Test with nil sub-components (partial config)
+	config := &Config{
+		Router:          nil,
+		PoolManager:     nil,
+		MiddlewareChain: nil,
+		ProxyTimeout:    30 * time.Second,
+		DialTimeout:     5 * time.Second,
+		MaxRetries:      2,
+	}
+	proxy := NewHTTPProxy(config)
+	if proxy == nil {
+		t.Fatal("expected proxy to not be nil")
+	}
+	if proxy.router != nil {
+		t.Error("expected router to be nil")
+	}
+	if proxy.poolManager != nil {
+		t.Error("expected poolManager to be nil")
+	}
+	if proxy.middlewareChain != nil {
+		t.Error("expected middlewareChain to be nil")
+	}
+	if proxy.wsHandler == nil {
+		t.Error("expected wsHandler to be initialized")
+	}
+	if proxy.grpcHandler == nil {
+		t.Error("expected grpcHandler to be initialized")
+	}
+	if proxy.sseHandler == nil {
+		t.Error("expected sseHandler to be initialized")
+	}
+	if proxy.errorHandler == nil {
+		t.Error("expected errorHandler to be set to default")
+	}
+}
+
+// ============================================================================
+// Tests for proxyHandler protocol-specific paths (gRPC, SSE)
+// ============================================================================
+
+func TestProxyHandler_GRPCRequestPath(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create a mock gRPC backend server
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/grpc")
+		w.Header().Set("Grpc-Status", "0")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("grpc response"))
+	}))
+	defer backendServer.Close()
+
+	backendAddr := backendServer.Listener.Addr().String()
+
+	pool := backend.NewPool("grpc-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("grpc-backend-1", backendAddr)
+	b.SetState(backend.StateUp)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "grpc-route",
+		Path:        "/grpc",
+		BackendPool: "grpc-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// Make a gRPC request
+	req := httptest.NewRequest("POST", "/grpc/my.Service/Method", bytes.NewReader([]byte("grpc request")))
+	req.Header.Set("Content-Type", "application/grpc")
+	rr := httptest.NewRecorder()
+
+	proxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+}
+
+func TestProxyHandler_SSERequestPath(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create a mock SSE backend server
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: hello\n\n"))
+	}))
+	defer backendServer.Close()
+
+	backendAddr := backendServer.Listener.Addr().String()
+
+	pool := backend.NewPool("sse-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("sse-backend-1", backendAddr)
+	b.SetState(backend.StateUp)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "sse-route",
+		Path:        "/events",
+		BackendPool: "sse-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// Make an SSE request
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	proxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+}
+
+func TestProxyHandler_GRPCRequest_NoBackends(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create pool with no healthy backends
+	pool := backend.NewPool("grpc-nobackend-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("grpc-backend-down", "127.0.0.1:1")
+	b.SetState(backend.StateDown)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "grpc-route-nobackend",
+		Path:        "/grpc",
+		BackendPool: "grpc-nobackend-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// Make a gRPC request
+	req := httptest.NewRequest("POST", "/grpc/my.Service/Method", nil)
+	req.Header.Set("Content-Type", "application/grpc")
+	rr := httptest.NewRecorder()
+
+	proxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rr.Code)
+	}
+}
+
+func TestProxyHandler_SSERequest_NoBackends(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create pool with no healthy backends
+	pool := backend.NewPool("sse-nobackend-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("sse-backend-down", "127.0.0.1:1")
+	b.SetState(backend.StateDown)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "sse-route-nobackend",
+		Path:        "/events",
+		BackendPool: "sse-nobackend-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// Make an SSE request
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rr := httptest.NewRecorder()
+
+	proxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status %d, got %d", http.StatusServiceUnavailable, rr.Code)
+	}
+}
+
+// ============================================================================
+// Tests for proxyHandler retry exhaustion with all backends attempted
+// ============================================================================
+
+func TestProxyHandler_AllBackendsAttempted(t *testing.T) {
+	poolManager := backend.NewPoolManager()
+	routerInstance := router.NewRouter()
+	middlewareChain := middleware.NewChain()
+
+	config := &Config{
+		Router:          routerInstance,
+		PoolManager:     poolManager,
+		MiddlewareChain: middlewareChain,
+		ProxyTimeout:    5 * time.Second,
+		DialTimeout:     1 * time.Second,
+		MaxRetries:      5,
+	}
+	proxy := NewHTTPProxy(config)
+
+	pool := backend.NewPool("retry-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+
+	// Add only one backend that is unreachable
+	b := backend.NewBackend("retry-backend-1", "127.0.0.1:1")
+	b.SetState(backend.StateUp)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "retry-route",
+		Path:        "/retry",
+		BackendPool: "retry-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	req := httptest.NewRequest("GET", "/retry", nil)
+	rr := httptest.NewRecorder()
+
+	proxy.ServeHTTP(rr, req)
+
+	// After all retries, should get an error
+	if rr.Code != http.StatusBadGateway && rr.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected status %d or %d, got %d", http.StatusBadGateway, http.StatusServiceUnavailable, rr.Code)
+	}
 }

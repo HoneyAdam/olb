@@ -1016,6 +1016,202 @@ func buildPROXYProtocolV2WithTLVs() []byte {
 	return buf.Bytes()
 }
 
+// --- isTrustedSource tests ---
+
+func TestIsTrustedSource_NoTrustedNets(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	// No TrustedNetworks configured — all sources should be trusted
+	config := &PROXYProtocolConfig{}
+	listener := NewPROXYListener(innerListener, config)
+
+	addr := &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 12345}
+	if !listener.isTrustedSource(addr) {
+		t.Error("Expected trusted when no TrustedNetworks configured")
+	}
+}
+
+func TestIsTrustedSource_TrustedIP(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"10.0.0.0/8", "192.168.0.0/16"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	addr := &net.TCPAddr{IP: net.ParseIP("10.1.2.3"), Port: 12345}
+	if !listener.isTrustedSource(addr) {
+		t.Error("Expected trusted for IP in 10.0.0.0/8")
+	}
+}
+
+func TestIsTrustedSource_UntrustedIP(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"10.0.0.0/8"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	addr := &net.TCPAddr{IP: net.ParseIP("172.16.0.1"), Port: 12345}
+	if listener.isTrustedSource(addr) {
+		t.Error("Expected untrusted for IP outside 10.0.0.0/8")
+	}
+}
+
+func TestIsTrustedSource_InvalidAddr(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"10.0.0.0/8"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	// Address without host:port format
+	addr := &net.UnixAddr{Name: "/tmp/test.sock", Net: "unix"}
+	if listener.isTrustedSource(addr) {
+		t.Error("Expected untrusted for non-IP address")
+	}
+}
+
+func TestIsTrustedSource_UnparsableIP(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"10.0.0.0/8"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	// Custom address with an invalid IP string
+	addr := &fakeAddr{network: "tcp", str: "not-an-ip:1234"}
+	if listener.isTrustedSource(addr) {
+		t.Error("Expected untrusted for invalid IP")
+	}
+}
+
+func TestIsTrustedSource_AllInvalidCIDRs(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"not-a-cidr", "also-invalid"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	// All CIDRs are invalid, so trustedReady should be false
+	addr := &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 12345}
+	if !listener.isTrustedSource(addr) {
+		t.Error("Expected trusted when no valid CIDRs parsed (trustedReady=false)")
+	}
+}
+
+func TestIsTrustedSource_IPv6(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"2001:db8::/32"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	addr := &net.TCPAddr{IP: net.ParseIP("2001:db8::1"), Port: 12345}
+	if !listener.isTrustedSource(addr) {
+		t.Error("Expected trusted for IPv6 in 2001:db8::/32")
+	}
+}
+
+func TestIsTrustedSource_IPv6Untrusted(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	config := &PROXYProtocolConfig{
+		TrustedNetworks: []string{"2001:db8::/32"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	addr := &net.TCPAddr{IP: net.ParseIP("fe80::1"), Port: 12345}
+	if listener.isTrustedSource(addr) {
+		t.Error("Expected untrusted for IPv6 outside 2001:db8::/32")
+	}
+}
+
+func TestPROXYListener_Accept_UntrustedSource(t *testing.T) {
+	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer innerListener.Close()
+
+	// Configure trusted networks that don't include 127.0.0.1
+	config := &PROXYProtocolConfig{
+		AcceptV1:        true,
+		AcceptV2:        true,
+		TrustedNetworks: []string{"10.0.0.0/8"},
+	}
+	listener := NewPROXYListener(innerListener, config)
+
+	// Connect from 127.0.0.1 (untrusted) and send PROXY header
+	go func() {
+		conn, err := net.Dial("tcp", innerListener.Addr().String())
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Send a PROXY v1 header — should be ignored because source is untrusted
+		conn.Write([]byte("PROXY TCP4 1.2.3.4 5.6.7.8 12345 443\r\nGET / HTTP/1.1\r\n\r\n"))
+	}()
+
+	conn, err := listener.Accept()
+	if err != nil {
+		t.Fatalf("Accept error: %v", err)
+	}
+	defer conn.Close()
+
+	// Connection should NOT be a PROXYConn since source is untrusted
+	_, isPROXY := conn.(*PROXYConn)
+	if isPROXY {
+		t.Error("Connection should NOT be PROXYConn for untrusted source")
+	}
+}
+
+// fakeAddr is a test helper that implements net.Addr with a custom string.
+type fakeAddr struct {
+	network string
+	str     string
+}
+
+func (a *fakeAddr) Network() string { return a.network }
+func (a *fakeAddr) String() string  { return a.str }
+
 // Test to ensure PROXY listener respects read timeout
 func TestPROXYListener_ReadTimeout(t *testing.T) {
 	innerListener, err := net.Listen("tcp", "127.0.0.1:0")
