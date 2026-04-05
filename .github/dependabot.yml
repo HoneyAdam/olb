@@ -12,6 +12,19 @@ updates:
       prefix: "deps"
       include: "scope"
 
+  - package-ecosystem: "npm"
+    directory: "/internal/webui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "frontend"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
