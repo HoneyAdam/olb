@@ -110,10 +110,11 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, filepath str
 		w.Header().Set("Content-Type", contentType)
 	}
 
-	// Set caching headers for static assets (Vite hashed assets)
-	if strings.HasPrefix(filepath, "/assets/") {
+	// Set caching headers for static assets
+	ext := strings.ToLower(path.Ext(filepath))
+	if strings.HasPrefix(filepath, "/assets/") || ext == ".css" || ext == ".js" {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-	} else if strings.HasSuffix(filepath, ".html") {
+	} else if ext == ".html" {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 

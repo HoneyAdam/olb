@@ -125,7 +125,7 @@ func TestHandlerServeHTTP(t *testing.T) {
 // TestHandlerServeHTTPWithStaticPrefix tests paths with /static prefix.
 func TestHandlerServeHTTPWithStaticPrefix(t *testing.T) {
 	testFS := fstest.MapFS{
-		"css/design.css": &fstest.MapFile{
+		"static/css/design.css": &fstest.MapFile{
 			Data:    []byte("/* design system */"),
 			Mode:    0644,
 			ModTime: testModTime,
