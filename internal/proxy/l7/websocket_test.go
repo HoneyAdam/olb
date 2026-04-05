@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -14,6 +15,8 @@ import (
 	"time"
 
 	"github.com/openloadbalancer/olb/internal/backend"
+	"github.com/openloadbalancer/olb/internal/balancer"
+	"github.com/openloadbalancer/olb/internal/router"
 )
 
 // mockHijacker is a ResponseWriter that supports hijacking for testing.
@@ -590,3 +593,150 @@ func TestDialBackend_WithQueryString(t *testing.T) {
 		conn.Close()
 	}
 }
+
+// ============================================================================
+// WebSocketProxy Tests
+// ============================================================================
+
+func TestWebSocketProxy_ServeHTTP_NonWebSocket(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create test backend
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("regular http"))
+	}))
+	defer backendServer.Close()
+
+	backendAddr := backendServer.Listener.Addr().String()
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("backend-1", backendAddr)
+	b.SetState(backend.StateUp)
+	pool.AddBackend(b)
+	poolManager.AddPool(pool)
+
+	route := &router.Route{
+		Name:        "test-route",
+		Path:        "/test",
+		BackendPool: "test-pool",
+	}
+	routerInstance.AddRoute(route)
+
+	wsProxy := NewWebSocketProxy(proxy, nil)
+
+	// Regular HTTP request (not WebSocket)
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	rr := httptest.NewRecorder()
+
+	wsProxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+	if body := rr.Body.String(); body != "regular http" {
+		t.Errorf("expected body 'regular http', got '%s'", body)
+	}
+}
+
+func TestWebSocketProxy_ServeHTTP_WebSocket_NoRoute(t *testing.T) {
+	proxy, _, _ := setupTestProxy(t)
+
+	wsProxy := NewWebSocketProxy(proxy, nil)
+
+	// WebSocket request with no matching route
+	req := httptest.NewRequest(http.MethodGet, "/nonexistent", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rr := httptest.NewRecorder()
+
+	wsProxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, rr.Code)
+	}
+}
+
+func TestWebSocketProxy_ServeHTTP_WebSocket_NoPool(t *testing.T) {
+	proxy, _, routerInstance := setupTestProxy(t)
+
+	// Add route but no pool
+	route := &router.Route{
+		Name:        "test-route",
+		Path:        "/ws",
+		BackendPool: "nonexistent-pool",
+	}
+	routerInstance.AddRoute(route)
+
+	wsProxy := NewWebSocketProxy(proxy, nil)
+
+	// WebSocket request
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rr := httptest.NewRecorder()
+
+	wsProxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, rr.Code)
+	}
+}
+
+func TestWebSocketProxy_ServeHTTP_WebSocket_NoHealthyBackends(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create pool with unhealthy backend
+	pool := backend.NewPool("test-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("backend-1", "127.0.0.1:8080")
+	b.SetState(backend.StateDown)
+	pool.AddBackend(b)
+	poolManager.AddPool(pool)
+
+	route := &router.Route{
+		Name:        "test-route",
+		Path:        "/ws",
+		BackendPool: "test-pool",
+	}
+	routerInstance.AddRoute(route)
+
+	wsProxy := NewWebSocketProxy(proxy, nil)
+
+	// WebSocket request
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	rr := httptest.NewRecorder()
+
+	wsProxy.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusInternalServerError {
+		t.Errorf("expected status %d, got %d", http.StatusInternalServerError, rr.Code)
+	}
+}
+
+func TestWebSocketProxy_NewWebSocketProxy(t *testing.T) {
+	proxy, _, _ := setupTestProxy(t)
+
+	config := &WebSocketConfig{
+		EnableWebSocket: true,
+		MaxMessageSize:  1024,
+	}
+
+	wsProxy := NewWebSocketProxy(proxy, config)
+	if wsProxy == nil {
+		t.Fatal("NewWebSocketProxy() returned nil")
+	}
+	if wsProxy.httpProxy != proxy {
+		t.Error("httpProxy not set correctly")
+	}
+	if wsProxy.wsHandler == nil {
+		t.Error("wsHandler not initialized")
+	}
+}
+
