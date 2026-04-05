@@ -1,5 +1,4 @@
 // Package webui provides the Web UI for OpenLoadBalancer.
-// Phase 3.1: Web UI Foundation
 package webui
 
 import (
@@ -10,8 +9,8 @@ import (
 	"strings"
 )
 
-//go:embed static/*
-var staticFS embed.FS
+//go:embed dist
+var distFS embed.FS
 
 // Handler serves the Web UI static files and SPA fallback.
 type Handler struct {
@@ -20,14 +19,14 @@ type Handler struct {
 
 // NewHandler creates a new Web UI handler.
 func NewHandler() (*Handler, error) {
-	// Get the static subdirectory from embedded FS
-	staticSub, err := fs.Sub(staticFS, "static")
+	// Get the dist subdirectory from embedded FS
+	distSub, err := fs.Sub(distFS, "dist")
 	if err != nil {
 		return nil, err
 	}
 
 	return &Handler{
-		static: http.FS(staticSub),
+		static: http.FS(distSub),
 	}, nil
 }
 
@@ -51,11 +50,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Clean the path
 	cleanPath := path.Clean(rawPath)
-
-	// Remove /static prefix if present
-	if strings.HasPrefix(cleanPath, "/static/") {
-		cleanPath = strings.TrimPrefix(cleanPath, "/static")
-	}
 
 	// Ensure path starts with /
 	if !strings.HasPrefix(cleanPath, "/") {
@@ -116,8 +110,8 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, filepath str
 		w.Header().Set("Content-Type", contentType)
 	}
 
-	// Set caching headers for static assets
-	if strings.HasPrefix(filepath, "/css/") || strings.HasPrefix(filepath, "/js/") {
+	// Set caching headers for static assets (Vite hashed assets)
+	if strings.HasPrefix(filepath, "/assets/") {
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	} else if strings.HasSuffix(filepath, ".html") {
 		w.Header().Set("Cache-Control", "no-cache")
