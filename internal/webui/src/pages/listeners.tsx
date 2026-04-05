@@ -3,9 +3,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Plus, Globe, Shield, Trash2, Edit, Activity, Route } from "lucide-react"
 import { toast } from "sonner"
-import type { Listener } from "@/types"
+import type { Listener, Route as RouteType } from "@/types"
 
 const mockListeners: Listener[] = [
   {
@@ -43,6 +61,8 @@ const mockListeners: Listener[] = [
   },
 ]
 
+const mockPools = ["api-pool", "web-pool", "grpc-pool", "db-pool"]
+
 const protocolIcons: Record<string, React.ReactNode> = {
   http: <Globe className="h-4 w-4" />,
   https: <Shield className="h-4 w-4" />,
@@ -57,9 +77,29 @@ const protocolColors: Record<string, string> = {
   udp: "bg-orange-500/10 text-orange-600",
 }
 
+const httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+
 export function ListenersPage() {
   const [listeners, setListeners] = useState<Listener[]>(mockListeners)
   const [selectedListener, setSelectedListener] = useState<Listener | null>(mockListeners[0])
+
+  // Create Listener Dialog State
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [newListener, setNewListener] = useState({
+    name: "",
+    address: "",
+    protocol: "http",
+  })
+
+  // Add Route Dialog State
+  const [routeDialogOpen, setRouteDialogOpen] = useState(false)
+  const [newRoute, setNewRoute] = useState({
+    path: "",
+    pool: "",
+    methods: ["GET"],
+    strip_prefix: false,
+    priority: 10,
+  })
 
   const toggleListener = (id: string) => {
     setListeners(prev => prev.map(l =>
@@ -69,6 +109,64 @@ export function ListenersPage() {
     toast.success(`${listener?.name} ${listener?.enabled ? 'disabled' : 'enabled'}`)
   }
 
+  const handleCreateListener = () => {
+    const listener: Listener = {
+      id: Math.random().toString(36).substr(2, 9),
+      name: newListener.name,
+      address: newListener.address,
+      protocol: newListener.protocol as 'http' | 'https' | 'tcp' | 'udp',
+      routes: [],
+      enabled: true,
+    }
+    setListeners([...listeners, listener])
+    setCreateDialogOpen(false)
+    setNewListener({ name: "", address: "", protocol: "http" })
+    toast.success(`Listener "${listener.name}" created successfully`)
+  }
+
+  const handleAddRoute = () => {
+    if (!selectedListener) return
+    const route: RouteType = {
+      id: Math.random().toString(36).substr(2, 9),
+      path: newRoute.path,
+      pool: newRoute.pool,
+      methods: newRoute.methods,
+      strip_prefix: newRoute.strip_prefix,
+      priority: newRoute.priority,
+    }
+    const updatedListener = { ...selectedListener, routes: [...selectedListener.routes, route] }
+    setListeners(listeners.map(l => l.id === selectedListener.id ? updatedListener : l))
+    setSelectedListener(updatedListener)
+    setRouteDialogOpen(false)
+    setNewRoute({ path: "", pool: "", methods: ["GET"], strip_prefix: false, priority: 10 })
+    toast.success(`Route "${route.path}" added successfully`)
+  }
+
+  const handleDeleteListener = (id: string) => {
+    setListeners(listeners.filter(l => l.id !== id))
+    if (selectedListener?.id === id) {
+      setSelectedListener(null)
+    }
+    toast.success("Listener deleted successfully")
+  }
+
+  const handleDeleteRoute = (routeId: string) => {
+    if (!selectedListener) return
+    const updatedListener = { ...selectedListener, routes: selectedListener.routes.filter(r => r.id !== routeId) }
+    setListeners(listeners.map(l => l.id === selectedListener.id ? updatedListener : l))
+    setSelectedListener(updatedListener)
+    toast.success("Route removed successfully")
+  }
+
+  const toggleMethod = (method: string) => {
+    setNewRoute(prev => ({
+      ...prev,
+      methods: prev.methods.includes(method)
+        ? prev.methods.filter(m => m !== method)
+        : [...prev.methods, method]
+    }))
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -76,10 +174,67 @@ export function ListenersPage() {
           <h1 className="text-3xl font-bold tracking-tight">Listeners</h1>
           <p className="text-muted-foreground">Configure entry points and routing rules</p>
         </div>
-        <Button onClick={() => toast.info("Create listener dialog would open")}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Listener
-        </Button>
+        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+          <DialogTrigger asChild>
+            <Button>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Listener
+            </Button>
+          </DialogTrigger>
+          <DialogContent className="sm:max-w-[500px]">
+            <DialogHeader>
+              <DialogTitle>Create New Listener</DialogTitle>
+              <DialogDescription>
+                Configure a new entry point for incoming traffic.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid gap-2">
+                <Label htmlFor="listener-name">Listener Name</Label>
+                <Input
+                  id="listener-name"
+                  placeholder="e.g., http-public"
+                  value={newListener.name}
+                  onChange={(e) => setNewListener({ ...newListener, name: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="listener-address">Address</Label>
+                <Input
+                  id="listener-address"
+                  placeholder="e.g., :80 or 0.0.0.0:8080"
+                  value={newListener.address}
+                  onChange={(e) => setNewListener({ ...newListener, address: e.target.value })}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="listener-protocol">Protocol</Label>
+                <Select
+                  value={newListener.protocol}
+                  onValueChange={(value: string) => setNewListener({ ...newListener, protocol: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select protocol" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="http">HTTP</SelectItem>
+                    <SelectItem value="https">HTTPS</SelectItem>
+                    <SelectItem value="tcp">TCP</SelectItem>
+                    <SelectItem value="udp">UDP</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleCreateListener} disabled={!newListener.name || !newListener.address}>
+                Create Listener
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
@@ -137,7 +292,11 @@ export function ListenersPage() {
                     <Edit className="mr-2 h-4 w-4" />
                     Edit
                   </Button>
-                  <Button variant="destructive" size="sm" onClick={() => toast.info("Delete listener")}>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => handleDeleteListener(selectedListener.id)}
+                  >
                     <Trash2 className="mr-2 h-4 w-4" />
                     Delete
                   </Button>
@@ -151,10 +310,91 @@ export function ListenersPage() {
                       <Route className="h-4 w-4" />
                       Routes
                     </CardTitle>
-                    <Button size="sm" onClick={() => toast.info("Add route dialog would open")}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Route
-                    </Button>
+                    <Dialog open={routeDialogOpen} onOpenChange={setRouteDialogOpen}>
+                      <DialogTrigger asChild>
+                        <Button size="sm">
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Route
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[500px]">
+                        <DialogHeader>
+                          <DialogTitle>Add Route</DialogTitle>
+                          <DialogDescription>
+                            Configure a new routing rule.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="grid gap-4 py-4">
+                          <div className="grid gap-2">
+                            <Label htmlFor="route-path">Path Pattern</Label>
+                            <Input
+                              id="route-path"
+                              placeholder="e.g., /api/*"
+                              value={newRoute.path}
+                              onChange={(e) => setNewRoute({ ...newRoute, path: e.target.value })}
+                            />
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="route-pool">Target Pool</Label>
+                            <Select
+                              value={newRoute.pool}
+                              onValueChange={(value: string) => setNewRoute({ ...newRoute, pool: value })}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select pool" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {mockPools.map((pool) => (
+                                  <SelectItem key={pool} value={pool}>
+                                    {pool}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label>HTTP Methods</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {httpMethods.map((method) => (
+                                <Badge
+                                  key={method}
+                                  variant={newRoute.methods.includes(method) ? "default" : "outline"}
+                                  className="cursor-pointer"
+                                  onClick={() => toggleMethod(method)}
+                                >
+                                  {method}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="grid gap-2">
+                            <Label htmlFor="route-priority">Priority</Label>
+                            <Input
+                              id="route-priority"
+                              type="number"
+                              value={newRoute.priority}
+                              onChange={(e) => setNewRoute({ ...newRoute, priority: parseInt(e.target.value) || 0 })}
+                            />
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <Label htmlFor="strip-prefix">Strip Prefix</Label>
+                            <Switch
+                              id="strip-prefix"
+                              checked={newRoute.strip_prefix}
+                              onCheckedChange={(checked) => setNewRoute({ ...newRoute, strip_prefix: checked })}
+                            />
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button variant="outline" onClick={() => setRouteDialogOpen(false)}>
+                            Cancel
+                          </Button>
+                          <Button onClick={handleAddRoute} disabled={!newRoute.path || !newRoute.pool}>
+                            Add Route
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -194,7 +434,12 @@ export function ListenersPage() {
                             <Button variant="ghost" size="icon" className="h-8 w-8">
                               <Edit className="h-4 w-4" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-destructive"
+                              onClick={() => handleDeleteRoute(route.id)}
+                            >
                               <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>

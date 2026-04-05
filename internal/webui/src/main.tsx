@@ -12,6 +12,7 @@ import { CertificatesPage } from '@/pages/certificates'
 import { WAFPage } from '@/pages/waf'
 import { MetricsPage } from '@/pages/metrics'
 import { SettingsPage } from '@/pages/settings'
+import { ErrorBoundary } from '@/pages/error'
 import './index.css'
 
 createRoot(document.getElementById('root')!).render(
@@ -28,10 +29,11 @@ createRoot(document.getElementById('root')!).render(
             <Route path="/waf" element={<WAFPage />} />
             <Route path="/metrics" element={<MetricsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="*" element={<ErrorBoundary />} />
           </Routes>
         </Layout>
+        <Toaster position="bottom-right" />
       </BrowserRouter>
-      <Toaster position="bottom-right" />
     </ThemeProvider>
   </StrictMode>,
 )
