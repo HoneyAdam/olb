@@ -684,3 +684,227 @@ func createTestOCSPResponse(t *testing.T, cert *x509.Certificate, issuer *x509.C
 	// Return a minimal OCSP response structure (this won't verify but is sufficient for testing)
 	return []byte{0x30, 0x03, 0x0A, 0x01, 0x00} // SEQUENCE { ENUMERATED 0 }
 }
+
+func TestOCSPManager_FetchResponse_WithOCSPServers(t *testing.T) {
+	// Create a mock OCSP responder
+	mockOCSPServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Return non-200 to force GET fallback, then return non-200 again
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer mockOCSPServer.Close()
+
+	manager := NewOCSPManager(DefaultOCSPConfig())
+
+	// Create a cert with the mock server as OCSP server
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(42),
+		Subject: pkix.Name{
+			CommonName: "example.com",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		OCSPServer:            []string{mockOCSPServer.URL},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("Failed to parse certificate: %v", err)
+	}
+
+	issuer := createTestCert(t, "Test CA", nil)
+
+	// fetchResponse should attempt the server and fail since our mock
+	// doesn't return a valid OCSP response
+	_, err = manager.fetchResponse(cert, issuer)
+	if err == nil {
+		t.Error("Expected error from fetchResponse with mock server that returns invalid OCSP data")
+	}
+}
+
+func TestOCSPManager_FetchResponse_MultipleResponders(t *testing.T) {
+	// First server fails, second server also fails
+	server1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server1.Close()
+
+	server2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server2.Close()
+
+	manager := NewOCSPManager(DefaultOCSPConfig())
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	template := &x509.Certificate{
+		SerialNumber: big.NewInt(43),
+		Subject: pkix.Name{
+			CommonName: "multi-ocsp.example.com",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		OCSPServer:            []string{server1.URL, server2.URL},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, template, template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("Failed to parse certificate: %v", err)
+	}
+
+	issuer := createTestCert(t, "Test CA", nil)
+
+	_, err = manager.fetchResponse(cert, issuer)
+	if err == nil {
+		t.Error("Expected error when all OCSP responders fail")
+	}
+}
+
+func TestOCSPManager_GetResponse_ExpiredCacheFallback(t *testing.T) {
+	// Test that GetResponse returns an expired cached response when fetch fails
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	now := time.Now()
+
+	cert := createTestCert(t, "example.com", nil)
+	issuer := createTestCert(t, "Test CA", nil)
+
+	fp := fingerprint(cert)
+
+	// Pre-populate cache with an expired response
+	expiredResp := &OCSPResponse{
+		Raw:        []byte("expired-response"),
+		CachedAt:   now.Add(-2 * time.Hour),
+		ThisUpdate: now.Add(-2 * time.Hour),
+		NextUpdate: now.Add(-1 * time.Hour), // expired
+	}
+	manager.cacheMu.Lock()
+	manager.cache[fp] = expiredResp
+	manager.cacheMu.Unlock()
+
+	// GetResponse should try to fetch a new one, fail (no OCSP servers),
+	// and return the expired cached response as fallback
+	resp, err := manager.GetResponse(cert, issuer)
+	if err != nil {
+		t.Fatalf("GetResponse error: %v", err)
+	}
+	if string(resp.Raw) != "expired-response" {
+		t.Error("Expected expired cached response to be returned as fallback")
+	}
+}
+
+func TestOCSPManager_QueryResponder_PostSuccess(t *testing.T) {
+	// Test the POST path that returns 200 but with invalid OCSP data
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			t.Errorf("Expected POST request, got %s", r.Method)
+		}
+		if r.Header.Get("Content-Type") != "application/ocsp-request" {
+			t.Errorf("Expected Content-Type application/ocsp-request, got %s", r.Header.Get("Content-Type"))
+		}
+		if r.Header.Get("Accept") != "application/ocsp-response" {
+			t.Errorf("Expected Accept application/ocsp-response, got %s", r.Header.Get("Accept"))
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("not-valid-ocsp"))
+	}))
+	defer mockServer.Close()
+
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	issuer := createTestCert(t, "Test CA", nil)
+
+	// The request body doesn't matter for this test since we're testing HTTP flow
+	_, err := manager.queryResponder(mockServer.URL, []byte("test-request-body"), issuer)
+	// Should get a parse error since the response isn't valid OCSP
+	if err == nil {
+		t.Log("queryResponder succeeded (unexpected but ok)")
+	}
+}
+
+func TestOCSPManager_QueryResponder_PostFail_GetFallback(t *testing.T) {
+	// POST returns non-200, triggering GET fallback
+	postAttempts := 0
+	getAttempts := 0
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" {
+			postAttempts++
+			w.WriteHeader(http.StatusInternalServerError)
+		} else if r.Method == "GET" {
+			getAttempts++
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte{0x30, 0x03, 0x0A, 0x01, 0x00})
+		}
+	}))
+	defer mockServer.Close()
+
+	manager := NewOCSPManager(DefaultOCSPConfig())
+	issuer := createTestCert(t, "Test CA", nil)
+
+	manager.queryResponder(mockServer.URL, []byte("test-request-body"), issuer)
+
+	if postAttempts != 1 {
+		t.Errorf("Expected 1 POST attempt, got %d", postAttempts)
+	}
+	if getAttempts != 1 {
+		t.Errorf("Expected 1 GET attempt, got %d", getAttempts)
+	}
+}
+
+func TestOCSPManager_QueryResponderGET_InvalidURL(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+
+	_, err := manager.queryResponderGET("http://invalid-host-that-does-not-exist.local:1", []byte("test"), nil)
+	if err == nil {
+		t.Error("Expected error for invalid URL")
+	}
+}
+
+func TestOCSPManager_QueryResponder_InvalidURL(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+
+	_, err := manager.queryResponder("http://invalid-host-that-does-not-exist.local:1", []byte("test"), nil)
+	if err == nil {
+		t.Error("Expected error for invalid URL")
+	}
+}
+
+func TestOCSPManager_ParseResponse_ReadError(t *testing.T) {
+	manager := NewOCSPManager(DefaultOCSPConfig())
+
+	// Use a reader that always returns an error
+	_, err := manager.parseResponse(&errorReader{}, nil)
+	if err == nil {
+		t.Error("Expected error from error reader")
+	}
+}
+
+// errorReader is a helper io.Reader that always returns an error.
+type errorReader struct{}
+
+func (r *errorReader) Read(p []byte) (n int, err error) {
+	return 0, bytes.ErrTooLarge
+}

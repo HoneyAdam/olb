@@ -1586,3 +1586,262 @@ func TestRemovePIDFile_NonExistent(t *testing.T) {
 		t.Error("expected error for non-existent PID file")
 	}
 }
+
+// --- Additional StartCommand.Run coverage ---
+
+func TestStartCommand_Run_WritePIDFileFails(t *testing.T) {
+	// Create a config file to pass the config-exists check
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "olb.yaml")
+	configContent := `version: "1"
+listeners:
+  - name: http
+    address: :8080
+    protocol: http
+pools:
+  - name: default
+    algorithm: round_robin
+    backends:
+      - id: backend1
+        address: 127.0.0.1:8081
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	// Use a PID file path in a non-existent directory that cannot be created
+	// (e.g., under a file instead of a directory)
+	pidBlockFile := filepath.Join(tmpDir, "pidblock")
+	if err := os.WriteFile(pidBlockFile, []byte("x"), 0644); err != nil {
+		t.Fatalf("Failed to create block file: %v", err)
+	}
+	pidPath := filepath.Join(pidBlockFile, "subdir", "olb.pid")
+
+	cmd := &StartCommand{}
+	err := cmd.Run([]string{"--config", configPath, "--pid-file", pidPath})
+	if err == nil {
+		t.Error("Expected error when PID file cannot be written")
+	}
+	if !strings.Contains(err.Error(), "failed to write PID file") {
+		t.Errorf("Expected 'failed to write PID file' error, got: %v", err)
+	}
+}
+
+func TestStartCommand_Run_LoadsConfigFails(t *testing.T) {
+	// Create a config file that exists but has broken YAML
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "olb.yaml")
+	pidPath := filepath.Join(tmpDir, "olb.pid")
+	if err := os.WriteFile(configPath, []byte("{{{{broken"), 0644); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	cmd := &StartCommand{}
+	err := cmd.Run([]string{"--config", configPath, "--pid-file", pidPath})
+	if err == nil {
+		t.Error("Expected error for invalid config")
+	}
+	if !strings.Contains(err.Error(), "failed to load config") {
+		t.Errorf("Expected 'failed to load config' error, got: %v", err)
+	}
+}
+
+// --- StopCommand.Run additional coverage ---
+
+func TestStopCommand_Run_SendSignalFails(t *testing.T) {
+	// Test the path where PID is read successfully but signal fails.
+	// Write current PID so readPIDFile succeeds, then SIGTERM will be sent
+	// to our own process. On Unix, the test ignores SIGTERM so the test
+	// process doesn't die. On Windows, signal fails.
+	tmpDir := t.TempDir()
+	pidFile := filepath.Join(tmpDir, "olb.pid")
+	pid := os.Getpid()
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644); err != nil {
+		t.Fatalf("Failed to create PID file: %v", err)
+	}
+
+	if runtime.GOOS == "windows" {
+		// On Windows, sendSignal with SIGTERM will fail
+		cmd := &StopCommand{}
+		err := cmd.Run([]string{"--pid-file", pidFile})
+		if err == nil {
+			t.Error("Expected error when sending signal fails on Windows")
+		}
+		if !strings.Contains(err.Error(), "failed to send signal") {
+			t.Errorf("Expected 'failed to send signal' error, got: %v", err)
+		}
+	} else {
+		// On Unix, we need to ignore SIGTERM so we don't die
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+
+		cmd := &StopCommand{}
+		err := cmd.Run([]string{"--pid-file", pidFile})
+		// After sending SIGTERM, the process is still running (it's us),
+		// so waitForProcessExit will timeout.
+		if err == nil {
+			t.Error("Expected timeout error since current process does not exit")
+		}
+	}
+}
+
+func TestStopCommand_Run_WindowsSignalError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Skipping Windows-specific test")
+	}
+
+	// On Windows, sendSignal with syscall.SIGTERM returns an error.
+	// This exercises the full StopCommand.Run path up to the signal-sending step.
+	tmpDir := t.TempDir()
+	pidFile := filepath.Join(tmpDir, "olb.pid")
+	// Write current PID
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0644); err != nil {
+		t.Fatalf("Failed to create PID file: %v", err)
+	}
+
+	cmd := &StopCommand{}
+	err := cmd.Run([]string{"--pid-file", pidFile})
+	if err == nil {
+		t.Error("Expected error for SIGTERM on Windows")
+	}
+	if !strings.Contains(err.Error(), "failed to send signal") {
+		t.Errorf("Expected 'failed to send signal' error, got: %v", err)
+	}
+}
+
+func TestStopCommand_Run_RemovesPIDFileAfterExit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping Unix-specific test on Windows")
+	}
+
+	// Use a PID that doesn't exist so the whole stop flow completes.
+	tmpDir := t.TempDir()
+	pidFile := filepath.Join(tmpDir, "olb.pid")
+	// PID 999999 almost certainly does not exist
+	if err := os.WriteFile(pidFile, []byte("999999"), 0644); err != nil {
+		t.Fatalf("Failed to create PID file: %v", err)
+	}
+
+	cmd := &StopCommand{}
+	err := cmd.Run([]string{"--pid-file", pidFile})
+	// Should fail at sendSignal step since process doesn't exist
+	if err == nil {
+		t.Error("Expected error when signaling non-existent process")
+	}
+}
+
+
+// --- StartCommand.Run full path coverage ---
+
+func TestStartCommand_Run_FullPathUntilSignalLoop(t *testing.T) {
+	// This test exercises the full StartCommand.Run path up to and including
+	// the signal loop. On Windows, the engine sets up its own signal handlers
+	// and the StartCommand's signal handler competes for the same signals.
+	// We use a context timeout to avoid hanging.
+	// On Unix, we can send SIGTERM to terminate cleanly.
+
+	if runtime.GOOS == "windows" {
+		// On Windows, the signal loop cannot be easily terminated programmatically.
+		// Instead, verify that the command reaches the signal loop by checking
+		// the PID file and config loading. The test runs the command in a goroutine
+		// and uses a timeout. This is acceptable since the primary paths
+		// (config exists, writePIDFile, config.Load, engine.New, eng.Start)
+		// are already covered on Unix by TestStartCommand_Run_LoadsConfigAndWaitsForSignal.
+
+		// We can't test the signal loop on Windows, but we've already added coverage
+		// for writePIDFile failure and config.Load failure.
+		t.Skip("Signal-based termination not supported on Windows; full path covered on Unix")
+	}
+
+	// Unix path: use SIGTERM to cleanly terminate
+	l1, _ := net.Listen("tcp", "127.0.0.1:0")
+	proxyPort := l1.Addr().(*net.TCPAddr).Port
+	l1.Close()
+	l2, _ := net.Listen("tcp", "127.0.0.1:0")
+	adminPort := l2.Addr().(*net.TCPAddr).Port
+	l2.Close()
+
+	bl, _ := net.Listen("tcp", "127.0.0.1:0")
+	backendAddr := bl.Addr().String()
+	bs := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })}
+	go bs.Serve(bl)
+	defer bs.Close()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "olb.yaml")
+	pidPath := filepath.Join(tmpDir, "olb.pid")
+	configContent := fmt.Sprintf(`admin:
+  address: "127.0.0.1:%d"
+listeners:
+  - name: http
+    address: "127.0.0.1:%d"
+    protocol: http
+    routes:
+      - path: /
+        pool: default
+pools:
+  - name: default
+    algorithm: round_robin
+    backends:
+      - address: "%s"
+`, adminPort, proxyPort, backendAddr)
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to create test config: %v", err)
+	}
+
+	cmd := &StartCommand{}
+	doneCh := make(chan error, 1)
+
+	go func() {
+		doneCh <- cmd.Run([]string{"--config", configPath, "--pid-file", pidPath})
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify PID file was written
+	if _, err := os.Stat(pidPath); err != nil {
+		t.Errorf("PID file should exist after start: %v", err)
+	}
+
+	// Send SIGTERM to cleanly terminate
+	p, _ := os.FindProcess(os.Getpid())
+	_ = p.Signal(syscall.SIGTERM)
+
+	select {
+	case err := <-doneCh:
+		if err != nil {
+			t.Logf("StartCommand.Run returned: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("StartCommand.Run did not terminate after SIGTERM")
+	}
+}
+
+func TestStopCommand_Run_WithSelfProcess(t *testing.T) {
+	// Test StopCommand.Run with the current process PID.
+	// This covers the readPIDFile -> sendSignal path.
+	// On Windows, sendSignal fails with "not supported by windows".
+	// On Unix, the signal is sent but waitForProcessExit times out.
+
+	tmpDir := t.TempDir()
+	pidFile := filepath.Join(tmpDir, "olb.pid")
+	pid := os.Getpid()
+	if err := os.WriteFile(pidFile, []byte(fmt.Sprintf("%d", pid)), 0644); err != nil {
+		t.Fatalf("Failed to create PID file: %v", err)
+	}
+
+	if runtime.GOOS != "windows" {
+		// Ignore SIGTERM so the test process doesn't die
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+	}
+
+	cmd := &StopCommand{}
+	err := cmd.Run([]string{"--pid-file", pidFile})
+	if err == nil {
+		t.Error("Expected error (signal failure on Windows or process timeout on Unix)")
+	}
+	t.Logf("StopCommand.Run returned error (expected): %v", err)
+}

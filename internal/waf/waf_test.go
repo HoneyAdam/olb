@@ -780,6 +780,32 @@ func TestDefaultLogger_NoOp(t *testing.T) {
 	logger.Log(match, req)
 }
 
+// TestJSONLogger_WriteError tests that JSONLogger handles writer errors gracefully.
+func TestJSONLogger_WriteError(t *testing.T) {
+	logger := &JSONLogger{Writer: &failingWriter{}}
+	match := &Match{
+		RuleID:       "test-001",
+		RuleName:     "Test",
+		Target:       "args",
+		Pattern:      "test",
+		MatchedValue: "value",
+		Action:       ActionBlock,
+		Severity:     SeverityHigh,
+		Score:        10,
+	}
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+
+	// Should not panic when writer fails
+	logger.Log(match, req)
+}
+
+// failingWriter is an io.Writer that always returns an error.
+type failingWriter struct{}
+
+func (w *failingWriter) Write(p []byte) (n int, err error) {
+	return 0, io.ErrUnexpectedEOF
+}
+
 func BenchmarkWAF_Process_SQLi(b *testing.B) {
 	waf, _ := New(nil)
 	req := httptest.NewRequest("GET", "http://example.com/?id=1%27+OR+%271%27%3D%271", nil)

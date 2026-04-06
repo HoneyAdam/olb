@@ -2,6 +2,7 @@ package l4
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"testing"
@@ -1105,4 +1106,222 @@ type nilBalancer struct{}
 
 func (b *nilBalancer) Next(backends []*backend.Backend) *backend.Backend {
 	return nil
+}
+
+// --- acceptLoop coverage tests ---
+
+func TestTCPListener_AcceptLoop_AcceptsConnection(t *testing.T) {
+	// This test exercises the acceptLoop path where Accept returns a valid
+	// connection and it is dispatched to the proxy via HandleConnection.
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	// Echo server backend
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 1024)
+		for {
+			n, err := conn.Read(buf)
+			if err != nil {
+				return
+			}
+			conn.Write(buf[:n])
+		}
+	}()
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	config := &TCPProxyConfig{
+		DialTimeout:        1 * time.Second,
+		IdleTimeout:        500 * time.Millisecond,
+		BufferSize:         1024,
+		EnableTCPKeepalive: false,
+	}
+	proxy := NewTCPProxy(pool, balancer, config)
+
+	be := backend.NewBackend("backend-1", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	opts := &TCPListenerOptions{
+		Name:    "accept-test",
+		Address: "127.0.0.1:0",
+		Proxy:   proxy,
+	}
+
+	listener, err := NewTCPListener(opts)
+	if err != nil {
+		t.Fatalf("NewTCPListener error: %v", err)
+	}
+
+	if err := listener.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Connect a client — the acceptLoop should pick it up and hand it to HandleConnection
+	client, err := net.Dial("tcp", listener.Address())
+	if err != nil {
+		t.Fatalf("Failed to connect to listener: %v", err)
+	}
+	defer client.Close()
+
+	// Send data and verify echo through the full proxy chain
+	client.SetWriteDeadline(time.Now().Add(time.Second))
+	client.Write([]byte("accept-loop-test"))
+
+	client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, 100)
+	n, err := client.Read(buf)
+	if err != nil {
+		t.Fatalf("Read error: %v", err)
+	}
+	if string(buf[:n]) != "accept-loop-test" {
+		t.Errorf("Echo = %q, want accept-loop-test", string(buf[:n]))
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	listener.Stop(ctx)
+}
+
+func TestTCPListener_AcceptLoop_RecordsAcceptError(t *testing.T) {
+	// This test exercises the acceptLoop error path where Accept returns an error
+	// while running is still true. We close the underlying listener while the
+	// acceptLoop is blocked in Accept, which causes an error to be recorded.
+	pool := backend.NewPool("test-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	proxy := NewTCPProxy(pool, balancer, nil)
+
+	opts := &TCPListenerOptions{
+		Name:    "accept-err-test",
+		Address: "127.0.0.1:0",
+		Proxy:   proxy,
+	}
+
+	listener, err := NewTCPListener(opts)
+	if err != nil {
+		t.Fatalf("NewTCPListener error: %v", err)
+	}
+
+	if err := listener.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Close the underlying net.Listener directly while running=true.
+	// This causes Accept to return an error in acceptLoop, and since
+	// running is still true at that moment, the error gets recorded in startErr.
+	listener.mu.Lock()
+	listener.listener.Close()
+	listener.mu.Unlock()
+
+	// Give acceptLoop time to detect the closed listener and record the error
+	time.Sleep(200 * time.Millisecond)
+
+	// The startErr should now be set because Accept failed while running was true
+	startErr := listener.StartError()
+	if startErr == nil {
+		t.Error("Expected StartError to be set after listener was closed under acceptLoop")
+	}
+
+	// Now clean up by marking not running so Stop doesn't fail confusingly
+	listener.running.Store(false)
+}
+
+func TestTCPListener_AcceptLoop_MultipleConnections(t *testing.T) {
+	// Test acceptLoop handling multiple concurrent connections.
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	// Accept multiple backend connections and echo
+	go func() {
+		for {
+			conn, err := backendListener.Accept()
+			if err != nil {
+				return
+			}
+			go func(c net.Conn) {
+				defer c.Close()
+				buf := make([]byte, 1024)
+				for {
+					n, err := c.Read(buf)
+					if err != nil {
+						return
+					}
+					c.Write(buf[:n])
+				}
+			}(conn)
+		}
+	}()
+
+	pool := backend.NewPool("multi-pool", "round_robin")
+	balancer := NewSimpleBalancer()
+	config := &TCPProxyConfig{
+		DialTimeout:        1 * time.Second,
+		IdleTimeout:        500 * time.Millisecond,
+		BufferSize:         1024,
+		EnableTCPKeepalive: false,
+	}
+	proxy := NewTCPProxy(pool, balancer, config)
+
+	be := backend.NewBackend("multi-backend", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+	pool.AddBackend(be)
+
+	opts := &TCPListenerOptions{
+		Name:    "multi-accept",
+		Address: "127.0.0.1:0",
+		Proxy:   proxy,
+	}
+
+	listener, err := NewTCPListener(opts)
+	if err != nil {
+		t.Fatalf("NewTCPListener error: %v", err)
+	}
+
+	if err := listener.Start(); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Connect multiple clients
+	const numClients = 5
+	clients := make([]net.Conn, numClients)
+	for i := 0; i < numClients; i++ {
+		clients[i], err = net.Dial("tcp", listener.Address())
+		if err != nil {
+			t.Fatalf("Failed to connect client %d: %v", i, err)
+		}
+		defer clients[i].Close()
+	}
+
+	// Send and receive on each
+	for i, client := range clients {
+		msg := fmt.Sprintf("msg-%d", i)
+		client.SetWriteDeadline(time.Now().Add(time.Second))
+		client.Write([]byte(msg))
+
+		client.SetReadDeadline(time.Now().Add(2 * time.Second))
+		buf := make([]byte, 100)
+		n, err := client.Read(buf)
+		if err != nil {
+			t.Errorf("Client %d read error: %v", i, err)
+			continue
+		}
+		if string(buf[:n]) != msg {
+			t.Errorf("Client %d echo = %q, want %q", i, string(buf[:n]), msg)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	listener.Stop(ctx)
 }

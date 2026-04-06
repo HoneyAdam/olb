@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"testing"
 	"time"
 )
@@ -294,24 +295,289 @@ func TestDistributedRateLimiter_Stop(t *testing.T) {
 
 func TestDistributedRateLimiter_buildKey(t *testing.T) {
 	rl := NewDistributed(DistributedConfig{})
-	_ = rl
 
 	tests := []struct {
 		name     string
-		scope    string
+		rule     Rule
+		ip       string
+		path     string
 		expected string
 	}{
-		{"global", "global", "rl:global:"},
-		{"ip", "ip", "rl:ip:"},
-		{"path", "path", "rl:path:"},
-		{"ip+path", "ip+path", "rl:ip+path:"},
+		{
+			name:     "global scope",
+			rule:     Rule{ID: "global-rule", Scope: "global"},
+			ip:       "1.2.3.4",
+			path:     "/api",
+			expected: "rl:global:global-rule",
+		},
+		{
+			name:     "ip scope",
+			rule:     Rule{ID: "ip-rule", Scope: "ip"},
+			ip:       "192.168.1.1",
+			path:     "/api",
+			expected: "rl:ip:ip-rule:192.168.1.1",
+		},
+		{
+			name:     "path scope",
+			rule:     Rule{ID: "path-rule", Scope: "path"},
+			ip:       "1.2.3.4",
+			path:     "/api/users",
+			expected: "rl:path:path-rule:/api/users",
+		},
+		{
+			name:     "ip+path scope",
+			rule:     Rule{ID: "combo-rule", Scope: "ip+path"},
+			ip:       "10.0.0.1",
+			path:     "/login",
+			expected: "rl:ip+path:combo-rule:10.0.0.1:/login",
+		},
+		{
+			name:     "unknown scope defaults to ip",
+			rule:     Rule{ID: "unknown-rule", Scope: "custom"},
+			ip:       "5.5.5.5",
+			path:     "/test",
+			expected: "rl:ip:unknown-rule:5.5.5.5",
+		},
+		{
+			name:     "empty scope defaults to ip",
+			rule:     Rule{ID: "empty-rule", Scope: ""},
+			ip:       "6.6.6.6",
+			path:     "/test",
+			expected: "rl:ip:empty-rule:6.6.6.6",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// buildKey is called internally, we test via Allow
-			_ = tt.scope
-			_ = tt.expected
+			req := &http.Request{
+				RemoteAddr: tt.ip + ":12345",
+			}
+			req.URL = &url.URL{Path: tt.path}
+
+			got := rl.buildKey(tt.rule, req, tt.ip)
+			if got != tt.expected {
+				t.Errorf("buildKey() = %q, want %q", got, tt.expected)
+			}
 		})
+	}
+}
+
+func TestDistributedRateLimiter_buildKey_Allow(t *testing.T) {
+	// Verify buildKey is exercised through the Allow method with different scopes
+	mockStore := NewMockStore()
+
+	tests := []struct {
+		name  string
+		scope string
+	}{
+		{"global", "global"},
+		{"ip", "ip"},
+		{"path", "path"},
+		{"ip+path", "ip+path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DistributedConfig{
+				Rules: []Rule{
+					{ID: "test-rule", Scope: tt.scope, Limit: 100, Window: time.Minute},
+				},
+				Store:            mockStore,
+				UseLocalFallback: false,
+			}
+
+			rl := NewDistributed(cfg)
+			defer rl.Stop()
+
+			req := &http.Request{
+				RemoteAddr: "10.0.0.1:12345",
+			}
+			req.URL = &url.URL{Path: "/api/test"}
+
+			allowed, _ := rl.Allow(req)
+			if !allowed {
+				t.Errorf("first request with scope %q should be allowed", tt.scope)
+			}
+		})
+	}
+}
+
+func TestDistributedRateLimiter_PathFiltering(t *testing.T) {
+	mockStore := NewMockStore()
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{
+				ID:     "api-only",
+				Scope:  "ip",
+				Limit:  10,
+				Window: time.Minute,
+				Paths:  []string{"/api/*"},
+			},
+		},
+		Store:            mockStore,
+		UseLocalFallback: false,
+	}
+
+	rl := NewDistributed(cfg)
+	defer rl.Stop()
+
+	// Request to /other should skip the rule (no paths match) and be allowed
+	req := &http.Request{RemoteAddr: "1.2.3.4:12345"}
+	req.URL = &url.URL{Path: "/other"}
+	allowed, _ := rl.Allow(req)
+	if !allowed {
+		t.Error("request to non-matching path should be allowed")
+	}
+}
+
+func TestDistributedRateLimiter_StoreErrorWithCallback(t *testing.T) {
+	mockStore := NewMockStore()
+	mockStore.allowFunc = func(ctx context.Context, key string, limit int, window time.Duration) (bool, int, time.Time, error) {
+		return false, 0, time.Time{}, errors.New("connection refused")
+	}
+
+	var storeErrKey string
+	var storeErr error
+
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{ID: "test", Scope: "ip", Limit: 10, Window: time.Minute},
+		},
+		Store:            mockStore,
+		UseLocalFallback: true,
+	}
+
+	rl := NewDistributed(cfg)
+	rl.OnStoreError = func(key string, err error) {
+		storeErrKey = key
+		storeErr = err
+	}
+	defer rl.Stop()
+
+	req := &http.Request{RemoteAddr: "1.2.3.4:12345"}
+	req.URL = &url.URL{Path: "/"}
+	rl.Allow(req)
+
+	if storeErrKey == "" {
+		t.Error("OnStoreError should have been called with key")
+	}
+	if storeErr == nil {
+		t.Error("OnStoreError should have been called with error")
+	}
+}
+
+func TestDistributedRateLimiter_Stats_NilStore(t *testing.T) {
+	cfg := DistributedConfig{
+		Rules: []Rule{},
+		Store: nil,
+	}
+
+	rl := NewDistributed(cfg)
+	defer rl.Stop()
+
+	stats, err := rl.Stats(context.Background())
+	if err != nil {
+		t.Errorf("Stats() error = %v", err)
+	}
+	if stats["store"] != "none" {
+		t.Errorf("Stats()['store'] = %v, want 'none'", stats["store"])
+	}
+}
+
+func TestDistributedRateLimiter_AutoBan(t *testing.T) {
+	var bannedIP string
+	var bannedReason string
+
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{ID: "strict", Scope: "ip", Limit: 1, Window: time.Minute, AutoBanAfter: 1},
+		},
+		UseLocalFallback: false,
+	}
+
+	rl := NewDistributed(cfg)
+	rl.OnAutoBan = func(ip string, reason string) {
+		bannedIP = ip
+		bannedReason = reason
+	}
+	defer rl.Stop()
+
+	// First request allowed, second should trigger rate limit and auto-ban
+	// Since no store, checkStore returns allowed=true (store is nil)
+	// We need a store to actually enforce limits
+	mockStore := NewMockStore()
+	rl.store = mockStore
+
+	req := &http.Request{RemoteAddr: "10.0.0.1:12345"}
+	req.URL = &url.URL{Path: "/"}
+
+	// Exhaust the limit
+	rl.Allow(req)
+	rl.Allow(req)
+	// This one should trigger rate limit + auto-ban
+	allowed, _ := rl.Allow(req)
+	if allowed {
+		t.Error("third request should be rate limited")
+	}
+
+	if bannedIP != "10.0.0.1" {
+		t.Errorf("bannedIP = %q, want %q", bannedIP, "10.0.0.1")
+	}
+	if bannedReason == "" {
+		t.Error("bannedReason should not be empty")
+	}
+}
+
+func TestDistributedRateLimiter_AutoBan_NoCallback(t *testing.T) {
+	mockStore := NewMockStore()
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{ID: "strict", Scope: "ip", Limit: 1, Window: time.Minute, AutoBanAfter: 1},
+		},
+		Store:            mockStore,
+		UseLocalFallback: false,
+	}
+
+	rl := NewDistributed(cfg)
+	defer rl.Stop()
+	// No OnAutoBan callback set - should not panic
+
+	req := &http.Request{RemoteAddr: "10.0.0.1:12345"}
+	req.URL = &url.URL{Path: "/"}
+
+	rl.Allow(req)
+	rl.Allow(req)
+	// Should not panic even without callback
+	rl.Allow(req)
+}
+
+func TestDistributedRateLimiter_AutoBan_ZeroThreshold(t *testing.T) {
+	var banned bool
+
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{ID: "no-ban", Scope: "ip", Limit: 1, Window: time.Minute, AutoBanAfter: 0},
+		},
+		UseLocalFallback: false,
+	}
+
+	rl := NewDistributed(cfg)
+	rl.OnAutoBan = func(ip string, reason string) {
+		banned = true
+	}
+	defer rl.Stop()
+
+	mockStore := NewMockStore()
+	rl.store = mockStore
+
+	req := &http.Request{RemoteAddr: "10.0.0.1:12345"}
+	req.URL = &url.URL{Path: "/"}
+
+	rl.Allow(req)
+	rl.Allow(req)
+	rl.Allow(req) // Rate limited but AutoBanAfter=0, so no ban
+
+	if banned {
+		t.Error("should not auto-ban when AutoBanAfter is 0")
 	}
 }
