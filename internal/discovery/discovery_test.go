@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
 )
@@ -819,6 +821,568 @@ func TestParseWeight(t *testing.T) {
 	}
 }
 
+// newMockConsulHandler returns an http.Handler that simulates the Consul API.
+// The handler can be configured with different responses for different endpoints.
+func newMockConsulHandler() *mockConsulHandler {
+	return &mockConsulHandler{
+		services:       map[string][]string{"web": {"v1"}, "api": {"v2"}},
+		serviceEntries: map[string][]consulServiceEntry{},
+	}
+}
+
+type mockConsulHandler struct {
+	services       map[string][]string
+	serviceEntries map[string][]consulServiceEntry
+	statusCode     int // if non-zero, override all responses with this status
+}
+
+func (h *mockConsulHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if h.statusCode != 0 {
+		w.WriteHeader(h.statusCode)
+		return
+	}
+
+	switch {
+	case r.URL.Path == "/v1/catalog/services":
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(h.services)
+	case hasSubstr(r.URL.Path, "/v1/catalog/service/"):
+		svcName := r.URL.Path[len("/v1/catalog/service/"):]
+		entries, ok := h.serviceEntries[svcName]
+		if !ok {
+			// Return default single entry
+			entries = []consulServiceEntry{
+				{
+					ServiceAddress: "10.0.0.1",
+					ServicePort:    8080,
+					ServiceTags:    []string{"v1"},
+					ServiceMeta:    map[string]string{},
+					ServiceName:    svcName,
+					ServiceID:      svcName + "-1",
+					Node:           "node-1",
+					Datacenter:     "dc1",
+				},
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(entries)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func newConsulProviderWithServer(t *testing.T, handler *mockConsulHandler, opts map[string]string) *ConsulProvider {
+	t.Helper()
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	if opts == nil {
+		opts = make(map[string]string)
+	}
+	opts["address"] = server.Listener.Addr().String()
+	opts["scheme"] = "http"
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 100 * time.Millisecond,
+		Options: opts,
+	}
+
+	provider, err := NewConsulProvider(config)
+	if err != nil {
+		t.Fatalf("NewConsulProvider error: %v", err)
+	}
+
+	return provider
+}
+
+func TestConsulProvider_GetServices_NonOKStatus(t *testing.T) {
+	handler := newMockConsulHandler()
+	handler.statusCode = http.StatusInternalServerError
+	provider := newConsulProviderWithServer(t, handler, nil)
+
+	_, err := provider.getServices()
+	if err == nil {
+		t.Error("Expected error for non-OK status from getServices")
+	}
+}
+
+func TestConsulProvider_GetServices_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{invalid json}`)
+	}))
+	defer server.Close()
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": server.Listener.Addr().String(),
+			"scheme":  "http",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	_, err := provider.getServices()
+	if err == nil {
+		t.Error("Expected error for invalid JSON from getServices")
+	}
+}
+
+func TestConsulProvider_GetServices_NetworkError(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "127.0.0.1:1", // unreachable port
+			"scheme":  "http",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	_, err := provider.getServices()
+	if err == nil {
+		t.Error("Expected error for network error from getServices")
+	}
+}
+
+func TestConsulProvider_GetServiceEntries_MockServer(t *testing.T) {
+	handler := newMockConsulHandler()
+	provider := newConsulProviderWithServer(t, handler, nil)
+
+	entries, err := provider.getServiceEntries("web")
+	if err != nil {
+		t.Fatalf("getServiceEntries error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].ServiceName != "web" {
+		t.Errorf("ServiceName = %q, want web", entries[0].ServiceName)
+	}
+}
+
+func TestConsulProvider_GetServiceEntries_WithDatacenter(t *testing.T) {
+	handler := newMockConsulHandler()
+	opts := map[string]string{
+		"datacenter": "dc2",
+	}
+	provider := newConsulProviderWithServer(t, handler, opts)
+
+	entries, err := provider.getServiceEntries("web")
+	if err != nil {
+		t.Fatalf("getServiceEntries error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestConsulProvider_GetServiceEntries_WithTag(t *testing.T) {
+	handler := newMockConsulHandler()
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 100 * time.Millisecond,
+		Tags:    []string{"v1"},
+		Options: map[string]string{},
+	}
+
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	config.Options["address"] = server.Listener.Addr().String()
+	config.Options["scheme"] = "http"
+
+	provider, err := NewConsulProvider(config)
+	if err != nil {
+		t.Fatalf("NewConsulProvider error: %v", err)
+	}
+
+	entries, err := provider.getServiceEntries("web")
+	if err != nil {
+		t.Fatalf("getServiceEntries error: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+}
+
+func TestConsulProvider_GetServiceEntries_NonOKStatus(t *testing.T) {
+	handler := newMockConsulHandler()
+	handler.statusCode = http.StatusBadGateway
+	provider := newConsulProviderWithServer(t, handler, nil)
+
+	_, err := provider.getServiceEntries("web")
+	if err == nil {
+		t.Error("Expected error for non-OK status from getServiceEntries")
+	}
+}
+
+func TestConsulProvider_GetServiceEntries_InvalidJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `not valid json`)
+	}))
+	defer server.Close()
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": server.Listener.Addr().String(),
+			"scheme":  "http",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	_, err := provider.getServiceEntries("web")
+	if err == nil {
+		t.Error("Expected error for invalid JSON from getServiceEntries")
+	}
+}
+
+func TestConsulProvider_GetServiceEntries_NetworkError(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "127.0.0.1:1",
+			"scheme":  "http",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	_, err := provider.getServiceEntries("web")
+	if err == nil {
+		t.Error("Expected error for network error from getServiceEntries")
+	}
+}
+
+func TestConsulProvider_RefreshService_AddsAndRemovesServices(t *testing.T) {
+	handler := newMockConsulHandler()
+	handler.serviceEntries["web"] = []consulServiceEntry{
+		{
+			ServiceAddress: "10.0.0.1",
+			ServicePort:    8080,
+			ServiceTags:    []string{"v1"},
+			ServiceMeta:    map[string]string{},
+			ServiceName:    "web",
+			ServiceID:      "web-1",
+			Node:           "node-1",
+			Datacenter:     "dc1",
+		},
+	}
+	provider := newConsulProviderWithServer(t, handler, nil)
+
+	// First refresh adds the service
+	provider.refreshService("web")
+	services := provider.Services()
+	if len(services) != 1 {
+		t.Fatalf("Expected 1 service after first refresh, got %d", len(services))
+	}
+
+	// Update entries to a different instance
+	handler.serviceEntries["web"] = []consulServiceEntry{
+		{
+			ServiceAddress: "10.0.0.2",
+			ServicePort:    9090,
+			ServiceTags:    []string{"v2"},
+			ServiceMeta:    map[string]string{},
+			ServiceName:    "web",
+			ServiceID:      "web-2",
+			Node:           "node-2",
+			Datacenter:     "dc1",
+		},
+	}
+
+	// Second refresh should add new and remove old
+	provider.refreshService("web")
+	services = provider.Services()
+	if len(services) != 1 {
+		t.Fatalf("Expected 1 service after second refresh, got %d", len(services))
+	}
+	if services[0].Address != "10.0.0.2" {
+		t.Errorf("Address = %q, want 10.0.0.2", services[0].Address)
+	}
+}
+
+func TestConsulProvider_RefreshService_HealthCheckFiltering(t *testing.T) {
+	handler := newMockConsulHandler()
+	handler.serviceEntries["web"] = []consulServiceEntry{
+		{
+			ServiceAddress: "10.0.0.1",
+			ServicePort:    8080,
+			ServiceTags:    []string{"v1"},
+			ServiceMeta:    map[string]string{},
+			ServiceName:    "web",
+			ServiceID:      "web-1",
+			Node:           "node-1",
+			Datacenter:     "dc1",
+		},
+	}
+
+	opts := map[string]string{}
+	provider := newConsulProviderWithServer(t, handler, opts)
+	// Enable health check filtering
+	provider.config.HealthCheck = true
+
+	// Refresh should add healthy services (convertService always sets Healthy=true)
+	provider.refreshService("web")
+	services := provider.Services()
+	if len(services) != 1 {
+		t.Fatalf("Expected 1 healthy service, got %d", len(services))
+	}
+}
+
+func TestConsulProvider_RefreshService_GetEntriesError(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "127.0.0.1:1", // unreachable
+			"scheme":  "http",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	// Should not panic when getServices fails
+	provider.refreshService("web")
+	if len(provider.Services()) != 0 {
+		t.Error("Expected no services when getEntries fails")
+	}
+}
+
+func TestConsulProvider_WatchCatalog_DiscoveryOfNewServices(t *testing.T) {
+	handler := newMockConsulHandler()
+	handler.services = map[string][]string{
+		"web": {"v1"},
+	}
+	handler.serviceEntries["web"] = []consulServiceEntry{
+		{
+			ServiceAddress: "10.0.0.1",
+			ServicePort:    8080,
+			ServiceTags:    []string{"v1"},
+			ServiceMeta:    map[string]string{},
+			ServiceName:    "web",
+			ServiceID:      "web-1",
+			Node:           "node-1",
+			Datacenter:     "dc1",
+		},
+	}
+
+	provider := newConsulProviderWithServer(t, handler, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err := provider.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Wait for the watchCatalog ticker to fire and discover services
+	time.Sleep(800 * time.Millisecond)
+
+	services := provider.Services()
+	if len(services) == 0 {
+		t.Error("Expected services to be discovered by watchCatalog")
+	}
+
+	err = provider.Stop()
+	if err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+func TestConsulProvider_WatchCatalog_SkippedWhenServiceConfigured(t *testing.T) {
+	handler := newMockConsulHandler()
+	opts := map[string]string{
+		"service": "web",
+	}
+	provider := newConsulProviderWithServer(t, handler, opts)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err := provider.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Wait a bit and verify no extra goroutines from catalog watching
+	time.Sleep(300 * time.Millisecond)
+
+	err = provider.Stop()
+	if err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+func TestConsulProvider_WatchCatalog_HandlesGetServicesError(t *testing.T) {
+	// Use a handler that succeeds on the first call (for Start's getServices),
+	// then fails on the next calls (for watchCatalog ticker), then succeeds again.
+	handler := &failAfterFirstHandler{
+		services: map[string][]string{"web": {"v1"}},
+		serviceEntries: map[string][]consulServiceEntry{
+			"web": {
+				{
+					ServiceAddress: "10.0.0.1",
+					ServicePort:    8080,
+					ServiceTags:    []string{"v1"},
+					ServiceMeta:    map[string]string{},
+					ServiceName:    "web",
+					ServiceID:      "web-1",
+					Node:           "node-1",
+					Datacenter:     "dc1",
+				},
+			},
+		},
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 100 * time.Millisecond,
+		Options: map[string]string{
+			"address": server.Listener.Addr().String(),
+			"scheme":  "http",
+		},
+	}
+
+	provider, err := NewConsulProvider(config)
+	if err != nil {
+		t.Fatalf("NewConsulProvider error: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	err = provider.Start(ctx)
+	if err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// Wait for catalog watcher ticker to fire (it uses Refresh * 5 = 500ms)
+	// The handler will fail on the next catalog/services call, testing error handling
+	time.Sleep(800 * time.Millisecond)
+
+	err = provider.Stop()
+	if err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+// failAfterFirstHandler succeeds on the first /v1/catalog/services call,
+// then returns 500 on subsequent calls, then recovers after a few failures.
+type failAfterFirstHandler struct {
+	mu                sync.Mutex
+	servicesCallCount int
+	failAfterCount    int // start failing after this many successful catalog/services calls
+	services          map[string][]string
+	serviceEntries    map[string][]consulServiceEntry
+}
+
+func (h *failAfterFirstHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	switch {
+	case r.URL.Path == "/v1/catalog/services":
+		h.mu.Lock()
+		h.servicesCallCount++
+		count := h.servicesCallCount
+		h.mu.Unlock()
+
+		// Succeed on first call (for Start), fail on next 2, then recover
+		if count == 2 || count == 3 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(h.services)
+	case hasSubstr(r.URL.Path, "/v1/catalog/service/"):
+		svcName := r.URL.Path[len("/v1/catalog/service/"):]
+		entries := h.serviceEntries[svcName]
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(entries)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+func TestConsulProvider_FactoryRegistration(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "factory-test",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "127.0.0.1:8500",
+		},
+	}
+
+	provider, err := CreateProvider(config)
+	if err != nil {
+		t.Fatalf("CreateProvider error: %v", err)
+	}
+
+	if provider.Type() != ProviderTypeConsul {
+		t.Errorf("Type() = %q, want consul", provider.Type())
+	}
+	if provider.Name() != "factory-test" {
+		t.Errorf("Name() = %q, want factory-test", provider.Name())
+	}
+}
+
+func TestConsulProvider_StartFailsWhenGetServicesFails(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "127.0.0.1:1", // unreachable
+			"scheme":  "http",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	ctx := context.Background()
+	err := provider.Start(ctx)
+	if err == nil {
+		t.Error("Expected Start to fail when getServices fails")
+		provider.Stop()
+	}
+}
+
+func TestConsulProvider_BuildURL_WithParams(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeConsul,
+		Name:    "test-consul",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"address": "consul.example.com:8500",
+		},
+	}
+	provider, _ := NewConsulProvider(config)
+
+	params := url.Values{}
+	params.Set("dc", "dc1")
+	params.Set("tag", "v1")
+
+	u := provider.buildURL("/v1/catalog/service/web", params)
+	if !hasSubstr(u, "dc=dc1") {
+		t.Errorf("URL should contain dc param: %s", u)
+	}
+	if !hasSubstr(u, "tag=v1") {
+		t.Errorf("URL should contain tag param: %s", u)
+	}
+}
+
 // ---- DNS Provider Tests ----
 
 func TestNewDNSProvider_ValidConfig(t *testing.T) {
@@ -918,6 +1482,29 @@ func TestDNSProvider_StartStop(t *testing.T) {
 	err = provider.Stop()
 	if err != nil {
 		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+func TestDNSProvider_FactoryRegistration(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeDNS,
+		Name:    "factory-dns-test",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"domain": "_http._tcp.example.com",
+		},
+	}
+
+	provider, err := CreateProvider(config)
+	if err != nil {
+		t.Fatalf("CreateProvider error: %v", err)
+	}
+
+	if provider.Type() != ProviderTypeDNS {
+		t.Errorf("Type() = %q, want dns", provider.Type())
+	}
+	if provider.Name() != "factory-dns-test" {
+		t.Errorf("Name() = %q, want factory-dns-test", provider.Name())
 	}
 }
 

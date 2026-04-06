@@ -1,9 +1,12 @@
 package health
 
 import (
+	"bytes"
 	"fmt"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -528,6 +531,561 @@ func (m *mockBalancer) Add(b *backend.Backend) {}
 func (m *mockBalancer) Remove(id string) {}
 
 func (m *mockBalancer) Update(b *backend.Backend) {}
+
+// --- New tests to improve coverage ---
+
+func TestNewChecker_CheckRedirect(t *testing.T) {
+	// Verify that the shared httpClient follows no redirects by exercising
+	// its CheckRedirect function directly.
+	checker := NewChecker()
+	defer checker.Stop()
+
+	req := httptest.NewRequest("GET", "/redirect", nil)
+	err := checker.httpClient.CheckRedirect(req, []*http.Request{req})
+	if err != http.ErrUseLastResponse {
+		t.Errorf("CheckRedirect = %v, want http.ErrUseLastResponse", err)
+	}
+}
+
+func TestChecker_Register_NilConfig(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("nil-cfg", "127.0.0.1:19999")
+	// Pass nil config — Register should use DefaultCheck.
+	err := checker.Register(b, nil)
+	if err != nil {
+		t.Fatalf("Register with nil config: %v", err)
+	}
+
+	// Verify a check state was created with default check type.
+	state, ok := checker.checks["nil-cfg"]
+	if !ok {
+		t.Fatal("expected check state for nil-cfg")
+	}
+	if state.config.Type != "tcp" {
+		t.Errorf("default config type = %q, want %q", state.config.Type, "tcp")
+	}
+}
+
+func TestChecker_Unregister_NonExistent(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	// Unregistering a backend that was never registered should not panic.
+	checker.Unregister("nonexistent")
+
+	// Verify nothing was added.
+	if len(checker.checks) != 0 {
+		t.Errorf("checks map should be empty, got %d entries", len(checker.checks))
+	}
+}
+
+func TestChecker_Unregister_StopsGoroutine(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	// Start a TCP server.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	b := backend.NewBackend("stop-test", listener.Addr().String())
+	check := &Check{
+		Type:               "tcp",
+		Interval:           50 * time.Millisecond,
+		Timeout:            100 * time.Millisecond,
+		HealthyThreshold:   1,
+		UnhealthyThreshold: 1,
+	}
+
+	if err := checker.Register(b, check); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Wait for the health check goroutine to start running.
+	time.Sleep(150 * time.Millisecond)
+
+	// Unregister should close the per-backend stopCh and the goroutine should exit.
+	checker.Unregister("stop-test")
+
+	// Verify the backend is removed.
+	if _, exists := checker.checks["stop-test"]; exists {
+		t.Error("backend should be removed after unregister")
+	}
+}
+
+func TestChecker_checkHTTP_HTTPS(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	// Start a plain TCP listener (no TLS). The HTTPS check will fail to
+	// complete a TLS handshake, but we still exercise the url-building branch
+	// that produces an "https://" scheme.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	b := backend.NewBackend("https-test", listener.Addr().String())
+	check := &Check{
+		Type:           "https",
+		Path:           "/health",
+		Method:         "GET",
+		ExpectedStatus: 200,
+		Timeout:        500 * time.Millisecond,
+	}
+
+	result := checker.checkHTTP(b, check)
+	// The connection will fail because we don't have TLS, but the important
+	// thing is that the https URL branch is exercised.
+	if result.Healthy {
+		t.Error("HTTPS check against plain TCP should not be healthy")
+	}
+}
+
+func TestChecker_checkHTTP_Non2xxStatus(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/bad", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	})
+
+	server := &http.Server{Handler: mux}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	go server.Serve(listener)
+	defer server.Close()
+
+	time.Sleep(10 * time.Millisecond)
+
+	b := backend.NewBackend("non2xx", listener.Addr().String())
+	// ExpectedStatus == 0 means any 2xx is acceptable; a 404 should fail.
+	check := &Check{
+		Type:           "http",
+		Path:           "/bad",
+		Method:         "GET",
+		ExpectedStatus: 0,
+		Timeout:        1 * time.Second,
+	}
+
+	result := checker.checkHTTP(b, check)
+	if result.Healthy {
+		t.Error("checkHTTP with 404 and ExpectedStatus=0 should be unhealthy")
+	}
+	if result.Error == nil {
+		t.Error("expected non-nil error for non-2xx response")
+	}
+}
+
+func TestChecker_checkGRPC_PlainFallback(t *testing.T) {
+	// Start a plain HTTP server on a random port.
+	// The checkGRPC function will first try HTTPS (fail), then
+	// fall back to plain HTTP. It will get an HTTP response with
+	// Grpc-Status header set to "0", indicating healthy.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/grpc.health.v1.Health/Check", func(w http.ResponseWriter, r *http.Request) {
+		// Verify gRPC headers are present.
+		if ct := r.Header.Get("Content-Type"); ct != "application/grpc" {
+			t.Errorf("expected Content-Type application/grpc, got %q", ct)
+		}
+
+		// Read and discard the gRPC payload.
+		buf := make([]byte, 5)
+		r.Body.Read(buf)
+
+		// Set Grpc-Status as a regular response header (the checker
+		// falls back to resp.Header.Get when trailers are empty).
+		w.Header().Set("Grpc-Status", "0")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte{0, 0, 0, 0, 0})
+	})
+
+	server := &http.Server{Handler: mux}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	go server.Serve(listener)
+	defer server.Close()
+
+	time.Sleep(20 * time.Millisecond)
+
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("grpc-plain", listener.Addr().String())
+	check := &Check{
+		Type:    "grpc",
+		Timeout: 2 * time.Second,
+	}
+
+	result := checker.checkGRPC(b, check)
+	if !result.Healthy {
+		t.Errorf("checkGRPC (plain fallback) should be healthy, got error: %v", result.Error)
+	}
+}
+
+func TestChecker_checkGRPC_ConnectionRefused(t *testing.T) {
+	// Use a port that is not listening.
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	addr := listener.Addr().String()
+	listener.Close()
+
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("grpc-fail", addr)
+	check := &Check{
+		Type:    "grpc",
+		Timeout: 500 * time.Millisecond,
+	}
+
+	result := checker.checkGRPC(b, check)
+	if result.Healthy {
+		t.Error("checkGRPC on closed port should be unhealthy")
+	}
+	if result.Error == nil {
+		t.Error("expected non-nil error for connection refused")
+	}
+}
+
+func TestChecker_checkGRPC_BadGRPCStatus(t *testing.T) {
+	// Start an HTTP server that returns HTTP 200 but with gRPC status != 0.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/grpc.health.v1.Health/Check", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Grpc-Status", "14") // UNAVAILABLE
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte{0, 0, 0, 0, 0})
+	})
+
+	server := &http.Server{Handler: mux}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	go server.Serve(listener)
+	defer server.Close()
+
+	time.Sleep(20 * time.Millisecond)
+
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("grpc-bad-status", listener.Addr().String())
+	check := &Check{
+		Type:    "grpc",
+		Timeout: 2 * time.Second,
+	}
+
+	result := checker.checkGRPC(b, check)
+	if result.Healthy {
+		t.Error("checkGRPC with non-zero gRPC status should be unhealthy")
+	}
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "grpc health check returned status") {
+		t.Errorf("expected gRPC status error, got: %v", result.Error)
+	}
+}
+
+func TestChecker_checkGRPC_Non200HTTPStatus(t *testing.T) {
+	// Start an HTTP server that returns 503 without gRPC status.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/grpc.health.v1.Health/Check", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	})
+
+	server := &http.Server{Handler: mux}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	go server.Serve(listener)
+	defer server.Close()
+
+	time.Sleep(20 * time.Millisecond)
+
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("grpc-503", listener.Addr().String())
+	check := &Check{
+		Type:    "grpc",
+		Timeout: 2 * time.Second,
+	}
+
+	result := checker.checkGRPC(b, check)
+	if result.Healthy {
+		t.Error("checkGRPC with HTTP 503 should be unhealthy")
+	}
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "grpc health check HTTP status") {
+		t.Errorf("expected HTTP status error, got: %v", result.Error)
+	}
+}
+
+func TestChecker_UnknownCheckType(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	b := backend.NewBackend("unknown-type", listener.Addr().String())
+	check := &Check{
+		Type:               "unknown",
+		Interval:           50 * time.Millisecond,
+		Timeout:            100 * time.Millisecond,
+		HealthyThreshold:   1,
+		UnhealthyThreshold: 1,
+	}
+
+	if err := checker.Register(b, check); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Wait for the check loop to run and produce an unhealthy result.
+	time.Sleep(200 * time.Millisecond)
+
+	status := checker.GetStatus("unknown-type")
+	if status != StatusUnhealthy {
+		t.Errorf("unknown check type should result in unhealthy, got %v", status)
+	}
+
+	result := checker.GetResult("unknown-type")
+	if result == nil {
+		t.Fatal("expected result for unknown-type backend")
+	}
+	if result.Healthy {
+		t.Error("unknown check type result should not be healthy")
+	}
+	if result.Error == nil || !strings.Contains(result.Error.Error(), "unknown health check type") {
+		t.Errorf("expected 'unknown health check type' error, got: %v", result.Error)
+	}
+}
+
+func TestChecker_GRPCViaPerformCheck(t *testing.T) {
+	// Exercise the "grpc" branch in performCheck by registering a backend
+	// with type "grpc" against a non-listening address.
+	checker := NewChecker()
+	defer checker.Stop()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	addr := listener.Addr().String()
+	listener.Close()
+
+	b := backend.NewBackend("grpc-perform", addr)
+	check := &Check{
+		Type:               "grpc",
+		Interval:           50 * time.Millisecond,
+		Timeout:            200 * time.Millisecond,
+		HealthyThreshold:   1,
+		UnhealthyThreshold: 1,
+	}
+
+	if err := checker.Register(b, check); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	status := checker.GetStatus("grpc-perform")
+	if status != StatusUnhealthy {
+		t.Errorf("gRPC check against closed port should be unhealthy, got %v", status)
+	}
+}
+
+func TestChecker_CountHealthyUnhealthy_AfterChecks(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	// Start two TCP listeners: one healthy, one will be closed to become unhealthy.
+	healthyLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create healthy listener: %v", err)
+	}
+	defer healthyLn.Close()
+
+	unhealthyLn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create unhealthy listener: %v", err)
+	}
+
+	go func() {
+		for {
+			conn, err := healthyLn.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	go func() {
+		for {
+			conn, err := unhealthyLn.Accept()
+			if err != nil {
+				return
+			}
+			conn.Close()
+		}
+	}()
+
+	check := &Check{
+		Type:               "tcp",
+		Interval:           50 * time.Millisecond,
+		Timeout:            100 * time.Millisecond,
+		HealthyThreshold:   1,
+		UnhealthyThreshold: 1,
+	}
+
+	b1 := backend.NewBackend("healthy1", healthyLn.Addr().String())
+	b2 := backend.NewBackend("healthy2", healthyLn.Addr().String())
+	b3 := backend.NewBackend("unhealthy1", unhealthyLn.Addr().String())
+
+	if err := checker.Register(b1, check); err != nil {
+		t.Fatalf("Register b1: %v", err)
+	}
+	if err := checker.Register(b2, check); err != nil {
+		t.Fatalf("Register b2: %v", err)
+	}
+	if err := checker.Register(b3, check); err != nil {
+		t.Fatalf("Register b3: %v", err)
+	}
+
+	// Wait for checks to run.
+	time.Sleep(200 * time.Millisecond)
+
+	// All three should be healthy now.
+	healthyCount := checker.CountHealthy()
+	if healthyCount != 3 {
+		t.Errorf("CountHealthy = %d, want 3", healthyCount)
+	}
+
+	// Close one listener to make b3 unhealthy.
+	unhealthyLn.Close()
+	// Wait for b3 to transition to unhealthy (needs UnhealthyThreshold=1 failures).
+	time.Sleep(300 * time.Millisecond)
+
+	healthyCount = checker.CountHealthy()
+	if healthyCount != 2 {
+		t.Errorf("CountHealthy after closure = %d, want 2", healthyCount)
+	}
+	unhealthyCount := checker.CountUnhealthy()
+	if unhealthyCount != 1 {
+		t.Errorf("CountUnhealthy after closure = %d, want 1", unhealthyCount)
+	}
+}
+
+func TestChecker_checkGRPC_EmptyPayload(t *testing.T) {
+	// Verify the function correctly constructs the gRPC request payload.
+	// We start a server that echoes back the content-type and checks the payload.
+	mux := http.NewServeMux()
+	mux.HandleFunc("/grpc.health.v1.Health/Check", func(w http.ResponseWriter, r *http.Request) {
+		// Read the body to verify payload shape.
+		body := make([]byte, 5)
+		n, _ := r.Body.Read(body)
+		body = body[:n]
+
+		expected := []byte{0, 0, 0, 0, 0}
+		if !bytes.Equal(body, expected) {
+			t.Errorf("gRPC payload = %v, want %v", body, expected)
+		}
+
+		w.Header().Set("Grpc-Status", "0")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	server := &http.Server{Handler: mux}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	go server.Serve(listener)
+	defer server.Close()
+
+	time.Sleep(20 * time.Millisecond)
+
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("grpc-payload", listener.Addr().String())
+	check := &Check{
+		Type:    "grpc",
+		Timeout: 2 * time.Second,
+	}
+
+	result := checker.checkGRPC(b, check)
+	if !result.Healthy {
+		t.Errorf("checkGRPC with status 0 should be healthy, got error: %v", result.Error)
+	}
+}
+
+func TestChecker_checkHTTP_RequestCreationError(t *testing.T) {
+	checker := NewChecker()
+	defer checker.Stop()
+
+	b := backend.NewBackend("bad-url", "127.0.0.1:0")
+	// Use a path with a control character that will cause http.NewRequest to fail.
+	check := &Check{
+		Type:    "http",
+		Path:    string([]byte{0x00}), // null byte invalid in URL
+		Method:  "GET",
+		Timeout: 1 * time.Second,
+	}
+
+	result := checker.checkHTTP(b, check)
+	if result.Healthy {
+		t.Error("checkHTTP with invalid URL should not be healthy")
+	}
+	if result.Error == nil {
+		t.Error("expected error for invalid URL")
+	}
+}
 
 func ExampleChecker_Register() {
 	checker := NewChecker()

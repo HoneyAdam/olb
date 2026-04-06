@@ -1,8 +1,11 @@
 package l7
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -456,5 +459,278 @@ func TestShadowConfig(t *testing.T) {
 				t.Errorf("percentage = %v, want %v", sm.config.Percentage, tt.wantPct)
 			}
 		})
+	}
+}
+
+// ============================================================================
+// sendShadow - full coverage with live backend
+// ============================================================================
+
+func TestShadowManager_sendShadow_WithLiveBackend(t *testing.T) {
+	// Create a real HTTP server to receive the shadow request
+	var receivedHeaders http.Header
+	var receivedBody []byte
+	var receivedMethod string
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		receivedMethod = r.Method
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backendServer.Close()
+
+	config := ShadowConfig{
+		Enabled:     true,
+		Percentage:  100.0,
+		CopyHeaders: true,
+		CopyBody:    true,
+		Timeout:     2 * time.Second,
+	}
+	sm := NewShadowManager(config)
+
+	req := httptest.NewRequest(http.MethodPost, "/test?query=1", bytes.NewReader([]byte("original body content")))
+	req.Host = "example.com"
+	req.Header.Set("X-Custom-Header", "custom-value")
+	req.Header.Set("Authorization", "Bearer token123")
+
+	// Get the backend address from the test server
+	backendAddr := strings.TrimPrefix(backendServer.URL, "http://")
+
+	target := ShadowTarget{
+		Balancer:   balancer.NewRoundRobin(),
+		Backends:   []*backend.Backend{backend.NewBackend("shadow-backend", backendAddr)},
+		Percentage: 100.0,
+	}
+
+	sm.sendShadow(req, backendAddr, target)
+
+	// Wait a bit for the async request to complete
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify the shadow request was sent
+	if receivedMethod != http.MethodPost {
+		t.Errorf("shadow method = %q, want %q", receivedMethod, http.MethodPost)
+	}
+
+	// Verify shadow marker headers
+	if receivedHeaders.Get("X-OLB-Shadow") != "true" {
+		t.Error("expected X-OLB-Shadow header to be 'true'")
+	}
+	if receivedHeaders.Get("X-OLB-Shadow-Source") != "example.com" {
+		t.Error("expected X-OLB-Shadow-Source header to be 'example.com'")
+	}
+
+	// Verify custom headers were copied
+	if receivedHeaders.Get("X-Custom-Header") != "custom-value" {
+		t.Error("expected X-Custom-Header to be copied")
+	}
+
+	// Verify body was copied
+	if string(receivedBody) != "original body content" {
+		t.Errorf("shadow body = %q, want 'original body content'", string(receivedBody))
+	}
+}
+
+func TestShadowManager_sendShadow_WithCopyBodyDisabled(t *testing.T) {
+	var receivedBody []byte
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backendServer.Close()
+
+	config := ShadowConfig{
+		Enabled:     true,
+		Percentage:  100.0,
+		CopyHeaders: true,
+		CopyBody:    false, // Body copy disabled
+		Timeout:     2 * time.Second,
+	}
+	sm := NewShadowManager(config)
+
+	req := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader([]byte("body should not be copied")))
+	req.Host = "example.com"
+
+	backendAddr := strings.TrimPrefix(backendServer.URL, "http://")
+	target := ShadowTarget{
+		Balancer:   balancer.NewRoundRobin(),
+		Backends:   []*backend.Backend{backend.NewBackend("shadow-backend", backendAddr)},
+		Percentage: 100.0,
+	}
+
+	sm.sendShadow(req, backendAddr, target)
+	time.Sleep(200 * time.Millisecond)
+
+	// Body should be empty or nil since CopyBody is false
+	if string(receivedBody) == "body should not be copied" {
+		t.Error("body should NOT have been copied when CopyBody is false")
+	}
+}
+
+func TestShadowManager_sendShadow_WithCopyHeadersDisabled(t *testing.T) {
+	var receivedHeaders http.Header
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backendServer.Close()
+
+	config := ShadowConfig{
+		Enabled:     true,
+		Percentage:  100.0,
+		CopyHeaders: false, // Headers copy disabled
+		CopyBody:    false,
+		Timeout:     2 * time.Second,
+	}
+	sm := NewShadowManager(config)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Host = "example.com"
+	req.Header.Set("X-Custom-Header", "should-not-appear")
+
+	backendAddr := strings.TrimPrefix(backendServer.URL, "http://")
+	target := ShadowTarget{
+		Balancer:   balancer.NewRoundRobin(),
+		Backends:   []*backend.Backend{backend.NewBackend("shadow-backend", backendAddr)},
+		Percentage: 100.0,
+	}
+
+	sm.sendShadow(req, backendAddr, target)
+	time.Sleep(200 * time.Millisecond)
+
+	// Custom header should NOT be present since CopyHeaders is false
+	if receivedHeaders.Get("X-Custom-Header") == "should-not-appear" {
+		t.Error("X-Custom-Header should NOT have been copied when CopyHeaders is false")
+	}
+
+	// Shadow marker headers should still be present
+	if receivedHeaders.Get("X-OLB-Shadow") != "true" {
+		t.Error("X-OLB-Shadow should still be set")
+	}
+}
+
+func TestShadowManager_sendShadow_SkipsHopByHopHeaders(t *testing.T) {
+	var receivedHeaders http.Header
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backendServer.Close()
+
+	config := ShadowConfig{
+		Enabled:     true,
+		Percentage:  100.0,
+		CopyHeaders: true,
+		CopyBody:    false,
+		Timeout:     2 * time.Second,
+	}
+	sm := NewShadowManager(config)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Host = "example.com"
+	req.Header.Set("Keep-Alive", "timeout=5")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("X-Custom", "should-appear")
+
+	backendAddr := strings.TrimPrefix(backendServer.URL, "http://")
+	target := ShadowTarget{
+		Balancer:   balancer.NewRoundRobin(),
+		Backends:   []*backend.Backend{backend.NewBackend("shadow-backend", backendAddr)},
+		Percentage: 100.0,
+	}
+
+	sm.sendShadow(req, backendAddr, target)
+	time.Sleep(200 * time.Millisecond)
+
+	// Keep-Alive and Upgrade are hop-by-hop headers and should NOT be present
+	// Note: Connection header may be added by Go's HTTP client, so we don't test for it
+	if receivedHeaders.Get("Keep-Alive") != "" {
+		t.Error("Keep-Alive header should have been skipped")
+	}
+	if receivedHeaders.Get("Upgrade") != "" {
+		t.Error("Upgrade header should have been skipped")
+	}
+
+	// Custom header should be present
+	if receivedHeaders.Get("X-Custom") != "should-appear" {
+		t.Error("X-Custom header should have been copied")
+	}
+
+	// Shadow marker headers should always be present
+	if receivedHeaders.Get("X-OLB-Shadow") != "true" {
+		t.Error("X-OLB-Shadow header should be set")
+	}
+}
+
+func TestShadowManager_ShadowRequest_WithLiveBackend(t *testing.T) {
+	shadowReceived := 0
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		shadowReceived++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backendServer.Close()
+
+	config := ShadowConfig{
+		Enabled:     true,
+		Percentage:  100.0,
+		CopyHeaders: true,
+		CopyBody:    true,
+		Timeout:     2 * time.Second,
+	}
+	sm := NewShadowManager(config)
+
+	backendAddr := strings.TrimPrefix(backendServer.URL, "http://")
+	be := backend.NewBackend("shadow-live", backendAddr)
+	be.SetState(backend.StateUp)
+	sm.AddTarget(balancer.NewRoundRobin(), []*backend.Backend{be}, 100.0)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Host = "example.com"
+
+	sm.ShadowRequest(req)
+
+	// Wait for async shadow request
+	time.Sleep(200 * time.Millisecond)
+
+	if shadowReceived == 0 {
+		t.Error("expected shadow request to reach backend")
+	}
+}
+
+func TestShadowManager_sendShadow_EmptyURLScheme(t *testing.T) {
+	var receivedRequest bool
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedRequest = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer backendServer.Close()
+
+	config := ShadowConfig{
+		Enabled:     true,
+		Percentage:  100.0,
+		CopyHeaders: false,
+		CopyBody:    false,
+		Timeout:     2 * time.Second,
+	}
+	sm := NewShadowManager(config)
+
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Host = "example.com"
+	// URL.Scheme is empty by default in httptest.NewRequest
+
+	backendAddr := strings.TrimPrefix(backendServer.URL, "http://")
+	target := ShadowTarget{
+		Balancer:   balancer.NewRoundRobin(),
+		Backends:   []*backend.Backend{backend.NewBackend("shadow-backend", backendAddr)},
+		Percentage: 100.0,
+	}
+
+	sm.sendShadow(req, backendAddr, target)
+	time.Sleep(200 * time.Millisecond)
+
+	if !receivedRequest {
+		t.Error("expected shadow request to be sent even with empty URL scheme")
 	}
 }

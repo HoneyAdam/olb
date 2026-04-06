@@ -3,6 +3,7 @@ package l7
 import (
 	"bufio"
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"io"
 	"net"
@@ -737,5 +738,456 @@ func TestWebSocketProxy_NewWebSocketProxy(t *testing.T) {
 	}
 	if wsProxy.wsHandler == nil {
 		t.Error("wsHandler not initialized")
+	}
+}
+
+// ============================================================================
+// computeWebSocketAccept tests
+// ============================================================================
+
+func TestComputeWebSocketAccept(t *testing.T) {
+	// Test with the RFC 6455 example key
+	// From RFC 6455 Section 4.2.2:
+	// Key: "dGhlIHNhbXBsZSBub25jZQ=="
+	// Expected Accept: "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+	key := "dGhlIHNhbXBsZSBub25jZQ=="
+	accept := computeWebSocketAccept(key)
+
+	expected := "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+	if accept != expected {
+		t.Errorf("computeWebSocketAccept(%q) = %q, want %q", key, accept, expected)
+	}
+}
+
+func TestComputeWebSocketAccept_EmptyKey(t *testing.T) {
+	accept := computeWebSocketAccept("")
+	if accept == "" {
+		t.Error("computeWebSocketAccept('') should return non-empty result")
+	}
+	// Verify it's valid base64
+	decoded, err := base64.StdEncoding.DecodeString(accept)
+	if err != nil {
+		t.Errorf("result is not valid base64: %v", err)
+	}
+	// SHA-1 always produces 20 bytes
+	if len(decoded) != 20 {
+		t.Errorf("expected 20-byte SHA-1 hash, got %d bytes", len(decoded))
+	}
+}
+
+func TestComputeWebSocketAccept_VariousKeys(t *testing.T) {
+	keys := []string{
+		"dGhlIHNhbXBsZSBub25jZQ==",
+		"Xw==",
+		"test-key-12345",
+		"AAAAAAAAAAAAAAAA",
+	}
+	results := make(map[string]bool)
+	for _, key := range keys {
+		accept := computeWebSocketAccept(key)
+		if accept == "" {
+			t.Errorf("computeWebSocketAccept(%q) returned empty", key)
+		}
+		if results[accept] {
+			t.Errorf("duplicate accept value for different keys")
+		}
+		results[accept] = true
+	}
+}
+
+// ============================================================================
+// extractClientIP tests
+// ============================================================================
+
+func TestExtractClientIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		remoteAddr string
+		headers    map[string]string
+		expected   string
+	}{
+		{
+			name:       "from X-Forwarded-For",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "10.0.0.1"},
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "from X-Forwarded-For multiple",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "10.0.0.1, 10.0.0.2, 10.0.0.3"},
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "from X-Real-IP when no XFF",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{"X-Real-IP": "172.16.0.1"},
+			expected:   "172.16.0.1",
+		},
+		{
+			name:       "XFF takes precedence over X-Real-IP",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "10.0.0.1", "X-Real-IP": "172.16.0.1"},
+			expected:   "10.0.0.1",
+		},
+		{
+			name:       "from RemoteAddr fallback",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{},
+			expected:   "192.168.1.1",
+		},
+		{
+			name:       "RemoteAddr without port",
+			remoteAddr: "192.168.1.1",
+			headers:    map[string]string{},
+			expected:   "192.168.1.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			req.RemoteAddr = tt.remoteAddr
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+
+			result := extractClientIP(req)
+			if result != tt.expected {
+				t.Errorf("extractClientIP() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// writeUpgradeResponse tests
+// ============================================================================
+
+func TestWriteUpgradeResponse_NoAcceptHeader(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	// Create a pipe to write to
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	resp := &http.Response{
+		StatusCode: http.StatusSwitchingProtocols,
+		Header:     http.Header{},
+	}
+	// No Sec-WebSocket-Accept, no Upgrade, no Connection headers
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		err := handler.writeUpgradeResponse(client, resp, "dGhlIHNhbXBsZSBub25jZQ==")
+		if err != nil {
+			t.Errorf("writeUpgradeResponse error: %v", err)
+		}
+		client.Close()
+	}()
+
+	// Read the response from the other end
+	buf := make([]byte, 4096)
+	n, _ := server.Read(buf)
+	response := string(buf[:n])
+
+	<-done
+
+	// Should contain computed Sec-WebSocket-Accept
+	if !strings.Contains(response, "Sec-WebSocket-Accept: ") {
+		t.Error("expected Sec-WebSocket-Accept header in response")
+	}
+	// Should add Upgrade: websocket since backend didn't send it
+	if !strings.Contains(response, "Upgrade: websocket\r\n") {
+		t.Error("expected Upgrade: websocket header")
+	}
+	// Should add Connection: Upgrade since backend didn't send it
+	if !strings.Contains(response, "Connection: Upgrade\r\n") {
+		t.Error("expected Connection: Upgrade header")
+	}
+}
+
+func TestWriteUpgradeResponse_BackendHeadersForwarded(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	resp := &http.Response{
+		StatusCode: http.StatusSwitchingProtocols,
+		Header: http.Header{
+			"Sec-WebSocket-Accept":  []string{"s3pPLMBiTxaQ9kYGzzhZRbK+xOo="},
+			"Upgrade":               []string{"websocket"},
+			"Connection":            []string{"Upgrade"},
+			"Sec-WebSocket-Version": []string{"13"},
+		},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handler.writeUpgradeResponse(client, resp, "dGhlIHNhbXBsZSBub25jZQ==")
+		client.Close()
+	}()
+
+	buf := make([]byte, 4096)
+	n, _ := server.Read(buf)
+	response := string(buf[:n])
+	<-done
+
+	// Should forward backend's headers
+	if !strings.Contains(response, "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") {
+		t.Error("expected backend's Sec-WebSocket-Accept to be forwarded")
+	}
+	if !strings.Contains(response, "Sec-WebSocket-Version: 13") {
+		t.Error("expected Sec-WebSocket-Version header")
+	}
+	// Should NOT add duplicate Upgrade/Connection since backend provided them
+}
+
+// ============================================================================
+// HandleWebSocket - backend rejects upgrade (non-101 response)
+// ============================================================================
+
+func TestWebSocketHandler_HandleWebSocket_BackendRejectsUpgrade(t *testing.T) {
+	// Create a backend that returns 200 instead of 101
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		// Read the request
+		buf := make([]byte, 4096)
+		conn.Read(buf)
+		// Respond with 200 instead of 101
+		conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"))
+	}()
+
+	handler := NewWebSocketHandler(nil)
+
+	be := backend.NewBackend("ws-backend-reject", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	hijacker := &mockHijacker{
+		ResponseRecorder: httptest.NewRecorder(),
+		conn:             serverConn,
+	}
+
+	err = handler.HandleWebSocket(hijacker, req, be)
+	if err == nil {
+		t.Error("Expected error when backend rejects WebSocket upgrade")
+	}
+	if err != nil && !strings.Contains(err.Error(), "rejected WebSocket upgrade") {
+		t.Errorf("Expected 'rejected WebSocket upgrade' error, got: %v", err)
+	}
+}
+
+// ============================================================================
+// HandleWebSocket - response writer does not support hijacking
+// ============================================================================
+
+func TestWebSocketHandler_HandleWebSocket_NoHijackSupport(t *testing.T) {
+	// Create a backend that accepts connections
+	backendListener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create backend listener: %v", err)
+	}
+	defer backendListener.Close()
+
+	go func() {
+		conn, err := backendListener.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		conn.Read(buf)
+		response := "HTTP/1.1 101 Switching Protocols\r\n" +
+			"Upgrade: websocket\r\n" +
+			"Connection: Upgrade\r\n" +
+			"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n"
+		conn.Write([]byte(response))
+	}()
+
+	handler := NewWebSocketHandler(nil)
+
+	be := backend.NewBackend("ws-backend-nohijack", backendListener.Addr().String())
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/ws", nil)
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Version", "13")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	// Use regular ResponseRecorder which does NOT support Hijack
+	rec := httptest.NewRecorder()
+
+	err = handler.HandleWebSocket(rec, req, be)
+	if err == nil {
+		t.Error("Expected error when response writer does not support hijacking")
+	}
+	if err != nil && !strings.Contains(err.Error(), "hijacking") {
+		t.Errorf("Expected 'hijacking' error, got: %v", err)
+	}
+}
+
+// ============================================================================
+// writeUpgradeRequest tests
+// ============================================================================
+
+func TestWriteUpgradeRequest_WithXForwardedFor(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	be := backend.NewBackend("backend-1", "127.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/ws?token=abc", nil)
+	req.Host = "example.com"
+	req.Header.Set("Connection", "Upgrade")
+	req.Header.Set("Upgrade", "websocket")
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+	req.RemoteAddr = "192.168.1.1:12345"
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		err := handler.writeUpgradeRequest(client, req, be)
+		if err != nil {
+			t.Errorf("writeUpgradeRequest error: %v", err)
+		}
+		client.Close()
+	}()
+
+	buf := make([]byte, 4096)
+	n, _ := server.Read(buf)
+	request := string(buf[:n])
+	<-done
+
+	// Should append to existing X-Forwarded-For - the writeUpgradeRequest
+	// forwards all original headers plus adds its own X-Forwarded-For line
+	if !strings.Contains(request, "X-Forwarded-For: 10.0.0.1, 10.0.0.1") {
+		t.Errorf("expected appended X-Forwarded-For line, got: %s", request)
+	}
+}
+
+func TestWriteUpgradeRequest_EmptyPath(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	client, server := net.Pipe()
+	defer client.Close()
+	defer server.Close()
+
+	be := backend.NewBackend("backend-1", "127.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/", nil)
+	req.URL.RawQuery = ""
+	req.Host = "example.com"
+	req.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		handler.writeUpgradeRequest(client, req, be)
+		client.Close()
+	}()
+
+	buf := make([]byte, 4096)
+	n, _ := server.Read(buf)
+	request := string(buf[:n])
+	<-done
+
+	// Should use path /
+	if !strings.Contains(request, "GET / HTTP/1.1") {
+		t.Errorf("expected path /, got request: %s", request)
+	}
+}
+
+// ============================================================================
+// isWSHopByHop tests
+// ============================================================================
+
+func TestIsWSHopByHop(t *testing.T) {
+	tests := []struct {
+		header   string
+		expected bool
+	}{
+		{"Connection", true},
+		{"Keep-Alive", true},
+		{"Proxy-Authenticate", true},
+		{"Proxy-Authorization", true},
+
+		{"Trailers", true},
+		{"Transfer-Encoding", true},
+		{"Content-Length", true},
+		{"Content-Type", false},
+		{"Accept", false},
+		{"Sec-WebSocket-Key", false},
+		{"Upgrade", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.header, func(t *testing.T) {
+			result := isWSHopByHop(tt.header)
+			if result != tt.expected {
+				t.Errorf("isWSHopByHop(%q) = %v, want %v", tt.header, result, tt.expected)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// copyWithIdleTimeout - zero timeout uses default
+// ============================================================================
+
+func TestCopyWithIdleTimeout_ZeroTimeout(t *testing.T) {
+	handler := NewWebSocketHandler(nil)
+
+	// copyWithIdleTimeout reads from src and writes to dst.
+	// Use two pairs: readEnd/writeEnd for the copy function, plus a reader for dst.
+	readEnd, writeEnd := net.Pipe()
+	defer readEnd.Close()
+	defer writeEnd.Close()
+
+	// Write data to writeEnd, then close. The copy function reads from readEnd.
+	go func() {
+		writeEnd.Write([]byte("hello"))
+		writeEnd.Close()
+	}()
+
+	// Collect output from a separate pipe pair for dst.
+	dstRead, dstWrite := net.Pipe()
+	defer dstRead.Close()
+	defer dstWrite.Close()
+
+	go func() {
+		dstWrite.Close() // close write side so copy returns quickly
+	}()
+
+	err := handler.copyWithIdleTimeout(dstWrite, readEnd, 0)
+	if err != nil {
+		t.Logf("copyWithIdleTimeout returned: %v (acceptable)", err)
 	}
 }

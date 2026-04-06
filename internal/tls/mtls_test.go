@@ -10,6 +10,8 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1136,4 +1138,268 @@ func TestMTLSManager_BuildServerTLSConfig_InvalidConfig(t *testing.T) {
 			t.Error("expected error for invalid client CAs")
 		}
 	})
+}
+
+// --- Additional coverage tests for mtls.go ---
+
+func TestToTLSClientAuthType_DefaultCase(t *testing.T) {
+	// Test the default case in the switch (unknown policy value)
+	policy := ClientAuthPolicy(99)
+	result := policy.ToTLSClientAuthType()
+	if result != tls.NoClientCert {
+		t.Errorf("default case should return NoClientCert, got %v", result)
+	}
+}
+
+func TestCAPool_AddCert_NoCommonName(t *testing.T) {
+	pool := NewCAPool()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			// No CommonName, but has Organization
+			Organization: []string{"Test Org"},
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse cert: %v", err)
+	}
+
+	pool.AddCert(cert)
+
+	if pool.CertCount() != 1 {
+		t.Errorf("expected 1 cert, got %d", pool.CertCount())
+	}
+	subjects := pool.Subjects()
+	if len(subjects) != 1 || subjects[0] != "Test Org" {
+		t.Errorf("expected subject 'Test Org', got %v", subjects)
+	}
+}
+
+func TestCAPool_AddCert_NoCommonNameNoOrganization(t *testing.T) {
+	pool := NewCAPool()
+
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{
+			// No CommonName, no Organization
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse cert: %v", err)
+	}
+
+	pool.AddCert(cert)
+
+	if pool.CertCount() != 1 {
+		t.Errorf("expected 1 cert, got %d", pool.CertCount())
+	}
+	subjects := pool.Subjects()
+	if len(subjects) != 0 {
+		t.Errorf("expected no subjects, got %v", subjects)
+	}
+}
+
+func TestGetClientCertInfo_WithIPAddressesAndURIs(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test"},
+			CommonName:   "full-cert.example.com",
+		},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(24 * time.Hour),
+		DNSNames:    []string{"full-cert.example.com"},
+		IPAddresses: []net.IP{net.ParseIP("192.168.1.1"), net.ParseIP("::1")},
+		URIs:        []*url.URL{{Scheme: "spiffe", Host: "example.com", Path: "/workload"}},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+	cert, err := x509.ParseCertificate(certDER)
+	if err != nil {
+		t.Fatalf("failed to parse cert: %v", err)
+	}
+
+	info := GetClientCertInfo(cert)
+	if info == nil {
+		t.Fatal("expected non-nil info")
+	}
+
+	if ips, ok := info["ip_addresses"].([]net.IP); !ok || len(ips) != 2 {
+		t.Errorf("expected 2 IP addresses, got %v", info["ip_addresses"])
+	}
+
+	if uris, ok := info["uris"].([]string); !ok || len(uris) != 1 {
+		t.Errorf("expected 1 URI, got %v", info["uris"])
+	}
+}
+
+func TestBuildClientTLSConfig_ValidationError(t *testing.T) {
+	config := &MTLSConfig{
+		Enabled:  true,
+		CertFile: "/nonexistent/cert.pem",
+		// KeyFile missing but CertFile is set - should fail validation
+	}
+	_, err := BuildClientTLSConfig(config)
+	if err == nil {
+		t.Error("expected validation error")
+	}
+}
+
+func TestLoadCAPool_WithNonCACert(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a non-CA certificate
+	certPEM, _, _, _, _ := generateTestCertWithCA([]string{"Not a CA"}, false, nil, nil)
+	certFile := filepath.Join(tmpDir, "nonca.pem")
+	os.WriteFile(certFile, certPEM, 0644)
+
+	// Loading a non-CA cert should still work (just a warning in the code)
+	pool, err := LoadCAPool([]string{certFile})
+	if err != nil {
+		t.Fatalf("LoadCAPool should succeed even with non-CA cert: %v", err)
+	}
+	if pool.CertCount() != 1 {
+		t.Errorf("expected 1 cert, got %d", pool.CertCount())
+	}
+}
+
+func TestLoadCADirectory_WithCertExtension(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	caPEM, _, _, _, _ := generateTestCertWithCA([]string{"Test CA"}, true, nil, nil)
+	// Use .cert extension
+	os.WriteFile(filepath.Join(tmpDir, "ca.cert"), caPEM, 0644)
+
+	pool := NewCAPool()
+	err := loadCADirectory(pool, tmpDir)
+	if err != nil {
+		t.Fatalf("loadCADirectory failed: %v", err)
+	}
+	if pool.CertCount() != 1 {
+		t.Errorf("expected 1 cert from .cert file, got %d", pool.CertCount())
+	}
+}
+
+func TestLoadCADirectory_WithInvalidCert(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write a file with .pem extension but invalid content
+	os.WriteFile(filepath.Join(tmpDir, "invalid.pem"), []byte("not a cert"), 0644)
+
+	pool := NewCAPool()
+	// Should not fail; invalid certs are skipped
+	err := loadCADirectory(pool, tmpDir)
+	if err != nil {
+		t.Fatalf("loadCADirectory should skip invalid certs: %v", err)
+	}
+	if pool.CertCount() != 0 {
+		t.Errorf("expected 0 certs, got %d", pool.CertCount())
+	}
+}
+
+func TestLoadCAPool_NonExistentDir(t *testing.T) {
+	_, err := LoadCAPool([]string{"/nonexistent/directory"})
+	if err == nil {
+		t.Error("expected error for non-existent path")
+	}
+}
+
+func TestVerifyClientCert_WithDepthLimit(t *testing.T) {
+	// Create root CA
+	_, _, rootCert, rootKey, _ := generateTestCertWithCA([]string{"Root CA"}, true, nil, nil)
+
+	// Create client cert signed directly by root
+	_, _, clientCert, _, _ := generateTestCertWithCA([]string{"client.example.com"}, false, rootCert, rootKey)
+
+	// Create root pool
+	rootPool := x509.NewCertPool()
+	rootPool.AddCert(rootCert)
+
+	t.Run("depth 0 means unlimited", func(t *testing.T) {
+		err := VerifyClientCert(clientCert, rootPool, 0)
+		if err != nil {
+			t.Errorf("should succeed with depth 0 (unlimited): %v", err)
+		}
+	})
+
+	t.Run("depth 1 passes for direct chain", func(t *testing.T) {
+		err := VerifyClientCert(clientCert, rootPool, 1)
+		if err != nil {
+			t.Errorf("should succeed: client -> root (2 certs, depth+1=2): %v", err)
+		}
+	})
+}
+
+func TestVerifyClientCertWithIntermediates_NilCert(t *testing.T) {
+	caPool := x509.NewCertPool()
+	err := VerifyClientCertWithIntermediates(nil, nil, caPool, 0)
+	if err == nil {
+		t.Error("expected error for nil certificate")
+	}
+}
+
+func TestLoadCAPool_NoValidCertsInDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a directory with only non-cert files
+	os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("not a cert"), 0644)
+	os.WriteFile(filepath.Join(tmpDir, "data.json"), []byte("{}"), 0644)
+
+	_, err := LoadCAPool([]string{tmpDir})
+	if err == nil {
+		t.Error("expected error when no valid certs found in directory")
+	}
+}
+
+func TestParsePEMCerts_InvalidDER(t *testing.T) {
+	// Create a PEM block with invalid DER content
+	data := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: []byte("not valid DER"),
+	})
+	_, err := parsePEMCerts(data)
+	if err == nil {
+		t.Error("expected error for invalid DER in certificate PEM")
+	}
 }

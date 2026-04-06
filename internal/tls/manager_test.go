@@ -1108,3 +1108,369 @@ func TestGetCertificateCallback_NoMatch(t *testing.T) {
 		t.Error("expected error when no certificate matches")
 	}
 }
+
+// --- Additional coverage tests for BuildTLSConfig ---
+
+func TestBuildTLSConfig_MaxVersion(t *testing.T) {
+	config, err := BuildTLSConfig("1.2", "1.3", nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if config.MinVersion != tls.VersionTLS12 {
+		t.Errorf("MinVersion = %v, want TLS12", config.MinVersion)
+	}
+	if config.MaxVersion != tls.VersionTLS13 {
+		t.Errorf("MaxVersion = %v, want TLS13", config.MaxVersion)
+	}
+}
+
+func TestBuildTLSConfig_InvalidMaxVersion(t *testing.T) {
+	_, err := BuildTLSConfig("", "9.9", nil, false)
+	if err == nil {
+		t.Error("expected error for invalid max version")
+	}
+}
+
+func TestBuildTLSConfig_AllCipherSuites(t *testing.T) {
+	suites := []string{
+		"TLS_AES_128_GCM_SHA256",
+		"TLS_AES_256_GCM_SHA384",
+		"TLS_CHACHA20_POLY1305_SHA256",
+		"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+		"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+		"TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+		"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+		"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305",
+		"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305",
+		"TLS_RSA_WITH_AES_128_GCM_SHA256",
+		"TLS_RSA_WITH_AES_256_GCM_SHA384",
+	}
+	config, err := BuildTLSConfig("1.2", "1.3", suites, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(config.CipherSuites) != len(suites) {
+		t.Errorf("expected %d cipher suites, got %d", len(suites), len(config.CipherSuites))
+	}
+	if !config.PreferServerCipherSuites {
+		t.Error("expected PreferServerCipherSuites to be true")
+	}
+}
+
+func TestBuildTLSConfig_EmptyVersions(t *testing.T) {
+	config, err := BuildTLSConfig("", "", nil, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if config.MinVersion != tls.VersionTLS12 {
+		t.Errorf("default MinVersion = %v, want TLS12", config.MinVersion)
+	}
+	if config.MaxVersion != 0 {
+		t.Errorf("default MaxVersion = %v, want 0", config.MaxVersion)
+	}
+	if len(config.CipherSuites) != 0 {
+		t.Errorf("expected no cipher suites, got %d", len(config.CipherSuites))
+	}
+}
+
+func TestBuildTLSConfig_TLSVersionAliases(t *testing.T) {
+	tests := []struct {
+		name    string
+		version string
+		want    uint16
+	}{
+		{"tls1.0", "tls1.0", tls.VersionTLS10},
+		{"tls1.1", "tls1.1", tls.VersionTLS11},
+		{"tls1.2", "tls1.2", tls.VersionTLS12},
+		{"tls1.3", "tls1.3", tls.VersionTLS13},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			config, err := BuildTLSConfig(tt.version, "", nil, false)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if config.MinVersion != tt.want {
+				t.Errorf("MinVersion = %v, want %v", config.MinVersion, tt.want)
+			}
+		})
+	}
+}
+
+// --- Additional coverage for LoadCertificateFromPEM ---
+
+func TestLoadCertificateFromPEM_WithCommonName(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test"},
+			CommonName:   "common-name.example.com",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"dns.example.com"},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyBytes, _ := x509.MarshalECPrivateKey(priv)
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+
+	m := NewManager()
+	cert, err := m.LoadCertificateFromPEM(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("failed to load certificate: %v", err)
+	}
+
+	// CommonName + DNSNames should both be present
+	if len(cert.Names) != 2 {
+		t.Errorf("expected 2 names, got %d: %v", len(cert.Names), cert.Names)
+	}
+	if cert.Names[0] != "common-name.example.com" {
+		t.Errorf("first name should be CommonName, got %s", cert.Names[0])
+	}
+}
+
+func TestLoadCertificateFromPEM_NearlyExpired(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test"},
+		},
+		NotBefore:             time.Now().Add(-24 * time.Hour),
+		NotAfter:              time.Now().Add(15 * 24 * time.Hour), // 15 days - less than 30
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"nearly-expired.com"},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyBytes, _ := x509.MarshalECPrivateKey(priv)
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+
+	m := NewManager()
+	cert, err := m.LoadCertificateFromPEM(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("failed to load nearly-expired certificate: %v", err)
+	}
+	if cert == nil {
+		t.Fatal("expected non-nil certificate")
+	}
+}
+
+func TestLoadCertificateFromPEM_MultipleSANs(t *testing.T) {
+	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("failed to generate key: %v", err)
+	}
+
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"Test"},
+			CommonName:   "primary.example.com",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"secondary.example.com", "*.wildcard.example.com"},
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &priv.PublicKey, priv)
+	if err != nil {
+		t.Fatalf("failed to create cert: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	keyBytes, _ := x509.MarshalECPrivateKey(priv)
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyBytes})
+
+	m := NewManager()
+	cert, err := m.LoadCertificateFromPEM(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("failed to load certificate: %v", err)
+	}
+
+	if !cert.IsWildcard {
+		t.Error("expected wildcard certificate since one SAN is a wildcard")
+	}
+	if len(cert.Names) != 3 {
+		t.Errorf("expected 3 names (CN + 2 SANs), got %d: %v", len(cert.Names), cert.Names)
+	}
+}
+
+// --- Additional coverage for LoadCertificate error paths ---
+
+func TestLoadCertificate_KeyFileReadError(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	certPEM, _, err := generateTestCert([]string{"keytest.com"}, false)
+	if err != nil {
+		t.Fatalf("failed to generate test cert: %v", err)
+	}
+
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		t.Fatalf("failed to write cert file: %v", err)
+	}
+
+	m := NewManager()
+	_, err = m.LoadCertificate(certFile, filepath.Join(tmpDir, "nonexistent.key"))
+	if err == nil {
+		t.Error("expected error for non-existent key file")
+	}
+}
+
+// --- Additional coverage for ReloadCertificates error path ---
+
+func TestReloadCertificates_InvalidCertFile(t *testing.T) {
+	m := NewManager()
+
+	err := m.ReloadCertificates([]CertConfig{
+		{CertFile: "/nonexistent/cert.pem", KeyFile: "/nonexistent/key.pem", IsDefault: true},
+	})
+	if err == nil {
+		t.Error("expected error for non-existent cert file")
+	}
+}
+
+// --- Additional coverage for LoadCertificatesFromDirectory ---
+
+func TestLoadCertificatesFromDirectory_PEMExtension(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	certPEM, keyPEM, err := generateTestCert([]string{"pemtest.com"}, false)
+	if err != nil {
+		t.Fatalf("failed to generate test cert: %v", err)
+	}
+
+	certFile := filepath.Join(tmpDir, "server.pem")
+	keyFile := filepath.Join(tmpDir, "server.key")
+
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		t.Fatalf("failed to write cert file: %v", err)
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+		t.Fatalf("failed to write key file: %v", err)
+	}
+
+	m := NewManager()
+	err = m.LoadCertificatesFromDirectory(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to load certificates from directory: %v", err)
+	}
+
+	result := m.GetCertificate("pemtest.com")
+	if result == nil {
+		t.Error("expected to find certificate with .pem extension")
+	}
+}
+
+func TestLoadCertificatesFromDirectory_CertExtension(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	certPEM, keyPEM, err := generateTestCert([]string{"certext.com"}, false)
+	if err != nil {
+		t.Fatalf("failed to generate test cert: %v", err)
+	}
+
+	certFile := filepath.Join(tmpDir, "server.cert")
+	keyFile := filepath.Join(tmpDir, "server.key")
+
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		t.Fatalf("failed to write cert file: %v", err)
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+		t.Fatalf("failed to write key file: %v", err)
+	}
+
+	m := NewManager()
+	err = m.LoadCertificatesFromDirectory(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to load certificates from directory: %v", err)
+	}
+
+	result := m.GetCertificate("certext.com")
+	if result == nil {
+		t.Error("expected to find certificate with .cert extension")
+	}
+}
+
+func TestLoadCertificatesFromDirectory_FallbackKeyPath(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	certPEM, keyPEM, err := generateTestCert([]string{"fallback.com"}, false)
+	if err != nil {
+		t.Fatalf("failed to generate test cert: %v", err)
+	}
+
+	// Write cert as "cert.crt" and key as "cert.crt.key" (fallback pattern: name+".key")
+	certFile := filepath.Join(tmpDir, "cert.crt")
+	keyFile := filepath.Join(tmpDir, "cert.crt.key")
+
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		t.Fatalf("failed to write cert file: %v", err)
+	}
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+		t.Fatalf("failed to write key file: %v", err)
+	}
+
+	m := NewManager()
+	err = m.LoadCertificatesFromDirectory(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to load certificates from directory: %v", err)
+	}
+
+	result := m.GetCertificate("fallback.com")
+	if result == nil {
+		t.Error("expected to find certificate using fallback key path pattern")
+	}
+}
+
+func TestLoadCertificatesFromDirectory_NonExistentDir(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := NewManager()
+	err := m.LoadCertificatesFromDirectory(filepath.Join(tmpDir, "nonexistent", "subdir"))
+	if err == nil {
+		t.Error("expected error for non-existent directory")
+	}
+}
+
+func TestLoadCertificatesFromDirectory_InvalidCertContent(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write invalid cert content
+	certFile := filepath.Join(tmpDir, "bad.crt")
+	keyFile := filepath.Join(tmpDir, "bad.key")
+	os.WriteFile(certFile, []byte("not a cert"), 0644)
+	os.WriteFile(keyFile, []byte("not a key"), 0600)
+
+	m := NewManager()
+	err := m.LoadCertificatesFromDirectory(tmpDir)
+	if err == nil {
+		t.Error("expected error for invalid certificate content")
+	}
+}

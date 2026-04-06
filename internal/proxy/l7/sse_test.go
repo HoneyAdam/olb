@@ -1,14 +1,19 @@
 package l7
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/openloadbalancer/olb/internal/backend"
+	"github.com/openloadbalancer/olb/internal/balancer"
+	"github.com/openloadbalancer/olb/internal/router"
 )
 
 func TestIsSSERequest(t *testing.T) {
@@ -751,5 +756,353 @@ func TestSSEHandler_streamSSEResponse_NoFlusher(t *testing.T) {
 	body := rec.Body.String()
 	if body != sseData {
 		t.Errorf("Body = %q, want %q", body, sseData)
+	}
+}
+
+// ============================================================================
+// streamSSEResponseWithContext - context cancellation
+// ============================================================================
+
+func TestSSEHandler_streamSSEResponseWithContext_ContextCancelled(t *testing.T) {
+	handler := NewSSEHandler(&SSEConfig{
+		EnableSSE:   true,
+		IdleTimeout: 5 * time.Second,
+	})
+
+	// Create an SSE response that blocks forever (never sends data)
+	reader, writer := io.Pipe()
+	defer writer.Close()
+
+	resp := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(reader),
+	}
+
+	rec := &mockFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	be := backend.NewBackend("sse-backend-ctx", "127.0.0.1:8080")
+
+	// Create a context that we cancel shortly
+	ctx, cancel := context.WithCancel(context.Background())
+	req, _ := http.NewRequestWithContext(ctx, "GET", "/events", nil)
+
+	// Cancel context after a short delay
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	err := handler.streamSSEResponseWithContext(rec, req, resp, be)
+	if err == nil {
+		t.Error("Expected error when context is cancelled")
+	}
+	if err != nil && err != context.Canceled {
+		t.Errorf("Expected context.Canceled, got: %v", err)
+	}
+}
+
+// ============================================================================
+// streamSSEResponseWithContext - timeout with keepalive
+// ============================================================================
+
+func TestSSEHandler_streamSSEResponseWithContext_IdleTimeout(t *testing.T) {
+	handler := NewSSEHandler(&SSEConfig{
+		EnableSSE:   true,
+		IdleTimeout: 100 * time.Millisecond,
+	})
+
+	// Create a slow reader - pipe that sends data only after a delay
+	reader, writer := io.Pipe()
+	defer reader.Close()
+
+	// Write the first line, then stall
+	go func() {
+		writer.Write([]byte("data: first\n\n"))
+		// Wait long enough to trigger idle timeout
+		time.Sleep(300 * time.Millisecond)
+		writer.Write([]byte("data: second\n\n"))
+		writer.Close()
+	}()
+
+	resp := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(reader),
+	}
+
+	rec := &mockFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	be := backend.NewBackend("sse-backend-timeout", "127.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/events", nil)
+
+	err := handler.streamSSEResponseWithContext(rec, req, resp, be)
+	// Should complete successfully after keepalive + data
+	if err != nil {
+		t.Logf("streamSSEResponseWithContext returned: %v (may be expected)", err)
+	}
+
+	body := rec.Body.String()
+	// Should have received at least the first event
+	if !strings.Contains(body, "data: first") {
+		t.Errorf("Expected body to contain 'data: first', got: %q", body)
+	}
+}
+
+// ============================================================================
+// readLineWithTimeout - timeout path
+// ============================================================================
+
+func TestSSEHandler_readLineWithTimeout_TriggersTimeout(t *testing.T) {
+	handler := NewSSEHandler(&SSEConfig{
+		IdleTimeout: 50 * time.Millisecond,
+	})
+
+	// Create a reader that never delivers data
+	reader, _ := io.Pipe()
+	defer reader.Close()
+	bufReader := bufio.NewReader(reader)
+
+	cancelCalled := false
+	line, err := handler.readLineWithTimeout(bufReader, 50*time.Millisecond, func() {
+		cancelCalled = true
+	})
+
+	if err == nil {
+		t.Error("Expected timeout error from readLineWithTimeout")
+	}
+	if line != nil {
+		t.Errorf("Expected nil line on timeout, got: %q", string(line))
+	}
+	// The cancel callback should have been called
+	if !cancelCalled {
+		t.Error("Expected cancel callback to be called on timeout")
+	}
+}
+
+func TestSSEHandler_readLineWithTimeout_NoTimeout(t *testing.T) {
+	handler := NewSSEHandler(nil)
+
+	data := "data: hello\n\n"
+	bufReader := bufio.NewReader(bytes.NewReader([]byte(data)))
+
+	line, err := handler.readLineWithTimeout(bufReader, 0, nil)
+	if err != nil {
+		t.Errorf("readLineWithTimeout error: %v", err)
+	}
+	if string(line) != "data: hello\n" {
+		t.Errorf("line = %q, want 'data: hello\\n'", string(line))
+	}
+}
+
+// ============================================================================
+// ParseSSEEvent - field without colon (no value)
+// ============================================================================
+
+func TestParseSSEEvent_FieldWithoutColon(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		wantEvent *SSEEvent
+	}{
+		{
+			name:      "field 'event' with no value",
+			input:     "event\ndata: hello\n\n",
+			wantEvent: &SSEEvent{Event: "", Data: []byte("hello")},
+		},
+		{
+			name:      "field 'data' with no value",
+			input:     "data\n\n",
+			wantEvent: &SSEEvent{Data: []byte("")},
+		},
+		{
+			name:      "field 'id' with no value",
+			input:     "id\ndata: hello\n\n",
+			wantEvent: &SSEEvent{ID: "", Data: []byte("hello")},
+		},
+		{
+			name:      "field 'retry' with no value",
+			input:     "retry\ndata: hello\n\n",
+			wantEvent: &SSEEvent{Retry: 0, Data: []byte("hello")},
+		},
+		{
+			name:      "unknown field with no value",
+			input:     "unknowndata: hello\n\n",
+			wantEvent: &SSEEvent{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event, err := ParseSSEEvent([]byte(tt.input))
+			if err != nil {
+				t.Fatalf("ParseSSEEvent error: %v", err)
+			}
+			if event.ID != tt.wantEvent.ID {
+				t.Errorf("ID = %q, want %q", event.ID, tt.wantEvent.ID)
+			}
+			if event.Event != tt.wantEvent.Event {
+				t.Errorf("Event = %q, want %q", event.Event, tt.wantEvent.Event)
+			}
+			if string(event.Data) != string(tt.wantEvent.Data) {
+				t.Errorf("Data = %q, want %q", string(event.Data), string(tt.wantEvent.Data))
+			}
+			if event.Retry != tt.wantEvent.Retry {
+				t.Errorf("Retry = %d, want %d", event.Retry, tt.wantEvent.Retry)
+			}
+		})
+	}
+}
+
+// ============================================================================
+// SSEProxy.ServeHTTP - success path with actual SSE backend
+// ============================================================================
+
+func TestSSEProxy_ServeHTTP_SSESuccessPath(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	// Create a real SSE backend server
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: hello from SSE\n\n"))
+	}))
+	defer backendServer.Close()
+
+	backendAddr := backendServer.Listener.Addr().String()
+
+	pool := backend.NewPool("sse-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("sse-backend-1", backendAddr)
+	b.SetState(backend.StateUp)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "sse-route",
+		Path:        "/events",
+		BackendPool: "sse-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	sseProxy := NewSSEProxy(proxy, DefaultSSEConfig())
+
+	// Make SSE request
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rec := httptest.NewRecorder()
+
+	sseProxy.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "data: hello from SSE") {
+		t.Errorf("expected body to contain SSE data, got: %q", body)
+	}
+}
+
+// ============================================================================
+// SSEProxy.ServeHTTP - SSE request no route
+// ============================================================================
+
+func TestSSEProxy_ServeHTTP_SSE_NoRoute(t *testing.T) {
+	proxy, _, _ := setupTestProxy(t)
+	sseProxy := NewSSEProxy(proxy, DefaultSSEConfig())
+
+	req := httptest.NewRequest("GET", "/nonexistent", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rec := httptest.NewRecorder()
+
+	sseProxy.ServeHTTP(rec, req)
+
+	if rec.Code == 200 {
+		t.Error("Expected non-200 response for SSE request with no route")
+	}
+}
+
+// ============================================================================
+// SSEProxy.ServeHTTP - SSE request pool not found
+// ============================================================================
+
+func TestSSEProxy_ServeHTTP_SSE_PoolNotFound(t *testing.T) {
+	proxy, _, routerInstance := setupTestProxy(t)
+
+	// Add route pointing to non-existent pool
+	route := &router.Route{
+		Name:        "sse-route",
+		Path:        "/events",
+		BackendPool: "nonexistent-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	sseProxy := NewSSEProxy(proxy, DefaultSSEConfig())
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rec := httptest.NewRecorder()
+
+	sseProxy.ServeHTTP(rec, req)
+
+	if rec.Code == 200 {
+		t.Error("Expected non-200 response when pool not found")
+	}
+}
+
+// ============================================================================
+// SSEProxy.ServeHTTP - SSE request no healthy backends
+// ============================================================================
+
+func TestSSEProxy_ServeHTTP_SSE_NoHealthyBackends(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	pool := backend.NewPool("sse-pool", "round_robin")
+	pool.SetBalancer(balancer.NewRoundRobin())
+	b := backend.NewBackend("sse-backend-down", "127.0.0.1:1")
+	b.SetState(backend.StateDown)
+	if err := pool.AddBackend(b); err != nil {
+		t.Fatalf("failed to add backend: %v", err)
+	}
+	if err := poolManager.AddPool(pool); err != nil {
+		t.Fatalf("failed to add pool: %v", err)
+	}
+
+	route := &router.Route{
+		Name:        "sse-route",
+		Path:        "/events",
+		BackendPool: "sse-pool",
+	}
+	if err := routerInstance.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	sseProxy := NewSSEProxy(proxy, DefaultSSEConfig())
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rec := httptest.NewRecorder()
+
+	sseProxy.ServeHTTP(rec, req)
+
+	if rec.Code == 200 {
+		t.Error("Expected non-200 response when no healthy backends")
 	}
 }

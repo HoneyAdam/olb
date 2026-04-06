@@ -564,3 +564,60 @@ drainLoop:
 		t.Log("Remove event not found in channel (may have been dropped or sent before test)")
 	}
 }
+
+func TestStaticProvider_FactoryRegistration(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeStatic,
+		Name:    "factory-test",
+		Options: map[string]string{"addresses": "192.168.1.1:8080"},
+	}
+
+	provider, err := CreateProvider(config)
+	if err != nil {
+		t.Fatalf("CreateProvider error: %v", err)
+	}
+
+	if provider.Type() != ProviderTypeStatic {
+		t.Errorf("Type() = %q, want static", provider.Type())
+	}
+	if provider.Name() != "factory-test" {
+		t.Errorf("Name() = %q, want factory-test", provider.Name())
+	}
+
+	// Verify services are created on Start
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := provider.Start(ctx); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+	defer provider.Stop()
+
+	services := provider.Services()
+	if len(services) != 1 {
+		t.Errorf("Expected 1 service, got %d", len(services))
+	}
+}
+
+func TestStaticProvider_FactoryRegistration_FileOption(t *testing.T) {
+	tempDir := t.TempDir()
+	configPath := filepath.Join(tempDir, "services.json")
+	content := `{"services": [{"id": "svc-1", "address": "10.0.0.1", "port": 80}]}`
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to write file: %v", err)
+	}
+
+	config := &ProviderConfig{
+		Type:    ProviderTypeStatic,
+		Name:    "file-factory-test",
+		Options: map[string]string{"file": configPath, "format": "json"},
+	}
+
+	provider, err := CreateProvider(config)
+	if err != nil {
+		t.Fatalf("CreateProvider error: %v", err)
+	}
+
+	if provider.Type() != ProviderTypeStatic {
+		t.Errorf("Type() = %q, want static", provider.Type())
+	}
+}
