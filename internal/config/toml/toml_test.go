@@ -2063,5 +2063,603 @@ func TestInlineTable_Empty(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// 39. Lexer peek() negative offset branch
+// ---------------------------------------------------------------------------
+
+func TestLexerPeek_NegativeOffset(t *testing.T) {
+	l := NewLexer("abc")
+	// peek with negative offset should return 0
+	if l.peek(-1) != 0 {
+		t.Errorf("peek(-1) = %v, want 0", l.peek(-1))
+	}
+	// peek with offset past end should return 0
+	if l.peek(100) != 0 {
+		t.Errorf("peek(100) = %v, want 0", l.peek(100))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 40. readUnicodeEscape error paths
+// ---------------------------------------------------------------------------
+
+func TestUnicodeEscape_InvalidHexDigit(t *testing.T) {
+	// \u followed by non-hex character
+	input := `val = "\uZZZZ"`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid unicode escape hex")
+	}
+	if !strings.Contains(err.Error(), "unicode") {
+		t.Errorf("error should mention unicode, got: %v", err)
+	}
+}
+
+func TestUnicodeEscape_InvalidCodepoint(t *testing.T) {
+	// Surrogate codepoint U+D800 is not a valid UTF-8 rune
+	input := `val = "\uD800"`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid unicode codepoint")
+	}
+	if !strings.Contains(err.Error(), "codepoint") {
+		t.Errorf("error should mention codepoint, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 41. readMultilineBasicString additional paths
+// ---------------------------------------------------------------------------
+
+func TestMultilineBasicString_CRLF(t *testing.T) {
+	// Test CRLF inside multiline basic string
+	input := "val = \"\"\"\r\nline1\r\nline2\"\"\"\n"
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "line1\nline2"
+	if result["val"] != expected {
+		t.Errorf("val = %q, want %q", result["val"], expected)
+	}
+}
+
+func TestMultilineBasicString_Unterminated(t *testing.T) {
+	input := `val = """`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unterminated multiline basic string")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("error should mention unterminated, got: %v", err)
+	}
+}
+
+func TestMultilineBasicString_EscapeInMultiline(t *testing.T) {
+	// Test escape sequences inside a multiline basic string (not line-ending backslash)
+	input := "val = \"\"\"tab\\there\\nnewline\"\"\"\n"
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "tab\there\nnewline"
+	if result["val"] != expected {
+		t.Errorf("val = %q, want %q", result["val"], expected)
+	}
+}
+
+func TestMultilineBasicString_LineEndingBackslash_CRLF(t *testing.T) {
+	// Test line-ending backslash with CRLF
+	input := "val = \"\"\"first \\\r\n  second\"\"\"\n"
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "first second"
+	if result["val"] != expected {
+		t.Errorf("val = %q, want %q", result["val"], expected)
+	}
+}
+
+func TestMultilineBasicString_InvalidEscape(t *testing.T) {
+	// Invalid escape sequence inside multiline basic string
+	input := "val = \"\"\"\\q\"\"\"\n"
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid escape in multiline basic string")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 42. readMultilineLiteralString additional paths
+// ---------------------------------------------------------------------------
+
+func TestMultilineLiteralString_CRLF(t *testing.T) {
+	// CRLF inside multiline literal string
+	input := "val = '''\r\nline1\r\nline2'''\n"
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "line1\nline2"
+	if result["val"] != expected {
+		t.Errorf("val = %q, want %q", result["val"], expected)
+	}
+}
+
+func TestMultilineLiteralString_Unterminated(t *testing.T) {
+	input := `val = '''`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unterminated multiline literal string")
+	}
+	if !strings.Contains(err.Error(), "unterminated") {
+		t.Errorf("error should mention unterminated, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 43. isValidBareKey edge cases
+// ---------------------------------------------------------------------------
+
+func TestInvalidBareKey(t *testing.T) {
+	// Bare key with invalid character (space)
+	input := `a b = 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid bare key")
+	}
+}
+
+func TestBareKey_InvalidSpecialChar(t *testing.T) {
+	// Bare key with @ character which is not allowed
+	input := `key@name = 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for bare key with @")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 44. readString error paths
+// ---------------------------------------------------------------------------
+
+func TestBasicString_Newline(t *testing.T) {
+	// Embedded newline in basic string should error
+	input := "val = \"hello\nworld\""
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for newline in basic string")
+	}
+}
+
+func TestBasicString_CarriageReturn(t *testing.T) {
+	// Embedded CR in basic string should error
+	input := "val = \"hello\rworld\""
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for CR in basic string")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 45. readLiteralString error paths
+// ---------------------------------------------------------------------------
+
+func TestLiteralString_Newline(t *testing.T) {
+	input := "val = 'hello\nworld'"
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for newline in literal string")
+	}
+}
+
+func TestLiteralString_Unterminated(t *testing.T) {
+	input := `val = 'hello`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unterminated literal string")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 46. CRLF handling in NextToken
+// ---------------------------------------------------------------------------
+
+func TestCRLF_AsNewline(t *testing.T) {
+	input := "key = 1\r\n"
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["key"] != int64(1) {
+		t.Errorf("key = %v, want 1", result["key"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 47. Tokenize full exercise of various token types
+// ---------------------------------------------------------------------------
+
+func TestTokenize_AllTokenTypes(t *testing.T) {
+	input := `key = "val" ` + "\n" +
+		`num = 42 ` + "\n" +
+		`pi = 3.14 ` + "\n" +
+		`on = true ` + "\n" +
+		`arr = [1, 2] ` + "\n" +
+		`tbl = {a = 1}` + "\n" +
+		`# comment` + "\n"
+	tokens, err := Tokenize(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	types := make(map[TokenType]bool)
+	for _, tok := range tokens {
+		types[tok.Type] = true
+	}
+	// Verify we see the expected token types
+	for _, expected := range []TokenType{
+		tokenBareKey, tokenEquals, tokenBasicString,
+		tokenInteger, tokenFloat, tokenBool,
+		tokenLBracket, tokenRBracket, tokenComma,
+		tokenLBrace, tokenRBrace, tokenNewline, tokenEOF,
+	} {
+		if !types[expected] {
+			t.Errorf("token type %v not found in tokenized output", expected)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 48. Invalid bare key at lexer level (unexpected character)
+// ---------------------------------------------------------------------------
+
+func TestUnexpectedCharacter(t *testing.T) {
+	// @ is not valid anywhere in TOML key position
+	input := `@ = 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unexpected character @")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 49. parseKeyValue error: missing equals
+// ---------------------------------------------------------------------------
+
+func TestMissingEquals(t *testing.T) {
+	input := `key "value"`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for missing equals sign")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 50. Array error: missing comma or bracket
+// ---------------------------------------------------------------------------
+
+func TestArrayMissingComma(t *testing.T) {
+	input := `arr = [1 2]`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for missing comma in array")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 51. Inline table duplicate key
+// ---------------------------------------------------------------------------
+
+func TestInlineTableDuplicateKey(t *testing.T) {
+	input := `tbl = {a = 1, a = 2}`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for duplicate key in inline table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 52. ensureArrayTable error: existing non-array value
+// ---------------------------------------------------------------------------
+
+func TestArrayTableOverwriteNonArray(t *testing.T) {
+	input := `
+val = "string"
+
+[[val]]
+x = 1
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when array table overwrites non-array value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 53. ensureTable error: existing non-table value
+// ---------------------------------------------------------------------------
+
+func TestTableOverwriteNonTable(t *testing.T) {
+	input := `
+val = "string"
+
+[val]
+x = 1
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when table overwrites non-table value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 54. arrayTable conflicting with table
+// ---------------------------------------------------------------------------
+
+func TestArrayTableConflictWithTable(t *testing.T) {
+	input := `
+[[items]]
+name = "a"
+
+[items]
+name = "b"
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when table conflicts with array table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 55. parse error: unexpected token after table header
+// ---------------------------------------------------------------------------
+
+func TestUnexpectedTokenInParse(t *testing.T) {
+	// After a table header [name], we expect key-value or another header
+	input := `[section]
+= 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unexpected token = after table header")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 56. decodeMap error paths
+// ---------------------------------------------------------------------------
+
+func TestDecodeMapIntoNonMapNonStruct(t *testing.T) {
+	input := `[section]
+key = "val"`
+	type Cfg struct {
+		Section int `toml:"section"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding map into int")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 57. Decode error: nil pointer
+// ---------------------------------------------------------------------------
+
+func TestDecodeNilPointerError(t *testing.T) {
+	var cfg *struct{ Name string }
+	err := Decode([]byte(`name = "x"`), cfg)
+	if err == nil {
+		t.Error("expected error for nil pointer target")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 58. decodeSlice error paths
+// ---------------------------------------------------------------------------
+
+func TestDecodeSlice_InterfaceTarget(t *testing.T) {
+	input := `val = [1, 2, 3]`
+	type Cfg struct {
+		Val any `toml:"val"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	arr, ok := cfg.Val.([]any)
+	if !ok {
+		t.Fatalf("expected []any, got %T", cfg.Val)
+	}
+	if len(arr) != 3 {
+		t.Errorf("len = %d, want 3", len(arr))
+	}
+}
+
+func TestDecodeSlice_NonSliceNonArrayTarget(t *testing.T) {
+	input := `val = [1, 2]`
+	type Cfg struct {
+		Val string `toml:"val"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding slice into string")
+	}
+}
+
+func TestDecodeSlice_ArrayOverflow(t *testing.T) {
+	input := `coords = [1, 2, 3, 4]`
+	type Cfg struct {
+		Coords [3]int `toml:"coords"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error for array overflow")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 59. decodeScalar error paths
+// ---------------------------------------------------------------------------
+
+func TestDecodeScalar_UnsupportedType(t *testing.T) {
+	input := `val = "hello"`
+	type Cfg struct {
+		Val []string `toml:"val"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding string into slice")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 60. isFloat edge cases
+// ---------------------------------------------------------------------------
+
+func TestFloatWithUnderscore(t *testing.T) {
+	input := `val = 1_000.5`
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["val"] != 1000.5 {
+		t.Errorf("val = %v, want 1000.5", result["val"])
+	}
+}
+
+func TestFloatSpecialValues(t *testing.T) {
+	tests := []struct {
+		input string
+		key   string
+	}{
+		{"val = +nan", "+nan"},
+		{"val = -nan", "-nan"},
+		{"val = +inf", "+inf"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.key, func(t *testing.T) {
+			result, err := Parse([]byte(tt.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			f, ok := result["val"].(float64)
+			if !ok {
+				t.Fatalf("expected float64, got %T", result["val"])
+			}
+			if strings.Contains(tt.key, "nan") {
+				if !math.IsNaN(f) {
+					t.Errorf("expected NaN, got %f", f)
+				}
+			} else {
+				if !math.IsInf(f, 1) {
+					t.Errorf("expected +Inf, got %f", f)
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 61. Multiline literal string with CRLF leading newline
+// ---------------------------------------------------------------------------
+
+func TestMultilineLiteralString_CRLFLeadingNewline(t *testing.T) {
+	input := "val = '''\r\ncontent'''"
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result["val"] != "content" {
+		t.Errorf("val = %q, want %q", result["val"], "content")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 62. GoMap decode error for bad map key
+// ---------------------------------------------------------------------------
+
+func TestDecodeGoMap_BadKeyType(t *testing.T) {
+	input := `
+[metadata]
+count = 42
+`
+	type Cfg struct {
+		Metadata map[string]int `toml:"metadata"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Metadata["count"] != 42 {
+		t.Errorf("count = %d, want 42", cfg.Metadata["count"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 63. Dotted key in inline table with nested map
+// ---------------------------------------------------------------------------
+
+func TestInlineTable_DottedKeyNested(t *testing.T) {
+	input := `val = {a.b.c = 1}`
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := result["val"].(map[string]any)
+	a := m["a"].(map[string]any)
+	b := a["b"].(map[string]any)
+	if b["c"] != int64(1) {
+		t.Errorf("c = %v, want 1", b["c"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 64. Nested array table with dotted parent
+// ---------------------------------------------------------------------------
+
+func TestArrayTableWithDottedParent(t *testing.T) {
+	input := `
+[[a.b]]
+x = 1
+
+[[a.b]]
+x = 2
+`
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := result["a"].(map[string]any)
+	bs := a["b"].([]any)
+	if len(bs) != 2 {
+		t.Fatalf("len(b) = %d, want 2", len(bs))
+	}
+	if bs[0].(map[string]any)["x"] != int64(1) {
+		t.Errorf("b[0].x = %v", bs[0].(map[string]any)["x"])
+	}
+	if bs[1].(map[string]any)["x"] != int64(2) {
+		t.Errorf("b[1].x = %v", bs[1].(map[string]any)["x"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// 65. insertValue error: non-table intermediate
+// ---------------------------------------------------------------------------
+
+func TestDottedKeyOverwriteValue(t *testing.T) {
+	input := `
+a = "str"
+a.b = 1
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when dotted key overwrites existing value")
+	}
+}
+
 // Ensure reflect is used (compiler sometimes complains if not referenced)
 var _ = reflect.TypeOf(nil)

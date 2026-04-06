@@ -1,7 +1,9 @@
 package jwt
 
 import (
+	"crypto/ed25519"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -662,5 +664,701 @@ func TestComputeHMAC(t *testing.T) {
 	sigDifferent := computeHMAC("different-data", secret, "HS256")
 	if hmac.Equal(sig256, sigDifferent) {
 		t.Error("Different data should produce different signatures")
+	}
+}
+
+// generateEd25519TestToken creates a valid EdDSA JWT token for testing.
+func generateEd25519TestToken(header, claims map[string]any, privateKey ed25519.PrivateKey) string {
+	headerJSON, _ := json.Marshal(header)
+	claimsJSON, _ := json.Marshal(claims)
+
+	headerB64 := base64.RawURLEncoding.EncodeToString(headerJSON)
+	claimsB64 := base64.RawURLEncoding.EncodeToString(claimsJSON)
+
+	data := headerB64 + "." + claimsB64
+
+	sig := ed25519.Sign(privateKey, []byte(data))
+	sigB64 := base64.RawURLEncoding.EncodeToString(sig)
+
+	return data + "." + sigB64
+}
+
+func TestNew_EdDSA_ValidPublicKey(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = pub
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatalf("New() with valid Ed25519 key returned error: %v", err)
+	}
+	if mw == nil {
+		t.Fatal("New() returned nil middleware")
+	}
+}
+
+func TestNew_EdDSA_InvalidPublicKeySize(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = []byte("too-short-key")
+
+	mw, err := New(config)
+	if err == nil {
+		t.Error("New() should fail with invalid Ed25519 public key size")
+	}
+	if mw != nil {
+		t.Error("New() should return nil middleware on error")
+	}
+	if err.Error() != "invalid Ed25519 public key" {
+		t.Errorf("Unexpected error message: %v", err)
+	}
+}
+
+func TestNew_EdDSA_EmptyPublicKey(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = nil
+
+	mw, err := New(config)
+	if err == nil {
+		t.Error("New() should fail with nil Ed25519 public key")
+	}
+	if mw != nil {
+		t.Error("New() should return nil middleware on error")
+	}
+}
+
+func TestValidateToken_EdDSA_Valid(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "" // Not used for EdDSA
+	config.Algorithm = "EdDSA"
+	config.PublicKey = pub
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateEd25519TestToken(
+		map[string]any{"alg": "EdDSA", "typ": "JWT"},
+		map[string]any{
+			"sub": "user-eddsa",
+			"iss": "test-issuer",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		priv,
+	)
+
+	claims, err := mw.validateToken(token)
+	if err != nil {
+		t.Fatalf("validateToken() returned error: %v", err)
+	}
+	if claims.Subject != "user-eddsa" {
+		t.Errorf("Subject = %s, want user-eddsa", claims.Subject)
+	}
+	if claims.Issuer != "test-issuer" {
+		t.Errorf("Issuer = %s, want test-issuer", claims.Issuer)
+	}
+}
+
+func TestValidateToken_EdDSA_InvalidSignature(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Different key for signing
+	_, wrongPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = pub
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateEd25519TestToken(
+		map[string]any{"alg": "EdDSA", "typ": "JWT"},
+		map[string]any{
+			"sub": "user-eddsa",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		wrongPriv,
+	)
+
+	_, err = mw.validateToken(token)
+	if err == nil {
+		t.Error("validateToken() should fail with wrong Ed25519 signature")
+	}
+}
+
+func TestValidateToken_EdDSA_InvalidSignatureBase64(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = pub
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Construct token with invalid base64 in signature part
+	headerB64 := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"EdDSA","typ":"JWT"}`))
+	claimsB64 := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user"}`))
+	invalidToken := headerB64 + "." + claimsB64 + ".!!!invalid-base64!!!"
+
+	_, err = mw.validateToken(invalidToken)
+	if err == nil {
+		t.Error("validateToken() should fail with invalid base64 signature")
+	}
+}
+
+func TestVerifySignature_UnsupportedAlgorithm(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "RS256" // Unsupported
+	config.Secret = "test-secret"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = mw.verifySignature("header", "claims", "c2ln")
+	if err == nil {
+		t.Error("verifySignature() should fail for unsupported algorithm")
+	}
+	if err.Error() != "unsupported algorithm" {
+		t.Errorf("Expected 'unsupported algorithm', got: %v", err)
+	}
+}
+
+func TestJWT_EdDSA_FullRequest(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = pub
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateEd25519TestToken(
+		map[string]any{"alg": "EdDSA", "typ": "JWT"},
+		map[string]any{
+			"sub": "eddsa-user",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		priv,
+	)
+
+	var receivedSubject string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSubject = GetSubject(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedSubject != "eddsa-user" {
+		t.Errorf("Expected subject 'eddsa-user', got %s", receivedSubject)
+	}
+}
+
+func TestJWT_EdDSA_InvalidSignatureRequest(t *testing.T) {
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, wrongPriv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Required = true
+	config.Algorithm = "EdDSA"
+	config.PublicKey = pub
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateEd25519TestToken(
+		map[string]any{"alg": "EdDSA", "typ": "JWT"},
+		map[string]any{
+			"sub": "eddsa-user",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		wrongPriv,
+	)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called with invalid EdDSA token")
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
+func TestValidateToken_HS384(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS384"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS384", "typ": "JWT"},
+		map[string]any{
+			"sub": "user384",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	claims, err := mw.validateToken(token)
+	if err != nil {
+		t.Fatalf("validateToken() HS384 returned error: %v", err)
+	}
+	if claims.Subject != "user384" {
+		t.Errorf("Subject = %s, want user384", claims.Subject)
+	}
+}
+
+func TestValidateToken_HS512(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS512"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS512", "typ": "JWT"},
+		map[string]any{
+			"sub": "user512",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	claims, err := mw.validateToken(token)
+	if err != nil {
+		t.Fatalf("validateToken() HS512 returned error: %v", err)
+	}
+	if claims.Subject != "user512" {
+		t.Errorf("Subject = %s, want user512", claims.Subject)
+	}
+}
+
+func TestValidateToken_InvalidHeaderBase64(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Token with invalid base64 in header part
+	_, err = mw.validateToken("!!!invalid!!!." + "eyJzdWIiOiJ1c2VyIn0." + "c2ln")
+	if err == nil {
+		t.Error("validateToken() should fail with invalid header base64")
+	}
+}
+
+func TestValidateToken_InvalidHeaderJSON(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Valid base64 but invalid JSON in header
+	invalidJSON := base64.RawURLEncoding.EncodeToString([]byte("not-json"))
+	claimsB64 := base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"user"}`))
+	_, err = mw.validateToken(invalidJSON + "." + claimsB64 + ".c2ln")
+	if err == nil {
+		t.Error("validateToken() should fail with invalid header JSON")
+	}
+}
+
+func TestValidateToken_InvalidClaimsBase64(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	headerB64 := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	_, err = mw.validateToken(headerB64 + ".!!!invalid!!!.c2ln")
+	if err == nil {
+		t.Error("validateToken() should fail with invalid claims base64")
+	}
+}
+
+func TestValidateToken_InvalidClaimsJSON(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	headerB64 := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	invalidClaims := base64.RawURLEncoding.EncodeToString([]byte("not-json"))
+	_, err = mw.validateToken(headerB64 + "." + invalidClaims + ".c2ln")
+	if err == nil {
+		t.Error("validateToken() should fail with invalid claims JSON")
+	}
+}
+
+func TestValidateToken_InvalidSignatureBase64(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	headerB64 := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	claimsJSON, _ := json.Marshal(map[string]any{"sub": "user", "iat": now, "exp": now + 3600})
+	claimsB64 := base64.RawURLEncoding.EncodeToString(claimsJSON)
+
+	_, err = mw.validateToken(headerB64 + "." + claimsB64 + ".!!!invalid-base64!!!")
+	if err == nil {
+		t.Error("validateToken() should fail with invalid signature base64")
+	}
+}
+
+func TestValidateToken_ValidIssuer(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+	config.ClaimsValidation.Issuer = "correct-issuer"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS256", "typ": "JWT"},
+		map[string]any{
+			"sub": "user123",
+			"iss": "correct-issuer",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	claims, err := mw.validateToken(token)
+	if err != nil {
+		t.Fatalf("validateToken() should succeed with correct issuer: %v", err)
+	}
+	if claims.Issuer != "correct-issuer" {
+		t.Errorf("Issuer = %s, want correct-issuer", claims.Issuer)
+	}
+}
+
+func TestValidateToken_ValidAudience(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+	config.ClaimsValidation.Audience = "expected-audience"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS256", "typ": "JWT"},
+		map[string]any{
+			"sub": "user123",
+			"aud": []string{"other-audience", "expected-audience"},
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	claims, err := mw.validateToken(token)
+	if err != nil {
+		t.Fatalf("validateToken() should succeed with matching audience: %v", err)
+	}
+	if len(claims.Audience) != 2 {
+		t.Errorf("Expected 2 audiences, got %d", len(claims.Audience))
+	}
+}
+
+func TestValidateToken_AudienceMissingFromClaims(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+	config.ClaimsValidation.Audience = "expected-audience"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS256", "typ": "JWT"},
+		map[string]any{
+			"sub": "user123",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	_, err = mw.validateToken(token)
+	if err == nil {
+		t.Error("validateToken() should fail when audience required but missing from token")
+	}
+}
+
+func TestValidateToken_IssuedAtInFuture(t *testing.T) {
+	config := DefaultConfig()
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS256", "typ": "JWT"},
+		map[string]any{
+			"sub": "user123",
+			"iat": now + 3600, // Issued in the future
+			"exp": now + 7200,
+		},
+		"test-secret",
+	)
+
+	_, err = mw.validateToken(token)
+	if err == nil {
+		t.Error("validateToken() should fail with iat in future")
+	}
+}
+
+func TestJWT_CustomHeader(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+	config.Header = "X-Custom-Auth"
+	config.Prefix = "Token "
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS256", "typ": "JWT"},
+		map[string]any{
+			"sub": "custom-header-user",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	var receivedSubject string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSubject = GetSubject(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-Custom-Auth", "Token "+token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedSubject != "custom-header-user" {
+		t.Errorf("Expected subject 'custom-header-user', got %s", receivedSubject)
+	}
+}
+
+func TestJWT_NoPrefix(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "test-secret"
+	config.Algorithm = "HS256"
+	config.Header = "Authorization"
+	config.Prefix = "" // No prefix
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Unix()
+	token := generateTestToken(
+		map[string]any{"alg": "HS256", "typ": "JWT"},
+		map[string]any{
+			"sub": "noprefix-user",
+			"iat": now,
+			"exp": now + 3600,
+		},
+		"test-secret",
+	)
+
+	var receivedSubject string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedSubject = GetSubject(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", token) // No prefix, just the token
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedSubject != "noprefix-user" {
+		t.Errorf("Expected subject 'noprefix-user', got %s", receivedSubject)
+	}
+}
+
+func TestUnauthorized_ResponseFormat(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Required = true
+	config.Secret = "test-secret"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called")
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+
+	// Check WWW-Authenticate header
+	wwwAuth := rec.Header().Get("WWW-Authenticate")
+	if wwwAuth != "Bearer" {
+		t.Errorf("Expected WWW-Authenticate 'Bearer', got %q", wwwAuth)
+	}
+
+	// Check response body contains expected JSON
+	body := rec.Body.String()
+	if body == "" {
+		t.Error("Response body should not be empty")
+	}
+}
+
+func TestJWT_ClaimsID(t *testing.T) {
+	claims := &Claims{
+		Subject: "user123",
+		JWTID:   "unique-token-id",
+	}
+
+	ctx := WithClaims(t.Context(), claims)
+	retrieved := GetClaims(ctx)
+	if retrieved == nil {
+		t.Fatal("GetClaims returned nil")
+	}
+	if retrieved.JWTID != "unique-token-id" {
+		t.Errorf("JWTID = %s, want unique-token-id", retrieved.JWTID)
 	}
 }

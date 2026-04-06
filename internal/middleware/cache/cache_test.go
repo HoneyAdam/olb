@@ -1,6 +1,7 @@
 package cache
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -703,6 +704,374 @@ func TestCache_NoStoreResponse(t *testing.T) {
 
 	if atomic.LoadInt32(&callCount) != 2 {
 		t.Errorf("Responses with no-store should not be cached")
+	}
+}
+
+func TestCache_New_Defaults(t *testing.T) {
+	// Test with minimal config to exercise all default-setting branches
+	config := Config{} // All zero values
+
+	mw := New(config)
+
+	if mw.config.KeyFunc == nil {
+		t.Error("KeyFunc should default to DefaultKeyFunc when nil")
+	}
+	if mw.config.TTL != 5*time.Minute {
+		t.Errorf("TTL should default to 5m, got %v", mw.config.TTL)
+	}
+	if len(mw.config.Methods) != 2 || mw.config.Methods[0] != "GET" || mw.config.Methods[1] != "HEAD" {
+		t.Errorf("Methods should default to [GET, HEAD], got %v", mw.config.Methods)
+	}
+	if len(mw.config.StatusCodes) == 0 {
+		t.Error("StatusCodes should default to non-empty list")
+	}
+}
+
+func TestCache_ExpiredEntry(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.TTL = 50 * time.Millisecond
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	// First request
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 backend call, got %d", callCount)
+	}
+
+	// Wait for TTL to expire
+	time.Sleep(80 * time.Millisecond)
+
+	// Second request should be a cache miss (expired)
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if atomic.LoadInt32(&callCount) != 2 {
+		t.Errorf("Expected 2 backend calls after expiry, got %d", callCount)
+	}
+	if rec2.Header().Get("X-Cache") != "MISS" {
+		t.Errorf("Expected X-Cache: MISS after expiry, got %s", rec2.Header().Get("X-Cache"))
+	}
+}
+
+func TestCache_MaxSizeEviction(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.MaxSize = 100 // Very small max size
+	config.MaxEntries = 10
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("short")) // 5 bytes
+	}))
+
+	// Fill cache beyond max size
+	for i := 0; i < 20; i++ {
+		req := httptest.NewRequest("GET", fmt.Sprintf("/test%d", i), nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+
+	stats := mw.Stats()
+	if stats["entries"].(int) == 0 {
+		t.Error("Expected some entries in cache")
+	}
+	sizeBytes := stats["size_bytes"].(int64)
+	if sizeBytes > 100 {
+		t.Errorf("Cache size %d should not exceed max size 100", sizeBytes)
+	}
+}
+
+func TestCache_CacheControlNoCache(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("ETag", "\"abc\"") // Has ETag so should be cacheable with no-cache
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	// With no-cache + ETag, it should still be cached
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 backend call (cached with ETag), got %d", callCount)
+	}
+}
+
+func TestCache_CacheControlNoCacheNoValidator(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.Header().Set("Cache-Control", "no-cache")
+		// No ETag or Last-Modified
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	// no-cache without validator should not be cached
+	if atomic.LoadInt32(&callCount) != 2 {
+		t.Errorf("Expected 2 backend calls (no-cache without validator), got %d", callCount)
+	}
+}
+
+func TestCache_IfModifiedSince(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	// First request to populate cache
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	// Use UTC to ensure proper parsing by http.ParseTime
+	pastTime := time.Now().UTC().Add(-1 * time.Hour)
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2.Header.Set("If-Modified-Since", pastTime.Format(http.TimeFormat))
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusNotModified {
+		t.Errorf("Expected 304 for past If-Modified-Since, got %d", rec2.Code)
+	}
+}
+
+func TestCache_StatsWithExpired(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.TTL = 30 * time.Millisecond
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	// Make requests
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Wait for expiry
+	time.Sleep(50 * time.Millisecond)
+
+	stats := mw.Stats()
+	if stats["expired"].(int) != 1 {
+		t.Errorf("Expected 1 expired entry, got %d", stats["expired"])
+	}
+}
+
+func TestCacheWriter_DoubleWriteHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	cw := NewCacheWriter(rec)
+
+	cw.WriteHeader(http.StatusCreated)
+	cw.WriteHeader(http.StatusBadRequest) // Second call should be ignored
+
+	if cw.StatusCode != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, cw.StatusCode)
+	}
+}
+
+func TestCacheWriter_WriteWithoutHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	cw := NewCacheWriter(rec)
+
+	// Write without calling WriteHeader first
+	cw.Write([]byte("test"))
+
+	if cw.StatusCode != http.StatusOK {
+		t.Errorf("Expected status %d (auto-set), got %d", http.StatusOK, cw.StatusCode)
+	}
+	if cw.Body.String() != "test" {
+		t.Errorf("Expected body 'test', got '%s'", cw.Body.String())
+	}
+}
+
+func TestCache_ExcludeHeaders(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.ExcludeHeaders = map[string]string{
+		"X-Auth-Token": "", // Any value prevents caching
+	}
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.Header().Set("X-Auth-Token", "secret")
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if atomic.LoadInt32(&callCount) != 2 {
+		t.Errorf("Responses with excluded headers should not be cached, got %d calls", callCount)
+	}
+}
+
+func TestCache_MaxSizeTooLarge(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.MaxSize = 5 // Very small max size - individual entry too large
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("this is more than 5 bytes"))
+	}))
+
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if atomic.LoadInt32(&callCount) != 2 {
+		t.Errorf("Entry too large for cache should not be cached, got %d calls", callCount)
+	}
+}
+
+func TestCache_CookieInRequest(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.CacheCookies = false
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	req1.Header.Set("Cookie", "session=abc")
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2.Header.Set("Cookie", "session=abc")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if atomic.LoadInt32(&callCount) != 2 {
+		t.Errorf("Requests with cookies should not be cached when CacheCookies=false")
+	}
+}
+
+func TestCache_ETagGeneration(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// No ETag set by handler; cache middleware should generate one on store
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	// First request to populate cache
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	// Second request (cache hit) should have the auto-generated ETag
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	etag := rec2.Header().Get("ETag")
+	if etag == "" {
+		t.Error("Expected auto-generated ETag on cache hit")
+	}
+}
+
+func TestCache_WildcardIfNoneMatch(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", "\"abc123\"")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("content"))
+	}))
+
+	// First request to populate cache
+	req1 := httptest.NewRequest("GET", "/test", nil)
+	rec1 := httptest.NewRecorder()
+	handler.ServeHTTP(rec1, req1)
+
+	// Conditional request with wildcard If-None-Match
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2.Header.Set("If-None-Match", "*")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusNotModified {
+		t.Errorf("Expected 304 for wildcard If-None-Match, got %d", rec2.Code)
 	}
 }
 

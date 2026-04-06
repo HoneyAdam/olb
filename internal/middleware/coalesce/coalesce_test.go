@@ -1,6 +1,8 @@
 package coalesce
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -434,6 +436,91 @@ func TestStats(t *testing.T) {
 	stats := mw.Stats()
 	if _, ok := stats["inflight_requests"]; !ok {
 		t.Error("Stats should contain inflight_requests")
+	}
+}
+
+func TestResponseWriter_Basic(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newResponseWriter(rec)
+
+	rw.WriteHeader(http.StatusCreated)
+	rw.Write([]byte("hello"))
+
+	if rw.statusCode != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, rw.statusCode)
+	}
+	if rw.body.String() != "hello" {
+		t.Errorf("Expected body 'hello', got '%s'", rw.body.String())
+	}
+	if !rw.written {
+		t.Error("Expected written to be true after WriteHeader")
+	}
+}
+
+func TestResponseWriter_DoubleWriteHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newResponseWriter(rec)
+
+	rw.WriteHeader(http.StatusCreated)
+	rw.WriteHeader(http.StatusBadRequest) // Should be ignored
+
+	if rw.statusCode != http.StatusCreated {
+		t.Errorf("Expected status %d, got %d", http.StatusCreated, rw.statusCode)
+	}
+}
+
+func TestResponseWriter_WriteAutoHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newResponseWriter(rec)
+
+	// Write without calling WriteHeader first - should auto-set 200
+	n, err := rw.Write([]byte("test"))
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if n != 4 {
+		t.Errorf("Expected 4 bytes written, got %d", n)
+	}
+	if rw.statusCode != http.StatusOK {
+		t.Errorf("Expected auto-set status %d, got %d", http.StatusOK, rw.statusCode)
+	}
+	if rw.body.String() != "test" {
+		t.Errorf("Expected body 'test', got '%s'", rw.body.String())
+	}
+}
+
+func TestResponseWriter_ReadBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newResponseWriter(rec)
+
+	rw.Write([]byte("body content"))
+
+	reader := rw.ReadBody()
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		t.Errorf("Unexpected error reading body: %v", err)
+	}
+	if string(data) != "body content" {
+		t.Errorf("Expected 'body content', got '%s'", string(data))
+	}
+}
+
+func TestResponseWriter_LargeBody(t *testing.T) {
+	rec := httptest.NewRecorder()
+	rw := newResponseWriter(rec)
+
+	largeBody := bytes.Repeat([]byte("x"), 10000)
+	n, err := rw.Write(largeBody)
+
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if n != 10000 {
+		t.Errorf("Expected 10000 bytes written, got %d", n)
+	}
+	if rw.body.Len() != 10000 {
+		t.Errorf("Expected body buffer 10000 bytes, got %d", rw.body.Len())
 	}
 }
 
