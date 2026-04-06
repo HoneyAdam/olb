@@ -221,6 +221,13 @@ func TestPowerOfTwo_Update_NoOp(t *testing.T) {
 	if result == nil {
 		t.Error("Next() returned nil after Update")
 	}
+
+	// Update without prior Add should not panic
+	b3 := backend.NewBackend("b3", "127.0.0.1:8082")
+	p2c.Update(b3)
+
+	// Update with nil should not panic
+	p2c.Update(nil)
 }
 
 func TestPowerOfTwo_Update_NilBackend(t *testing.T) {

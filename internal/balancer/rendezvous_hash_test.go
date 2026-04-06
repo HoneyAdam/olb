@@ -229,6 +229,126 @@ func TestComputeWeight(t *testing.T) {
 	}
 }
 
+func TestRendezvousHash_Name(t *testing.T) {
+	rh := NewRendezvousHash()
+	if name := rh.Name(); name != "rendezvous_hash" {
+		t.Errorf("Name() = %q, want %q", name, "rendezvous_hash")
+	}
+}
+
+func TestRendezvousHash_Update(t *testing.T) {
+	rh := NewRendezvousHash()
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+
+	// Update is a no-op but should not panic
+	rh.Update(be1)
+
+	// Update after Add
+	rh.Add(be1)
+	rh.Update(be1)
+
+	// Update with nil should not panic
+	rh.Update(nil)
+
+	// Verify balancer still works after Update
+	backends := []*backend.Backend{be1}
+	result := rh.Next(backends)
+	if result == nil {
+		t.Error("Next() returned nil after Update")
+	}
+}
+
+func TestRendezvousHash_Remove_Middle(t *testing.T) {
+	rh := NewRendezvousHash()
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be2 := backend.NewBackend("be2", "10.0.0.2:8080")
+	be3 := backend.NewBackend("be3", "10.0.0.3:8080")
+
+	for _, be := range []*backend.Backend{be1, be2, be3} {
+		be.SetState(backend.StateUp)
+		rh.Add(be)
+	}
+
+	// Remove a backend in the middle to exercise the swap logic
+	rh.Remove("be2")
+
+	stats := rh.Stats()
+	if stats["backend_count"].(int) != 2 {
+		t.Errorf("Expected 2 backends after remove, got %d", stats["backend_count"])
+	}
+	if stats["seed_count"].(int) != 2 {
+		t.Errorf("Expected 2 seeds after remove, got %d", stats["seed_count"])
+	}
+
+	// Remove last backend
+	rh.Remove("be3")
+
+	stats = rh.Stats()
+	if stats["backend_count"].(int) != 1 {
+		t.Errorf("Expected 1 backend after second remove, got %d", stats["backend_count"])
+	}
+
+	// Remove non-existent backend (should not panic)
+	rh.Remove("nonexistent")
+
+	// Verify balancer still works
+	be1.SetState(backend.StateUp)
+	result := rh.Next([]*backend.Backend{be1})
+	if result == nil {
+		t.Error("Next() returned nil after removes")
+	}
+}
+
+func TestRendezvousHash_Remove_LastElement(t *testing.T) {
+	rh := NewRendezvousHash()
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be2 := backend.NewBackend("be2", "10.0.0.2:8080")
+
+	rh.Add(be1)
+	rh.Add(be2)
+
+	// Remove the last element (idx == lastIdx case)
+	rh.Remove("be2")
+
+	stats := rh.Stats()
+	if stats["backend_count"].(int) != 1 {
+		t.Errorf("Expected 1 backend after remove, got %d", stats["backend_count"])
+	}
+}
+
+func TestRendezvousHash_Remove_FirstOfThree(t *testing.T) {
+	rh := NewRendezvousHash()
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be2 := backend.NewBackend("be2", "10.0.0.2:8080")
+	be3 := backend.NewBackend("be3", "10.0.0.3:8080")
+
+	rh.Add(be1)
+	rh.Add(be2)
+	rh.Add(be3)
+
+	// Remove first backend to exercise swap-with-last logic
+	rh.Remove("be1")
+
+	stats := rh.Stats()
+	if stats["backend_count"].(int) != 2 {
+		t.Errorf("Expected 2 backends, got %d", stats["backend_count"])
+	}
+	if stats["seed_count"].(int) != 2 {
+		t.Errorf("Expected 2 seeds, got %d", stats["seed_count"])
+	}
+
+	// Ensure the remaining backends are correct
+	_, hasBe2 := rh.backends["be2"]
+	_, hasBe3 := rh.backends["be3"]
+	if !hasBe2 || !hasBe3 {
+		t.Error("Expected be2 and be3 to remain after removing be1")
+	}
+}
+
 func BenchmarkRendezvousHash_Next(b *testing.B) {
 	rh := NewRendezvousHash()
 	backends := []*backend.Backend{

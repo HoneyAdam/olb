@@ -2,6 +2,7 @@ package backend
 
 import (
 	"net"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -399,5 +400,64 @@ func TestBackendConcurrentAccess(t *testing.T) {
 	// Active connections should be 0 (all released)
 	if b.ActiveConns() != 0 {
 		t.Errorf("ActiveConns = %v, want 0", b.ActiveConns())
+	}
+}
+
+func TestBackendGetURL(t *testing.T) {
+	b := NewBackend("backend1", "127.0.0.1:8080")
+
+	u := b.GetURL()
+	if u == nil {
+		t.Fatal("GetURL() returned nil")
+	}
+	if u.Scheme != "http" {
+		t.Errorf("GetURL().Scheme = %v, want http", u.Scheme)
+	}
+	if u.Host != "127.0.0.1:8080" {
+		t.Errorf("GetURL().Host = %v, want 127.0.0.1:8080", u.Host)
+	}
+}
+
+func TestBackendGetURL_Cached(t *testing.T) {
+	b := NewBackend("backend1", "127.0.0.1:8080")
+
+	// First call computes and caches the URL
+	u1 := b.GetURL()
+
+	// Second call should return the same cached pointer
+	u2 := b.GetURL()
+	if u1 != u2 {
+		t.Error("GetURL() should return the same cached URL on subsequent calls")
+	}
+}
+
+func TestBackendGetURL_Concurrent(t *testing.T) {
+	b := NewBackend("backend1", "10.0.0.5:3000")
+
+	var wg sync.WaitGroup
+	results := make([]*url.URL, 50)
+
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			results[idx] = b.GetURL()
+		}(i)
+	}
+	wg.Wait()
+
+	// All results must be non-nil and have the same value
+	// (may be different pointers due to concurrent Store in sync.Value)
+	first := results[0]
+	if first == nil {
+		t.Fatal("first GetURL() result is nil")
+	}
+	for i, u := range results {
+		if u == nil {
+			t.Errorf("results[%d] is nil", i)
+		}
+		if u.String() != first.String() {
+			t.Errorf("results[%d] = %q, want %q", i, u.String(), first.String())
+		}
 	}
 }

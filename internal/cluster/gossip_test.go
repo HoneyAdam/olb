@@ -1978,6 +1978,814 @@ func TestProbe_WithUnreachableMember(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// NewGossip: nil config, empty NodeID, validation error
+// ---------------------------------------------------------------------------
+
+func TestNewGossip_NilConfig(t *testing.T) {
+	g, err := NewGossip(nil)
+	if err != nil {
+		t.Fatalf("NewGossip(nil) error = %v", err)
+	}
+	if g == nil {
+		t.Fatal("NewGossip(nil) returned nil")
+	}
+	// Should have applied defaults.
+	if g.config.BindAddr != "0.0.0.0" {
+		t.Errorf("BindAddr = %q, want default", g.config.BindAddr)
+	}
+}
+
+func TestNewGossip_EmptyNodeID(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = ""
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	// When NodeID is empty it should be generated from BindAddr:BindPort.
+	expected := fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.BindPort)
+	if g.localNode.ID != expected {
+		t.Errorf("NodeID = %q, want %q", g.localNode.ID, expected)
+	}
+}
+
+func TestNewGossip_InvalidConfig(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = 0 // invalid
+	_, err := NewGossip(cfg)
+	if err == nil {
+		t.Error("expected error for invalid config (port 0)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Join: empty list, parse errors, all fail, partial success
+// ---------------------------------------------------------------------------
+
+func TestJoin_EmptyList(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-empty"
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	// Empty list should return nil immediately.
+	if err := g.Join(nil); err != nil {
+		t.Errorf("Join(nil) error = %v, want nil", err)
+	}
+	if err := g.Join([]string{}); err != nil {
+		t.Errorf("Join([]) error = %v, want nil", err)
+	}
+}
+
+func TestJoin_AllAddressesFail(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "join-fail"
+	cfg.TCPTimeout = 100 * time.Millisecond
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	// All addresses are unreachable => should return error.
+	err = g.Join([]string{"127.0.0.1:1"})
+	if err == nil {
+		t.Error("Join() with unreachable addresses should return error")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleMessage: piggybacked messages, unknown message type
+// ---------------------------------------------------------------------------
+
+func TestHandleMessage_PiggybackedMessages(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "piggyback-handler"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Build a PING followed by two piggybacked ALIVE messages.
+	ping := encodePing(999, "remote-sender", g.localNode.ID)
+	alive1 := encodeAlive(1, "piggy-node-a", "10.0.0.10", 7946, nil)
+	alive2 := encodeAlive(1, "piggy-node-b", "10.0.0.11", 7946, nil)
+	combined := append(ping, alive1...)
+	combined = append(combined, alive2...)
+
+	g.handleMessage(combined, "10.0.0.99:7946")
+
+	// Give event handlers a chance to run.
+	time.Sleep(50 * time.Millisecond)
+
+	g.membersMu.RLock()
+	_, hasA := g.members["piggy-node-a"]
+	_, hasB := g.members["piggy-node-b"]
+	g.membersMu.RUnlock()
+
+	if !hasA {
+		t.Error("piggy-node-a should be in members after piggybacked ALIVE")
+	}
+	if !hasB {
+		t.Error("piggy-node-b should be in members after piggybacked ALIVE")
+	}
+}
+
+func TestHandleMessage_UnknownType(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "unknown-type"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Craft a message with an unknown type byte (250).
+	payload := []byte{0xAA, 0xBB}
+	msg := make([]byte, 3+len(payload))
+	msg[0] = 250 // unknown message type
+	binary.BigEndian.PutUint16(msg[1:3], uint16(len(payload)))
+	copy(msg[3:], payload)
+
+	// Should not panic.
+	g.handleMessage(msg, "10.0.0.1:7946")
+}
+
+func TestHandleMessage_InvalidData(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "invalid-data"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Too-short message should be ignored.
+	g.handleMessage([]byte{0x01}, "10.0.0.1:7946")
+	g.handleMessage(nil, "10.0.0.1:7946")
+	g.handleMessage([]byte{}, "10.0.0.1:7946")
+}
+
+// ---------------------------------------------------------------------------
+// handlePingReq: target not found, successful relay
+// ---------------------------------------------------------------------------
+
+func TestHandlePingReq_TargetNotFound(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "pingreq-no-target"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// PING_REQ for a target that does not exist in our members.
+	payload := encodePingReq(42, "requester", "nonexistent-target")
+	_, inner, _, _ := decodeMessage(payload)
+	g.handlePingReq(inner, "10.0.0.1:7946")
+
+	// Should not panic and should return early.
+	time.Sleep(50 * time.Millisecond)
+}
+
+func TestHandlePingReq_InvalidPayload(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "pingreq-invalid"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Invalid (too short) payload should be ignored.
+	g.handlePingReq([]byte{0x01}, "10.0.0.1:7946")
+	g.handlePingReq(nil, "10.0.0.1:7946")
+}
+
+func TestHandlePingReq_SuccessfulRelay(t *testing.T) {
+	port1, port2, port3 := getFreePort(t), getFreePort(t), getFreePort(t)
+
+	cfg1 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port1, NodeID: "requester",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 500 * time.Millisecond,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+	cfg2 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port2, NodeID: "mediator",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 500 * time.Millisecond,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+	cfg3 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port3, NodeID: "target",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 500 * time.Millisecond,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+
+	g1, _ := NewGossip(cfg1)
+	g2, _ := NewGossip(cfg2)
+	g3, _ := NewGossip(cfg3)
+
+	for _, g := range []*Gossip{g1, g2, g3} {
+		if err := g.Start(); err != nil {
+			t.Fatalf("Start() error = %v", err)
+		}
+		defer g.Stop()
+	}
+
+	// On g2 (mediator), add the target node as a known member.
+	g2.membersMu.Lock()
+	g2.members["target"] = &GossipNode{
+		ID: "target", Address: "127.0.0.1", Port: port3,
+		State: StateAlive, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g2.membersMu.Unlock()
+
+	// Register an ACK handler on g1 (requester) for the PING_REQ seq number.
+	seqNo := g1.nextSeqNo()
+	ackCh := make(chan struct{}, 1)
+	g1.ackHandlersMu.Lock()
+	g1.ackHandlers[seqNo] = &ackHandler{
+		seqNo: seqNo,
+		timer: time.AfterFunc(3*time.Second, func() {}),
+		ackCh: ackCh,
+		created: time.Now(),
+	}
+	g1.ackHandlersMu.Unlock()
+
+	// Send a PING_REQ from g1 to g2, asking g2 to probe g3.
+	pingReq := encodePingReq(seqNo, "requester", "target")
+	if err := g1.sendUDP(fmt.Sprintf("127.0.0.1:%d", port2), pingReq); err != nil {
+		t.Fatalf("sendUDP() error = %v", err)
+	}
+
+	// Wait for the relayed ACK to arrive.
+	select {
+	case <-ackCh:
+		// Success: g2 probed g3 and relayed the ACK.
+	case <-time.After(3 * time.Second):
+		t.Error("timed out waiting for relayed ACK via PING_REQ")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// probe: direct ACK, indirect probe with indirectTargets, indirect ACK, stopCh
+// ---------------------------------------------------------------------------
+
+func TestProbe_DirectAckReceived(t *testing.T) {
+	port1, port2 := getFreePort(t), getFreePort(t)
+
+	cfg1 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port1, NodeID: "prober",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 2 * time.Second,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+	cfg2 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port2, NodeID: "target",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 2 * time.Second,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+
+	g1, _ := NewGossip(cfg1)
+	g2, _ := NewGossip(cfg2)
+
+	if err := g1.Start(); err != nil {
+		t.Fatalf("g1.Start() error = %v", err)
+	}
+	defer g1.Stop()
+	if err := g2.Start(); err != nil {
+		t.Fatalf("g2.Start() error = %v", err)
+	}
+	defer g2.Stop()
+
+	// Add target as member of g1.
+	g1.membersMu.Lock()
+	g1.members["target"] = &GossipNode{
+		ID: "target", Address: "127.0.0.1", Port: port2,
+		State: StateAlive, Incarnation: 1, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g1.membersMu.Unlock()
+
+	// Probe should succeed since g2 is alive and listening.
+	// This calls probe() on g1 which selects a random member, sends a PING,
+	// and gets an ACK back from g2.
+	g1.probe()
+
+	// The target should remain alive.
+	g1.membersMu.RLock()
+	m := g1.members["target"]
+	g1.membersMu.RUnlock()
+	if m.State != StateAlive {
+		t.Errorf("target state = %v, want %v", m.State, StateAlive)
+	}
+}
+
+func TestProbe_IndirectAckReceived(t *testing.T) {
+	port1, port2, port3 := getFreePort(t), getFreePort(t), getFreePort(t)
+
+	cfg1 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port1, NodeID: "prober",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 1 * time.Second,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+	cfg2 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port2, NodeID: "mediator",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 1 * time.Second,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+	cfg3 := &GossipConfig{
+		BindAddr: "127.0.0.1", BindPort: port3, NodeID: "real-target",
+		ProbeInterval: 1 * time.Hour, ProbeTimeout: 1 * time.Second,
+		IndirectChecks: 3, SuspicionTimeout: 5 * time.Second,
+		GossipInterval: 1 * time.Hour, GossipNodes: 3, RetransmitMult: 4,
+		MaxMessageSize: 1400, TCPTimeout: 5 * time.Second, DeadNodeReapInterval: 30 * time.Second,
+	}
+
+	g1, _ := NewGossip(cfg1) // prober
+	g2, _ := NewGossip(cfg2) // mediator
+	g3, _ := NewGossip(cfg3) // real target
+
+	for _, g := range []*Gossip{g1, g2, g3} {
+		if err := g.Start(); err != nil {
+			t.Fatalf("Start() error = %v", err)
+		}
+		defer g.Stop()
+	}
+
+	// g1 knows about mediator and real-target. The real-target's address
+	// actually points to an unreachable port so direct PING fails, but
+	// the mediator can reach real-target and relay the ACK.
+	g1.membersMu.Lock()
+	g1.members["real-target"] = &GossipNode{
+		ID: "real-target", Address: "127.0.0.1", Port: port3,
+		State: StateAlive, Incarnation: 1, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g1.members["mediator"] = &GossipNode{
+		ID: "mediator", Address: "127.0.0.1", Port: port2,
+		State: StateAlive, Incarnation: 1, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g1.membersMu.Unlock()
+
+	// On the mediator, add the real-target so PING_REQ can find it.
+	g2.membersMu.Lock()
+	g2.members["real-target"] = &GossipNode{
+		ID: "real-target", Address: "127.0.0.1", Port: port3,
+		State: StateAlive, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g2.membersMu.Unlock()
+
+	// probe on g1: the random member selection might pick any member.
+	// We call probe() multiple times to exercise the indirect path.
+	for i := 0; i < 5; i++ {
+		g1.probe()
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	// real-target should not be suspected if the indirect probe worked.
+	g1.membersMu.RLock()
+	m := g1.members["real-target"]
+	state := m.State
+	g1.membersMu.RUnlock()
+	if state == StateDead {
+		t.Errorf("real-target state = %v, should not be dead if indirect probe succeeded", state)
+	}
+}
+
+func TestProbe_SuspectAfterTimeout(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "probe-suspect"
+	cfg.ProbeTimeout = 100 * time.Millisecond
+	cfg.IndirectChecks = 0 // No indirect probes.
+	cfg.ProbeInterval = 1 * time.Hour
+	cfg.SuspicionTimeout = 30 * time.Second
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add an unreachable member.
+	g.membersMu.Lock()
+	g.members["unreachable"] = &GossipNode{
+		ID: "unreachable", Address: "127.0.0.1", Port: 1,
+		State: StateAlive, Incarnation: 1, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+
+	g.probe()
+
+	time.Sleep(300 * time.Millisecond)
+
+	g.membersMu.RLock()
+	m := g.members["unreachable"]
+	g.membersMu.RUnlock()
+	if m.State != StateSuspect {
+		t.Errorf("state = %v, want %v", m.State, StateSuspect)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// cancelSuspicion: timer exists, timer does not exist
+// ---------------------------------------------------------------------------
+
+func TestCancelSuspicion_TimerExists(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "cancel-suspect"
+	cfg.SuspicionTimeout = 10 * time.Second
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	// Manually start a suspicion timer.
+	g.suspicionTimersMu.Lock()
+	g.suspicionTimers["node-x"] = time.AfterFunc(10*time.Second, func() {})
+	g.suspicionTimersMu.Unlock()
+
+	// Cancel it.
+	g.cancelSuspicion("node-x")
+
+	g.suspicionTimersMu.Lock()
+	_, exists := g.suspicionTimers["node-x"]
+	g.suspicionTimersMu.Unlock()
+
+	if exists {
+		t.Error("suspicion timer should be removed after cancelSuspicion")
+	}
+}
+
+func TestCancelSuspicion_TimerDoesNotExist(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "cancel-nosuspect"
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+
+	// Canceling a non-existent timer should not panic.
+	g.cancelSuspicion("nonexistent-node")
+}
+
+// ---------------------------------------------------------------------------
+// handleAck: unknown seqNo, suspect -> alive transition
+// ---------------------------------------------------------------------------
+
+func TestHandleAck_UnknownSeqNo(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "ack-unknown"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add the sender as a member.
+	g.membersMu.Lock()
+	g.members["sender-node"] = &GossipNode{
+		ID: "sender-node", Address: "10.0.0.1", Port: 7946,
+		State: StateAlive, Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+
+	// Send an ACK with a seqNo that has no registered handler.
+	ack := encodeAck(99999, "sender-node")
+	_, payload, _, _ := decodeMessage(ack)
+	g.handleAck(payload)
+
+	// Should not panic; member should still be alive.
+	g.membersMu.RLock()
+	m := g.members["sender-node"]
+	g.membersMu.RUnlock()
+	if m.State != StateAlive {
+		t.Errorf("state = %v, want %v", m.State, StateAlive)
+	}
+}
+
+func TestHandleAck_SuspectToAlive(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "ack-suspect"
+	cfg.ProbeInterval = 1 * time.Hour
+	cfg.SuspicionTimeout = 30 * time.Second
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add a suspect member with a suspicion timer.
+	g.membersMu.Lock()
+	g.members["suspect-node"] = &GossipNode{
+		ID: "suspect-node", Address: "10.0.0.2", Port: 7946,
+		State: StateSuspect, Incarnation: 1, Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+	g.suspicionTimersMu.Lock()
+	g.suspicionTimers["suspect-node"] = time.AfterFunc(30*time.Second, func() {})
+	g.suspicionTimersMu.Unlock()
+
+	// Register an ACK handler so the seqNo is found.
+	seqNo := g.nextSeqNo()
+	ackCh := make(chan struct{}, 1)
+	g.ackHandlersMu.Lock()
+	g.ackHandlers[seqNo] = &ackHandler{
+		seqNo: seqNo,
+		timer: time.AfterFunc(5*time.Second, func() {}),
+		ackCh: ackCh,
+		created: time.Now(),
+	}
+	g.ackHandlersMu.Unlock()
+
+	// Send ACK from suspect-node with this seqNo.
+	ack := encodeAck(seqNo, "suspect-node")
+	_, payload, _, _ := decodeMessage(ack)
+	g.handleAck(payload)
+
+	// The node should transition from suspect to alive.
+	g.membersMu.RLock()
+	m := g.members["suspect-node"]
+	g.membersMu.RUnlock()
+	if m.State != StateAlive {
+		t.Errorf("state = %v, want %v after ACK from suspect", m.State, StateAlive)
+	}
+
+	// Suspicion timer should be cancelled.
+	g.suspicionTimersMu.Lock()
+	_, hasTimer := g.suspicionTimers["suspect-node"]
+	g.suspicionTimersMu.Unlock()
+	if hasTimer {
+		t.Error("suspicion timer should be cancelled after ACK from suspect node")
+	}
+}
+
+func TestHandleAck_SenderNotInMembers(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "ack-unknown-sender"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	seqNo := g.nextSeqNo()
+	ackCh := make(chan struct{}, 1)
+	g.ackHandlersMu.Lock()
+	g.ackHandlers[seqNo] = &ackHandler{
+		seqNo: seqNo,
+		timer: time.AfterFunc(5*time.Second, func() {}),
+		ackCh: ackCh,
+		created: time.Now(),
+	}
+	g.ackHandlersMu.Unlock()
+
+	// ACK from a sender that is not in our members list.
+	ack := encodeAck(seqNo, "unknown-sender")
+	_, payload, _, _ := decodeMessage(ack)
+	g.handleAck(payload)
+
+	// Should not panic.
+	select {
+	case <-ackCh:
+		// ACK handler was notified (correct).
+	default:
+		t.Error("ACK handler should have been notified")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleMessage: LEAVE via piggyback, SUSPECT via piggyback
+// ---------------------------------------------------------------------------
+
+func TestHandleMessage_PiggybackedLeave(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "piggy-leave"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add a member.
+	g.membersMu.Lock()
+	g.members["leaver"] = &GossipNode{
+		ID: "leaver", Address: "10.0.0.1", Port: 7946,
+		State: StateAlive, Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+
+	// Build a PING followed by a piggybacked LEAVE.
+	ping := encodePing(100, "remote", g.localNode.ID)
+	leave := encodeMessage(MsgLeave, encodeNodePayload(1, "leaver", "10.0.0.1", 7946, nil))
+	combined := append(ping, leave...)
+
+	g.handleMessage(combined, "10.0.0.1:7946")
+	time.Sleep(50 * time.Millisecond)
+
+	g.membersMu.RLock()
+	m := g.members["leaver"]
+	g.membersMu.RUnlock()
+	if m.State != StateLeft {
+		t.Errorf("leaver state = %v, want %v", m.State, StateLeft)
+	}
+}
+
+func TestHandleMessage_PiggybackedSuspect(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "piggy-suspect"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add an alive member.
+	g.membersMu.Lock()
+	g.members["suspectable"] = &GossipNode{
+		ID: "suspectable", Address: "10.0.0.1", Port: 7946,
+		State: StateAlive, Incarnation: 1, Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+
+	// Build a PING followed by a piggybacked SUSPECT.
+	ping := encodePing(101, "remote", g.localNode.ID)
+	suspectPayload := make([]byte, 4+2+len("suspectable"))
+	binary.BigEndian.PutUint32(suspectPayload[0:4], 1) // incarnation
+	binary.BigEndian.PutUint16(suspectPayload[4:6], uint16(len("suspectable")))
+	copy(suspectPayload[6:], "suspectable")
+	suspect := encodeMessage(MsgSuspect, suspectPayload)
+	combined := append(ping, suspect...)
+
+	g.handleMessage(combined, "10.0.0.1:7946")
+	time.Sleep(50 * time.Millisecond)
+
+	g.membersMu.RLock()
+	m := g.members["suspectable"]
+	g.membersMu.RUnlock()
+	if m.State != StateSuspect {
+		t.Errorf("suspectable state = %v, want %v", m.State, StateSuspect)
+	}
+}
+
+func TestHandleMessage_PiggybackedDead(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "piggy-dead"
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	defer g.Stop()
+
+	// Add a suspect member.
+	g.membersMu.Lock()
+	g.members["deady"] = &GossipNode{
+		ID: "deady", Address: "10.0.0.1", Port: 7946,
+		State: StateSuspect, Incarnation: 1, Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+
+	// Build a PING followed by a piggybacked DEAD.
+	ping := encodePing(102, "remote", g.localNode.ID)
+	dead := encodeDead(1, "deady")
+	combined := append(ping, dead...)
+
+	g.handleMessage(combined, "10.0.0.1:7946")
+	time.Sleep(50 * time.Millisecond)
+
+	g.membersMu.RLock()
+	m := g.members["deady"]
+	g.membersMu.RUnlock()
+	if m.State != StateDead {
+		t.Errorf("deady state = %v, want %v", m.State, StateDead)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Probe: stopCh interrupts indirect probe wait
+// ---------------------------------------------------------------------------
+
+func TestProbe_StopChInterruptsIndirectWait(t *testing.T) {
+	cfg := DefaultGossipConfig()
+	cfg.BindPort = getFreePort(t)
+	cfg.NodeID = "probe-stop"
+	cfg.ProbeTimeout = 5 * time.Second // Long timeout.
+	cfg.IndirectChecks = 3
+	cfg.ProbeInterval = 1 * time.Hour
+	g, err := NewGossip(cfg)
+	if err != nil {
+		t.Fatalf("NewGossip() error = %v", err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	// Add an unreachable target and a mediator that won't relay.
+	g.membersMu.Lock()
+	g.members["unreachable-target"] = &GossipNode{
+		ID: "unreachable-target", Address: "127.0.0.1", Port: 1,
+		State: StateAlive, Incarnation: 1, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g.members["mediator"] = &GossipNode{
+		ID: "mediator", Address: "127.0.0.1", Port: 1,
+		State: StateAlive, Incarnation: 1, LastSeen: time.Now(), Metadata: map[string]string{},
+	}
+	g.membersMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		g.probe()
+		close(done)
+	}()
+
+	// Give probe time to fail direct PING and start indirect wait.
+	time.Sleep(200 * time.Millisecond)
+
+	// Stop the gossip node; this closes stopCh.
+	g.Stop()
+
+	select {
+	case <-done:
+		// probe() returned due to stopCh.
+	case <-time.After(3 * time.Second):
+		t.Error("probe() did not return after Stop()")
+	}
+}
+
 // ---- Helpers ----
 
 // getFreePort returns a port on localhost that is free for both TCP and UDP.

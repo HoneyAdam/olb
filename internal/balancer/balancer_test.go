@@ -161,3 +161,47 @@ func (m *mockBalancer) Add(backend *backend.Backend) {}
 func (m *mockBalancer) Remove(id string) {}
 
 func (m *mockBalancer) Update(backend *backend.Backend) {}
+
+func TestInit_AllBalancersRegistered(t *testing.T) {
+	// Verify all built-in balancers and their aliases are registered
+	testCases := []struct {
+		name         string
+		expectedName string
+	}{
+		{"round_robin", "round_robin"},
+		{"weighted_round_robin", "weighted_round_robin"},
+		{"ip_hash", "ip_hash"},
+		{"iphash", "ip_hash"},
+		{"least_connections", "least_connections"},
+		{"lc", "least_connections"},
+		{"weighted_least_connections", "weighted_least_connections"},
+		{"wlc", "weighted_least_connections"},
+		{"random", "random"},
+		{"weighted_random", "weighted_random"},
+		{"wrandom", "weighted_random"},
+		{"consistent_hash", "consistent_hash"},
+		{"ch", "consistent_hash"},
+		{"ketama", "consistent_hash"},
+		{"power_of_two", "power_of_two"},
+		{"p2c", "power_of_two"},
+		{"least_response_time", "least_response_time"},
+		{"lrt", "least_response_time"},
+		{"weighted_least_response_time", "weighted_least_response_time"},
+		{"wlrt", "weighted_least_response_time"},
+		{"maglev", "maglev"},
+		{"ring_hash", "ring_hash"},
+		{"ringhash", "ring_hash"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := New(tc.name)
+			if b == nil {
+				t.Fatalf("New(%q) returned nil", tc.name)
+			}
+			if b.Name() != tc.expectedName {
+				t.Errorf("New(%q).Name() = %q, want %q", tc.name, b.Name(), tc.expectedName)
+			}
+		})
+	}
+}

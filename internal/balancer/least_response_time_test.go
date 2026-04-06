@@ -452,3 +452,15 @@ func TestLeastResponseTime_InvalidWindowSize(t *testing.T) {
 		t.Errorf("window size with negative input = %d, want %d", l.windowSize, DefaultResponseTimeWindowSize)
 	}
 }
+
+func TestWeightedLeastResponseTime_InvalidWindowSize(t *testing.T) {
+	w := NewWeightedLeastResponseTimeWithWindow(0)
+	if w.windowSize != DefaultResponseTimeWindowSize {
+		t.Errorf("window size with 0 input = %d, want %d", w.windowSize, DefaultResponseTimeWindowSize)
+	}
+
+	w = NewWeightedLeastResponseTimeWithWindow(-5)
+	if w.windowSize != DefaultResponseTimeWindowSize {
+		t.Errorf("window size with negative input = %d, want %d", w.windowSize, DefaultResponseTimeWindowSize)
+	}
+}

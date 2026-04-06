@@ -318,6 +318,118 @@ func TestVerifyNodeCertificateWithAllowed(t *testing.T) {
 	}
 }
 
+func TestVerifyNodeCertificateWithAllowed_EmptyCerts(t *testing.T) {
+	allowed := map[string]struct{}{"node1": {}}
+	err := verifyNodeCertificateWithAllowed([][]byte{}, nil, allowed)
+	if err == nil {
+		t.Error("Expected error for empty certificates")
+	}
+}
+
+func TestVerifyNodeCertificateWithAllowed_InvalidDER(t *testing.T) {
+	allowed := map[string]struct{}{"node1": {}}
+	err := verifyNodeCertificateWithAllowed([][]byte{[]byte("not a cert")}, nil, allowed)
+	if err == nil {
+		t.Error("Expected error for invalid certificate DER")
+	}
+}
+
+func TestVerifyNodeCertificateWithAllowed_IPSANs(t *testing.T) {
+	caKey, caCert, err := generateTestCA()
+	if err != nil {
+		t.Fatalf("Failed to generate test CA: %v", err)
+	}
+
+	// Create a node cert with IP SANs.
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	caCertParsed, err := x509.ParseCertificate(caCert)
+	if err != nil {
+		t.Fatalf("Failed to parse CA cert: %v", err)
+	}
+
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(3),
+		Subject:      pkix.Name{CommonName: "ip-node"},
+		IPAddresses:  []net.IP{net.ParseIP("10.0.0.5")},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+	}
+
+	nodeCertDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCertParsed, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("Failed to create node cert: %v", err)
+	}
+
+	// Allow by IP address.
+	allowedByIP := map[string]struct{}{"10.0.0.5": {}}
+	err = verifyNodeCertificateWithAllowed([][]byte{nodeCertDER}, nil, allowedByIP)
+	if err != nil {
+		t.Errorf("Expected allowed IP SAN to pass, got: %v", err)
+	}
+
+	// Disallowed IP.
+	notAllowed := map[string]struct{}{"10.0.0.99": {}}
+	err = verifyNodeCertificateWithAllowed([][]byte{nodeCertDER}, nil, notAllowed)
+	if err == nil {
+		t.Error("Expected disallowed IP to fail")
+	}
+}
+
+func TestVerifyNodeCertificateWithAllowed_DNSSANs(t *testing.T) {
+	caKey, caCert, err := generateTestCA()
+	if err != nil {
+		t.Fatalf("Failed to generate test CA: %v", err)
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+
+	caCertParsed, err := x509.ParseCertificate(caCert)
+	if err != nil {
+		t.Fatalf("Failed to parse CA cert: %v", err)
+	}
+
+	// Node cert with a DNS SAN that differs from CN.
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(4),
+		Subject:      pkix.Name{CommonName: "mismatch-cn"},
+		DNSNames:     []string{"dns-allowed-node"},
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+	}
+
+	nodeCertDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCertParsed, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("Failed to create node cert: %v", err)
+	}
+
+	// Allow by DNS SAN (not by CN).
+	allowedByDNS := map[string]struct{}{"dns-allowed-node": {}}
+	err = verifyNodeCertificateWithAllowed([][]byte{nodeCertDER}, nil, allowedByDNS)
+	if err != nil {
+		t.Errorf("Expected allowed DNS SAN to pass, got: %v", err)
+	}
+
+	// CN is not in the allowed set.
+	notAllowedByCN := map[string]struct{}{"mismatch-cn": {}}
+	err = verifyNodeCertificateWithAllowed([][]byte{nodeCertDER}, nil, notAllowedByCN)
+	// Note: The function checks CN first, so if CN matches it succeeds.
+	// Here CN "mismatch-cn" IS in the allowed set, so it should succeed.
+	if err != nil {
+		t.Errorf("Expected CN match to pass, got: %v", err)
+	}
+}
+
 func TestNodeAuthMiddleware_AcceptAndAuthenticate(t *testing.T) {
 	secret := []byte("cluster-secret")
 	nodeID := "node1"

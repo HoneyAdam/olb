@@ -1,6 +1,7 @@
 package balancer
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -578,6 +579,270 @@ func TestSticky_MultipleSessions(t *testing.T) {
 	}
 }
 
+func TestEncodeBase36(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{0, "0"},
+		{1, "1"},
+		{9, "9"},
+		{10, "a"},
+		{35, "z"},
+		{36, "10"},
+		{37, "11"},
+		{100, "2s"},
+		{1000, "rs"},
+		{123456789, "21i3v9"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%d", tt.input), func(t *testing.T) {
+			result := encodeBase36(tt.input)
+			if result != tt.expected {
+				t.Errorf("encodeBase36(%d) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestEncodeBase36_LargeNumber(t *testing.T) {
+	// Test with a large int64 value
+	result := encodeBase36(1<<62)
+	if result == "" || result == "0" {
+		t.Errorf("encodeBase36(large) returned unexpected %q", result)
+	}
+}
+
+func TestGenerateRandomID(t *testing.T) {
+	// Test that generateRandomID produces a valid hex string
+	id := generateRandomID()
+	if id == "" {
+		t.Error("generateRandomID() returned empty string")
+	}
+	if len(id) != 32 { // 16 bytes = 32 hex chars
+		t.Errorf("generateRandomID() length = %d, want 32", len(id))
+	}
+
+	// Should produce different IDs on successive calls
+	id2 := generateRandomID()
+	if id == id2 {
+		t.Error("generateRandomID() produced identical IDs")
+	}
+}
+
+func TestSticky_SelectAndStick_EmptyBackends(t *testing.T) {
+	base := NewRoundRobin()
+	s := NewSticky(base, nil)
+
+	be, sessionID := s.SelectAndStick([]*backend.Backend{}, nil)
+	if be != nil {
+		t.Error("SelectAndStick() with empty backends should return nil backend")
+	}
+	if sessionID != "" {
+		t.Error("SelectAndStick() with empty backends should return empty session ID")
+	}
+}
+
+func TestSticky_SelectAndStick_ExistingSession_Available(t *testing.T) {
+	base := NewRoundRobin()
+	s := NewSticky(base, nil)
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	be2 := backend.NewBackend("backend-2", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+	backends := []*backend.Backend{be1, be2}
+
+	s.Add(be1)
+	s.Add(be2)
+
+	// Create a session via SelectAndStick
+	req1 := httptest.NewRequest("GET", "http://example.com/", nil)
+	selected1, sessionID := s.SelectAndStick(backends, req1)
+	if selected1 == nil {
+		t.Fatal("SelectAndStick() returned nil")
+	}
+	if sessionID == "" {
+		t.Fatal("SelectAndStick() returned empty session ID")
+	}
+
+	// Call SelectAndStick again with the same session cookie
+	// This tests the existing-session path where backend is still available
+	req2 := httptest.NewRequest("GET", "http://example.com/", nil)
+	req2.AddCookie(&http.Cookie{
+		Name:  "OLB_SRV",
+		Value: sessionID,
+	})
+	selected2, sessionID2 := s.SelectAndStick(backends, req2)
+	if selected2 == nil {
+		t.Fatal("SelectAndStick() second call returned nil")
+	}
+	if selected2.ID != selected1.ID {
+		t.Errorf("SelectAndStick() second call = %v, want %v (sticky)", selected2.ID, selected1.ID)
+	}
+	// sessionID should be preserved from the cookie
+	if sessionID2 != sessionID {
+		t.Errorf("SelectAndStick() session ID changed: got %q, want %q", sessionID2, sessionID)
+	}
+}
+
+func TestSticky_SelectAndStick_BackendUnavailable_Reselect(t *testing.T) {
+	base := NewRoundRobin()
+	s := NewSticky(base, nil)
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	be2 := backend.NewBackend("backend-2", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+	backends := []*backend.Backend{be1, be2}
+
+	s.Add(be1)
+	s.Add(be2)
+
+	// Create a session
+	req1 := httptest.NewRequest("GET", "http://example.com/", nil)
+	selected1, sessionID := s.SelectAndStick(backends, req1)
+	if selected1 == nil {
+		t.Fatal("SelectAndStick() returned nil")
+	}
+
+	// Mark the selected backend as down
+	selected1.SetState(backend.StateDown)
+
+	// Call SelectAndStick with the same session cookie
+	// This tests the path where the existing session's backend is unavailable
+	req2 := httptest.NewRequest("GET", "http://example.com/", nil)
+	req2.AddCookie(&http.Cookie{
+		Name:  "OLB_SRV",
+		Value: sessionID,
+	})
+	selected2, sessionID2 := s.SelectAndStick(backends, req2)
+	if selected2 == nil {
+		t.Fatal("SelectAndStick() reselect returned nil")
+	}
+	if selected2.ID == selected1.ID {
+		t.Error("SelectAndStick() should have selected a different backend")
+	}
+	if sessionID2 != sessionID {
+		t.Error("Session ID should be preserved from cookie during reselect")
+	}
+}
+
+func TestSticky_SelectAndStick_WithExistingHeaderSession(t *testing.T) {
+	base := NewRoundRobin()
+	config := &StickyConfig{
+		Mode:       StickyModeHeader,
+		HeaderName: "X-Session-ID",
+	}
+	s := NewSticky(base, config)
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	be2 := backend.NewBackend("backend-2", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+	backends := []*backend.Backend{be1, be2}
+
+	s.Add(be1)
+	s.Add(be2)
+
+	// First request creates a session via header
+	req1 := httptest.NewRequest("GET", "http://example.com/", nil)
+	req1.Header.Set("X-Session-ID", "my-session-1")
+	selected1, sid1 := s.SelectAndStick(backends, req1)
+	if selected1 == nil {
+		t.Fatal("SelectAndStick() returned nil")
+	}
+	if sid1 != "my-session-1" {
+		t.Errorf("Session ID = %q, want %q", sid1, "my-session-1")
+	}
+
+	// Second request with same header should stick
+	req2 := httptest.NewRequest("GET", "http://example.com/", nil)
+	req2.Header.Set("X-Session-ID", "my-session-1")
+	selected2, sid2 := s.SelectAndStick(backends, req2)
+	if selected2 == nil {
+		t.Fatal("SelectAndStick() second call returned nil")
+	}
+	if selected2.ID != selected1.ID {
+		t.Errorf("SelectAndStick() second call = %v, want %v", selected2.ID, selected1.ID)
+	}
+	if sid2 != "my-session-1" {
+		t.Errorf("Session ID = %q, want %q", sid2, "my-session-1")
+	}
+}
+
+func TestSticky_SetCookie_EmptySessionID(t *testing.T) {
+	base := NewRoundRobin()
+	config := &StickyConfig{
+		Mode:       StickyModeCookie,
+		CookieName: "OLB_SRV",
+	}
+	s := NewSticky(base, config)
+
+	rec := httptest.NewRecorder()
+	s.SetCookie(rec, "")
+
+	// Should not set cookie with empty session ID
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 0 {
+		t.Errorf("Expected 0 cookies with empty session ID, got %d", len(cookies))
+	}
+}
+
+func TestSticky_ClearCookie_NonCookieMode(t *testing.T) {
+	base := NewRoundRobin()
+	config := &StickyConfig{
+		Mode: StickyModeHeader,
+	}
+	s := NewSticky(base, config)
+
+	rec := httptest.NewRecorder()
+	s.ClearCookie(rec)
+
+	// Should not set cookie in header mode
+	cookies := rec.Result().Cookies()
+	if len(cookies) != 0 {
+		t.Errorf("Expected 0 cookies in header mode, got %d", len(cookies))
+	}
+}
+
+func TestSticky_NextWithRequest_SelectsBackend(t *testing.T) {
+	base := NewRoundRobin()
+	s := NewSticky(base, nil)
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	be2 := backend.NewBackend("backend-2", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+	backends := []*backend.Backend{be1, be2}
+
+	s.Add(be1)
+	s.Add(be2)
+
+	// Request with a session cookie that doesn't have a stored session
+	// Tests the fallback path: existing session not found, selects via base balancer
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  "OLB_SRV",
+		Value: "unknown-session",
+	})
+
+	got := s.NextWithRequest(backends, req)
+	if got == nil {
+		t.Fatal("NextWithRequest() returned nil")
+	}
+
+	// Should have stored the new mapping
+	backendID, exists := s.GetSessionBackend("unknown-session")
+	if !exists {
+		t.Error("NextWithRequest() should have stored session mapping")
+	}
+	if backendID != got.ID {
+		t.Errorf("Stored backend ID = %q, want %q", backendID, got.ID)
+	}
+}
+
 func TestSticky_URLParsing(t *testing.T) {
 	base := NewRoundRobin()
 	config := &StickyConfig{
@@ -608,3 +873,4 @@ func TestSticky_URLParsing(t *testing.T) {
 		t.Errorf("SessionID = %v, want test123", sessionID)
 	}
 }
+

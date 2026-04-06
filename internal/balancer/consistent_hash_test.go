@@ -527,3 +527,140 @@ func BenchmarkHashKey(b *testing.B) {
 		ch.hashKey(keys[i%len(keys)])
 	}
 }
+
+// TestNewConsistentHash_DefaultVnodes tests that 0 vnodes uses default.
+func TestNewConsistentHash_DefaultVnodes(t *testing.T) {
+	ch := NewConsistentHash(0)
+	if ch.vnodes != DefaultVirtualNodes {
+		t.Errorf("NewConsistentHash(0) vnodes = %d, want %d", ch.vnodes, DefaultVirtualNodes)
+	}
+
+	ch2 := NewConsistentHash(-1)
+	if ch2.vnodes != DefaultVirtualNodes {
+		t.Errorf("NewConsistentHash(-1) vnodes = %d, want %d", ch2.vnodes, DefaultVirtualNodes)
+	}
+}
+
+// TestFindNextAvailable tests the fallback lookup for unavailable backends.
+func TestFindNextAvailable(t *testing.T) {
+	ch := NewConsistentHash(150)
+
+	b1 := backend.NewBackend("backend1", "10.0.0.1:8080")
+	b2 := backend.NewBackend("backend2", "10.0.0.2:8080")
+	b3 := backend.NewBackend("backend3", "10.0.0.3:8080")
+
+	b1.SetState(backend.StateUp)
+	b2.SetState(backend.StateUp)
+	b3.SetState(backend.StateUp)
+
+	ch.Add(b1)
+	ch.Add(b2)
+	ch.Add(b3)
+
+	// With all backends available, findNextAvailable should return a backend
+	backends := []*backend.Backend{b1, b2, b3}
+	result := ch.findNextAvailable(0, backends)
+	if result == nil {
+		t.Error("findNextAvailable() returned nil with all backends available")
+	}
+
+	// With b1 down, should still find an available backend
+	b1.SetState(backend.StateDown)
+	result = ch.findNextAvailable(0, []*backend.Backend{b1, b2, b3})
+	if result == nil {
+		t.Error("findNextAvailable() returned nil when b1 is down")
+	}
+	if result.ID == "backend1" {
+		t.Error("findNextAvailable() should not return downed backend1")
+	}
+}
+
+func TestFindNextAvailable_AllUnavailable(t *testing.T) {
+	ch := NewConsistentHash(150)
+
+	b1 := backend.NewBackend("backend1", "10.0.0.1:8080")
+	b2 := backend.NewBackend("backend2", "10.0.0.2:8080")
+
+	b1.SetState(backend.StateDown)
+	b2.SetState(backend.StateDown)
+
+	ch.Add(b1)
+	ch.Add(b2)
+
+	backends := []*backend.Backend{b1, b2}
+	result := ch.findNextAvailable(0, backends)
+	if result != nil {
+		t.Errorf("findNextAvailable() with all unavailable = %v, want nil", result)
+	}
+}
+
+func TestFindNextAvailable_SomeUnavailable(t *testing.T) {
+	ch := NewConsistentHash(150)
+
+	b1 := backend.NewBackend("backend1", "10.0.0.1:8080")
+	b2 := backend.NewBackend("backend2", "10.0.0.2:8080")
+	b3 := backend.NewBackend("backend3", "10.0.0.3:8080")
+
+	b1.SetState(backend.StateDown)
+	b2.SetState(backend.StateDown)
+	b3.SetState(backend.StateUp)
+
+	ch.Add(b1)
+	ch.Add(b2)
+	ch.Add(b3)
+
+	backends := []*backend.Backend{b1, b2, b3}
+	result := ch.findNextAvailable(ch.hashKey("test"), backends)
+	if result == nil {
+		t.Fatal("findNextAvailable() returned nil")
+	}
+	if result.ID != "backend3" {
+		t.Errorf("findNextAvailable() = %v, want backend3 (only available)", result.ID)
+	}
+}
+
+// TestNextWithKey_UnavailableSelected tests that NextWithKey falls back via findNextAvailable.
+func TestNextWithKey_UnavailableSelected(t *testing.T) {
+	ch := NewConsistentHash(150)
+
+	b1 := backend.NewBackend("backend1", "10.0.0.1:8080")
+	b2 := backend.NewBackend("backend2", "10.0.0.2:8080")
+	b3 := backend.NewBackend("backend3", "10.0.0.3:8080")
+
+	// All up initially for adding
+	b1.SetState(backend.StateUp)
+	b2.SetState(backend.StateUp)
+	b3.SetState(backend.StateUp)
+
+	ch.Add(b1)
+	ch.Add(b2)
+	ch.Add(b3)
+
+	// Now mark one down
+	b2.SetState(backend.StateDown)
+
+	backends := []*backend.Backend{b1, b2, b3}
+
+	// Try many keys - none should return backend2
+	for i := 0; i < 100; i++ {
+		key := fmt.Sprintf("key-%d", i)
+		result := ch.NextWithKey(backends, key)
+		if result != nil && result.ID == "backend2" {
+			t.Errorf("NextWithKey(%q) returned unavailable backend2", key)
+		}
+	}
+}
+
+// TestSetVirtualNodes_Zero tests SetVirtualNodes with zero uses default.
+func TestSetVirtualNodes_Zero(t *testing.T) {
+	ch := NewConsistentHash(50)
+
+	b1 := backend.NewBackend("backend1", "10.0.0.1:8080")
+	ch.Add(b1)
+
+	// Set to 0 should use default
+	ch.SetVirtualNodes(0)
+	if ch.GetVirtualNodes() != DefaultVirtualNodes {
+		t.Errorf("SetVirtualNodes(0) vnodes = %d, want %d", ch.GetVirtualNodes(), DefaultVirtualNodes)
+	}
+}

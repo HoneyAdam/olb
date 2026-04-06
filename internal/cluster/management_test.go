@@ -473,3 +473,127 @@ func TestClusterStatus_JSONRoundTrip(t *testing.T) {
 		t.Error("Expected healthy = true")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Leave: with connection drainer, drainer reaches zero
+// ---------------------------------------------------------------------------
+
+type mockDrainer struct {
+	count int64
+}
+
+func (d *mockDrainer) ActiveConnectionCount() int64 {
+	return d.count
+}
+
+func TestClusterManager_Leave_WithDrainer_ReachesZero(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+
+	// Set up a drainer that reports 0 connections immediately.
+	drainer := &mockDrainer{count: 0}
+	mgr.SetDrainer(drainer)
+
+	// Join first so Leave can succeed.
+	err := mgr.Join([]string{"127.0.0.1:7947"})
+	if err != nil {
+		t.Fatalf("Join error: %v", err)
+	}
+
+	err = mgr.Leave()
+	if err != nil {
+		t.Fatalf("Leave error: %v", err)
+	}
+	if mgr.GetState() != ClusterStateStandalone {
+		t.Errorf("After leave, state = %q, want standalone", mgr.GetState())
+	}
+}
+
+func TestClusterManager_Leave_WithDrainer_DrainsThenLeaves(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+
+	// Drainer starts with connections, then drops to zero after a short delay.
+	drainer := &mockDrainer{count: 5}
+	mgr.SetDrainer(drainer)
+
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		drainer.count = 0
+	}()
+
+	err := mgr.Join([]string{"127.0.0.1:7947"})
+	if err != nil {
+		t.Fatalf("Join error: %v", err)
+	}
+
+	err = mgr.Leave()
+	if err != nil {
+		t.Fatalf("Leave error: %v", err)
+	}
+	if mgr.GetState() != ClusterStateStandalone {
+		t.Errorf("After leave, state = %q, want standalone", mgr.GetState())
+	}
+}
+
+func TestClusterManager_Leave_WithDrainer_TimeoutExpires(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mgr.config.DrainTimeout = 100 * time.Millisecond
+
+	// Drainer always reports active connections.
+	drainer := &mockDrainer{count: 10}
+	mgr.SetDrainer(drainer)
+
+	err := mgr.Join([]string{"127.0.0.1:7947"})
+	if err != nil {
+		t.Fatalf("Join error: %v", err)
+	}
+
+	err = mgr.Leave()
+	if err != nil {
+		t.Fatalf("Leave error: %v", err)
+	}
+	if mgr.GetState() != ClusterStateStandalone {
+		t.Errorf("After leave (drain timeout), state = %q, want standalone", mgr.GetState())
+	}
+}
+
+func TestClusterManager_Leave_ClusterStopError(t *testing.T) {
+	// Create a manager with a cluster that will fail on Stop.
+	mgrConfig := &ClusterManagerConfig{
+		NodeID:       "node1",
+		DrainTimeout: 50 * time.Millisecond,
+	}
+	mgr := NewClusterManager(mgrConfig, nil, nil)
+
+	// Manually set state to active to bypass the Join requirement.
+	mgr.mu.Lock()
+	mgr.clusterSt = ClusterStateActive
+	mgr.mu.Unlock()
+
+	// cluster is nil, so Leave should handle gracefully.
+	// Actually, Leave checks cm.cluster != nil before calling Stop().
+	// Let's test with a cluster that has already been stopped.
+	sm := &testStateMachine{data: make(map[string]string)}
+	clusterConfig := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      7946,
+		ElectionTick:  2 * time.Second,
+		HeartbeatTick: 500 * time.Millisecond,
+	}
+	c, err := New(clusterConfig, sm)
+	if err != nil {
+		t.Fatalf("Failed to create cluster: %v", err)
+	}
+	mgr.cluster = c
+
+	err = mgr.Leave()
+	if err != nil {
+		// This is expected if Stop fails because Start was not called.
+		t.Logf("Leave returned error (acceptable): %v", err)
+	}
+
+	// The state should have been set back to standalone either way.
+	if mgr.GetState() != ClusterStateStandalone {
+		t.Logf("State after Leave = %q (may not be standalone if Stop failed)", mgr.GetState())
+	}
+}

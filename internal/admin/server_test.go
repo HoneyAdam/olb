@@ -4551,3 +4551,539 @@ func TestHandleBackendDetail_InvalidShortPath(t *testing.T) {
 		t.Errorf("expected 200 for /api/v1/backends (list), got %d", w.Code)
 	}
 }
+
+// --- Tests for getVersion handler (GET /api/v1/version) ---
+
+func TestGetVersion(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/version", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success response")
+	}
+
+	data, ok := resp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected data to be a map, got %T", resp.Data)
+	}
+
+	// Verify all expected fields are present
+	expectedFields := []string{"version", "commit", "build_date", "go_version", "platform"}
+	for _, field := range expectedFields {
+		if _, exists := data[field]; !exists {
+			t.Errorf("expected field %q in version response", field)
+		}
+	}
+}
+
+func TestGetVersion_MethodNotAllowed(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/version", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Success {
+		t.Error("expected failure response")
+	}
+	if resp.Error == nil || resp.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Errorf("expected METHOD_NOT_ALLOWED error, got %v", resp.Error)
+	}
+}
+
+// --- Tests for listPools handler (GET /api/v1/pools) ---
+
+func TestListPools(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	// Add test pools with backends
+	pool1 := backend.NewPool("pool-alpha", "round_robin")
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	pool1.AddBackend(b1)
+	poolManager.AddPool(pool1)
+
+	pool2 := backend.NewPool("pool-beta", "least_conn")
+	b2 := backend.NewBackend("b2", "127.0.0.1:8081")
+	pool2.AddBackend(b2)
+	poolManager.AddPool(pool2)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success response")
+	}
+
+	pools, ok := resp.Data.([]any)
+	if !ok {
+		t.Fatalf("expected data to be a slice, got %T", resp.Data)
+	}
+
+	if len(pools) != 2 {
+		t.Errorf("expected 2 pools, got %d", len(pools))
+	}
+
+	// Verify pool data contains expected fields
+	for _, p := range pools {
+		poolMap, ok := p.(map[string]any)
+		if !ok {
+			t.Fatalf("expected pool to be a map, got %T", p)
+		}
+		if _, exists := poolMap["name"]; !exists {
+			t.Error("expected 'name' field in pool info")
+		}
+		if _, exists := poolMap["algorithm"]; !exists {
+			t.Error("expected 'algorithm' field in pool info")
+		}
+		if _, exists := poolMap["backends"]; !exists {
+			t.Error("expected 'backends' field in pool info")
+		}
+		if _, exists := poolMap["total"]; !exists {
+			t.Error("expected 'total' field in pool info")
+		}
+		if _, exists := poolMap["healthy"]; !exists {
+			t.Error("expected 'healthy' field in pool info")
+		}
+	}
+}
+
+func TestListPools_Empty(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success response")
+	}
+
+	pools, ok := resp.Data.([]any)
+	if !ok {
+		t.Fatalf("expected data to be a slice, got %T", resp.Data)
+	}
+
+	if len(pools) != 0 {
+		t.Errorf("expected 0 pools, got %d", len(pools))
+	}
+}
+
+func TestListPools_NilPoolManager(t *testing.T) {
+	serverCfg := &Config{
+		Address: "127.0.0.1:0",
+	}
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success response")
+	}
+
+	pools, ok := resp.Data.([]any)
+	if !ok {
+		t.Fatalf("expected data to be a slice, got %T", resp.Data)
+	}
+
+	if len(pools) != 0 {
+		t.Errorf("expected 0 pools with nil pool manager, got %d", len(pools))
+	}
+}
+
+func TestListPools_MethodNotAllowed(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Error == nil || resp.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Errorf("expected METHOD_NOT_ALLOWED error, got %v", resp.Error)
+	}
+}
+
+// --- Tests for getPoolByName handler (GET /api/v1/pools/:name) ---
+
+func TestGetPoolByName(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	pool.AddBackend(b1)
+	poolManager.AddPool(pool)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools/test-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if !resp.Success {
+		t.Error("expected success response")
+	}
+
+	data, ok := resp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected data to be a map, got %T", resp.Data)
+	}
+
+	if data["name"] != "test-pool" {
+		t.Errorf("expected name=test-pool, got %v", data["name"])
+	}
+	if data["algorithm"] != "round_robin" {
+		t.Errorf("expected algorithm=round_robin, got %v", data["algorithm"])
+	}
+}
+
+func TestGetPoolByName_NotFound(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	// Add a pool but request a different one
+	pool := backend.NewPool("existing-pool", "round_robin")
+	poolManager.AddPool(pool)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools/nonexistent-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Success {
+		t.Error("expected failure response")
+	}
+	if resp.Error == nil || resp.Error.Code != "POOL_NOT_FOUND" {
+		t.Errorf("expected POOL_NOT_FOUND error, got %v", resp.Error)
+	}
+}
+
+func TestGetPoolByName_NilPoolManager(t *testing.T) {
+	serverCfg := &Config{
+		Address: "127.0.0.1:0",
+	}
+	server, err := NewServer(serverCfg)
+	if err != nil {
+		t.Fatalf("failed to create server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools/some-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Error == nil || resp.Error.Code != "POOL_NOT_FOUND" {
+		t.Errorf("expected POOL_NOT_FOUND error, got %v", resp.Error)
+	}
+}
+
+func TestGetPoolByName_WithHealthCheck(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("hc-pool", "weighted_round_robin")
+	pool.HealthCheck = &backend.HealthCheckConfig{
+		Enabled:  true,
+		Interval: 5 * time.Second,
+		Timeout:  2 * time.Second,
+		Path:     "/healthz",
+		Port:     9090,
+	}
+	b := backend.NewBackend("b1", "10.0.0.1:8080")
+	pool.AddBackend(b)
+	poolManager.AddPool(pool)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools/hc-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	data, ok := resp.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected data to be a map, got %T", resp.Data)
+	}
+
+	hc, ok := data["health_check"].(map[string]any)
+	if !ok {
+		t.Fatal("expected health_check in response")
+	}
+	if hc["enabled"] != true {
+		t.Errorf("expected health_check.enabled=true, got %v", hc["enabled"])
+	}
+	if hc["path"] != "/healthz" {
+		t.Errorf("expected health_check.path=/healthz, got %v", hc["path"])
+	}
+}
+
+// --- Tests for handlePoolDetail handler ---
+
+func TestHandlePoolDetail_MethodNotAllowed(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	poolManager.AddPool(pool)
+
+	// POST to a pool detail path should be rejected
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/pools/test-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Error == nil || resp.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Errorf("expected METHOD_NOT_ALLOWED error, got %v", resp.Error)
+	}
+}
+
+func TestHandlePoolDetail_InvalidPath(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	// Path with too many segments (5 parts: api/v1/pools/pool/extra) should be invalid
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools/pool-name/extra", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected status 400, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Error == nil || resp.Error.Code != "INVALID_PATH" {
+		t.Errorf("expected INVALID_PATH error, got %v", resp.Error)
+	}
+}
+
+func TestHandlePoolDetail_DeleteNotAllowed(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	poolManager.AddPool(pool)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/pools/test-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+}
+
+func TestHandlePoolDetail_PutNotAllowed(t *testing.T) {
+	server, poolManager, _, _, _ := setupTestServer(t, nil)
+
+	pool := backend.NewPool("test-pool", "round_robin")
+	poolManager.AddPool(pool)
+
+	req := httptest.NewRequest(http.MethodPut, "/api/v1/pools/test-pool", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected status 405, got %d", w.Code)
+	}
+}
+
+// --- Tests for /api/ 404 fallback ---
+
+func TestAPI404Fallback_UnmatchedRoute(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	// Request to a non-existent /api/ route
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/nonexistent", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Success {
+		t.Error("expected failure response")
+	}
+	if resp.Error == nil || resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("expected NOT_FOUND error, got %v", resp.Error)
+	}
+}
+
+func TestAPI404Fallback_AnotherUnmatchedRoute(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	// Another non-existent /api/ route with deeper path
+	req := httptest.NewRequest(http.MethodGet, "/api/v2/something", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Success {
+		t.Error("expected failure response")
+	}
+	if resp.Error == nil {
+		t.Fatal("expected error in response")
+	}
+	if resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("expected NOT_FOUND error code, got %s", resp.Error.Code)
+	}
+	if resp.Error.Message == "" {
+		t.Error("expected non-empty error message")
+	}
+}
+
+func TestAPI404Fallback_ErrorMessageIncludesPath(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	path := "/api/v1/does/not/exist"
+	req := httptest.NewRequest(http.MethodGet, path, nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Error == nil {
+		t.Fatal("expected error in response")
+	}
+	if !strings.Contains(resp.Error.Message, path) {
+		t.Errorf("expected error message to contain path %q, got %q", path, resp.Error.Message)
+	}
+}
+
+func TestAPI404Fallback_PostMethod(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/unknown", nil)
+	w := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+
+	var resp Response
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Error == nil || resp.Error.Code != "NOT_FOUND" {
+		t.Errorf("expected NOT_FOUND error, got %v", resp.Error)
+	}
+}

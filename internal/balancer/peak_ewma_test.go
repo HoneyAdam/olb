@@ -8,6 +8,36 @@ import (
 	"github.com/openloadbalancer/olb/internal/backend"
 )
 
+func TestPeakEWMA_Name(t *testing.T) {
+	p := NewPeakEWMA()
+	if name := p.Name(); name != "peak_ewma" {
+		t.Errorf("Name() = %q, want %q", name, "peak_ewma")
+	}
+}
+
+func TestPeakEWMA_Update(t *testing.T) {
+	p := NewPeakEWMA()
+	be := backend.NewBackend("be1", "10.0.0.1:8080")
+	be.SetState(backend.StateUp)
+
+	// Update is a no-op but should not panic
+	p.Update(be)
+
+	// Update after Add
+	p.Add(be)
+	p.Update(be)
+
+	// Update with nil should not panic
+	p.Update(nil)
+
+	// Verify balancer still works after Update
+	backends := []*backend.Backend{be}
+	result := p.Next(backends)
+	if result == nil {
+		t.Error("Next() returned nil after Update")
+	}
+}
+
 func TestPeakEWMA_Next(t *testing.T) {
 	p := NewPeakEWMA()
 
