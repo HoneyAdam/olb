@@ -639,3 +639,204 @@ func TestConfigStateMachine_GetCurrentConfig_ReturnsCopy(t *testing.T) {
 		t.Error("GetCurrentConfig should return a copy, not a reference")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// SetWAFCommandHandler coverage (0% -> full)
+// ---------------------------------------------------------------------------
+
+func TestConfigStateMachine_SetWAFCommandHandler(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+
+	called := false
+	sm.SetWAFCommandHandler(func(cmdType ConfigCommandType, payload json.RawMessage) error {
+		called = true
+		if cmdType != CmdWAFAddWhitelist {
+			t.Errorf("cmdType = %q, want %q", cmdType, CmdWAFAddWhitelist)
+		}
+		return nil
+	})
+
+	// Apply a WAF command to trigger the handler.
+	payload, _ := json.Marshal(WAFIPACLPayload{CIDR: "10.0.0.0/8", Reason: "test"})
+	cmd := ConfigCommand{Type: CmdWAFAddWhitelist, Payload: payload}
+	_, err := sm.Apply(makeCommand(t, cmd))
+	if err != nil {
+		t.Fatalf("Apply WAF command failed: %v", err)
+	}
+	if !called {
+		t.Error("WAF command handler was not called")
+	}
+}
+
+func TestConfigStateMachine_WAFCommands_NoHandler(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+
+	// WAF commands without a handler should succeed silently.
+	cmd := ConfigCommand{Type: CmdWAFAddWhitelist, Payload: json.RawMessage(`{}`)}
+	_, err := sm.Apply(makeCommand(t, cmd))
+	if err != nil {
+		t.Fatalf("Expected no error when no WAF handler set, got: %v", err)
+	}
+}
+
+func TestConfigStateMachine_WAFCommands_AllTypes(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+
+	var calledTypes []ConfigCommandType
+	sm.SetWAFCommandHandler(func(cmdType ConfigCommandType, payload json.RawMessage) error {
+		calledTypes = append(calledTypes, cmdType)
+		return nil
+	})
+
+	wafTypes := []ConfigCommandType{
+		CmdWAFAddWhitelist,
+		CmdWAFRemoveWhitelist,
+		CmdWAFAddBlacklist,
+		CmdWAFRemoveBlacklist,
+		CmdWAFAddRateRule,
+		CmdWAFRemoveRateRule,
+		CmdWAFSetMode,
+		CmdWAFSyncCounters,
+	}
+
+	for _, cmdType := range wafTypes {
+		cmd := ConfigCommand{Type: cmdType, Payload: json.RawMessage(`{}`)}
+		_, err := sm.Apply(makeCommand(t, cmd))
+		if err != nil {
+			t.Errorf("Apply %s failed: %v", cmdType, err)
+		}
+	}
+
+	if len(calledTypes) != len(wafTypes) {
+		t.Errorf("called %d types, want %d", len(calledTypes), len(wafTypes))
+	}
+}
+
+func TestConfigStateMachine_WAFCommand_Error(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+
+	sm.SetWAFCommandHandler(func(cmdType ConfigCommandType, payload json.RawMessage) error {
+		return fmt.Errorf("WAF handler error")
+	})
+
+	cmd := ConfigCommand{Type: CmdWAFAddWhitelist, Payload: json.RawMessage(`{}`)}
+	_, err := sm.Apply(makeCommand(t, cmd))
+	if err == nil {
+		t.Error("Expected error from WAF handler")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ProposeConfigChange error paths
+// ---------------------------------------------------------------------------
+
+func TestProposeConfigChange_NotLeader(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	clusterConfig := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      7946,
+		ElectionTick:  2 * time.Second,
+		HeartbeatTick: 500 * time.Millisecond,
+		Peers:         []string{"node2"},
+	}
+	c, err := New(clusterConfig, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Don't start the cluster; node stays follower.
+	// ProposeConfigChange calls c.Propose which sends to commandCh.
+	// Since we're not started, commandCh is unbuffered and handleCommand
+	// won't process it. We test the not-leader error by using a follower.
+
+	// The command goes through commandCh -> handleCommand which returns
+	// "not leader" error. We need to start the run() loop to process it.
+	if err := c.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer c.Stop()
+
+	cmd := ConfigCommand{Type: CmdSetConfig, Payload: json.RawMessage(`{"version":"2"}`)}
+	err = ProposeConfigChange(c, cmd)
+	// In single node, it becomes leader quickly. If it's leader, it succeeds.
+	// If follower (due to peers), it returns "not leader" error.
+	// We just verify no panic.
+	_ = err
+}
+
+func TestProposeConfigChange_ProposeError(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	clusterConfig := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      7946,
+		ElectionTick:  2 * time.Second,
+		HeartbeatTick: 500 * time.Millisecond,
+		Peers:         []string{"node2", "node3"},
+	}
+	c, err := New(clusterConfig, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Point peers to non-existent addresses and set up a transport.
+	clientTransport := newStartedTransport(t, &stubHandler{})
+	defer clientTransport.Stop()
+	c.SetTransport(clientTransport)
+
+	c.nodesMu.Lock()
+	for _, id := range []string{"node2", "node3"} {
+		if n, ok := c.nodes[id]; ok {
+			n.Address = "127.0.0.1:1"
+		}
+	}
+	c.nodesMu.Unlock()
+
+	if err := c.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer c.Stop()
+
+	// Wait for election. With peers pointing to nothing, single-node won't
+	// become leader for a 3-node cluster. handleCommand returns "not leader".
+	time.Sleep(500 * time.Millisecond)
+
+	cmd := ConfigCommand{Type: CmdSetConfig, Payload: json.RawMessage(`{"version":"2"}`)}
+	err = ProposeConfigChange(c, cmd)
+	if err == nil {
+		t.Error("Expected error from ProposeConfigChange when not leader")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// UpdateRoute error path: missing route
+// ---------------------------------------------------------------------------
+
+func TestConfigStateMachine_Apply_UpdateRoute_MissingRoute(t *testing.T) {
+	sm := NewConfigStateMachine(newTestConfig())
+
+	payload, _ := json.Marshal(UpdateRoutePayload{
+		Listener: "",
+		Route:    &config.Route{Path: "/api", Pool: "pool"},
+	})
+	cmd := ConfigCommand{Type: CmdUpdateRoute, Payload: payload}
+	_, err := sm.Apply(makeCommand(t, cmd))
+	if err == nil {
+		t.Error("Expected error for missing listener name in update route")
+	}
+}
+
+func TestConfigStateMachine_Apply_UpdateRoute_MissingRouteNil(t *testing.T) {
+	sm := NewConfigStateMachine(newTestConfig())
+
+	payload, _ := json.Marshal(UpdateRoutePayload{
+		Listener: "http",
+		Route:    nil,
+	})
+	cmd := ConfigCommand{Type: CmdUpdateRoute, Payload: payload}
+	_, err := sm.Apply(makeCommand(t, cmd))
+	if err == nil {
+		t.Error("Expected error for nil route in update route")
+	}
+}

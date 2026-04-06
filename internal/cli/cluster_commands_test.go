@@ -328,3 +328,61 @@ func TestClusterStatusResponse_JSONRoundTrip(t *testing.T) {
 		t.Errorf("Members count = %d, want %d", len(decoded.Members), len(original.Members))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Cluster command API error tests
+// ---------------------------------------------------------------------------
+
+func TestClusterStatusCommand_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(admin.ErrorResponse("INTERNAL_ERROR", "cluster not initialized"))
+	}))
+	defer server.Close()
+
+	cmd := &ClusterStatusCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://")})
+	if err == nil {
+		t.Error("Expected error when API returns error")
+	}
+}
+
+func TestClusterJoinCommand_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(admin.ErrorResponse("NOT_AVAILABLE", "cluster not ready"))
+	}))
+	defer server.Close()
+
+	cmd := &ClusterJoinCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "--addr", "10.0.0.5:7946"})
+	if err == nil {
+		t.Error("Expected error when API returns error")
+	}
+}
+
+func TestClusterMembersCommand_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := &ClusterMembersCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://")})
+	if err == nil {
+		t.Error("Expected error when API returns error")
+	}
+}
+
+func TestClusterLeaveCommand_APIError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	cmd := &ClusterLeaveCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://")})
+	if err == nil {
+		t.Error("Expected error when API returns error")
+	}
+}

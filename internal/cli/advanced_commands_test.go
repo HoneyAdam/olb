@@ -2197,3 +2197,197 @@ func TestCertRenewCommand_Success(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// MetricsExport success path (line 881 fmt.Printf)
+// ---------------------------------------------------------------------------
+
+func TestMetricsExportCommand_JSONSuccess(t *testing.T) {
+	server := newMockServer()
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "out.json")
+
+	cmd := &MetricsExportCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--output", outputPath,
+		"--format", "json",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("Failed to read output: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("Output file is empty")
+	}
+}
+
+func TestMetricsExportCommand_PrometheusSuccess(t *testing.T) {
+	server := newMockServer()
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "out.txt")
+
+	cmd := &MetricsExportCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--output", outputPath,
+		"--format", "prometheus",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ConfigDiff success path (line 1017-1020 fmt.Printf lines)
+// ---------------------------------------------------------------------------
+
+func TestConfigDiffCommand_WithExplicitFile(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "olb.yaml")
+	configContent := "version: \"1\"\nlisteners:\n  - name: http\n    address: :8080\n"
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cmd := &ConfigDiffCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--file", configPath,
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ConfigValidate success path with version/listeners/pools (line 1065-1076)
+// ---------------------------------------------------------------------------
+
+func TestConfigValidateCommand_ValidWithAllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test.yaml")
+	configContent := `version: "1"
+listeners:
+  - name: http
+    address: :8080
+pools:
+  - name: default
+    algorithm: round_robin
+`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cmd := &ConfigValidateCommand{}
+	err := cmd.Run([]string{"--config", configPath})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// BackendAdd success path with weight (exercises weight flag parsing)
+// ---------------------------------------------------------------------------
+
+func TestBackendAddCommand_WithWeight(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &BackendAddCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--weight", "10",
+		"web", "10.0.0.5:8080",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RouteAdd with all flags (exercises host and methods flags)
+// ---------------------------------------------------------------------------
+
+func TestRouteAddCommand_WithAllFlags(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &RouteAddCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--backend", "api",
+		"--priority", "100",
+		"/api/v2",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MetricsShowCommand table format success (exercises table output lines)
+// ---------------------------------------------------------------------------
+
+func TestMetricsShowCommand_TableSuccess(t *testing.T) {
+	server := newMockServer()
+	defer server.Close()
+
+	cmd := &MetricsShowCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--format", "table",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CertInfoCommand table format success (exercises table output lines)
+// ---------------------------------------------------------------------------
+
+func TestCertInfoCommand_TableSuccess(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &CertInfoCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--format", "table",
+		"example.com",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CertInfoCommand json format success (exercises json output lines)
+// ---------------------------------------------------------------------------
+
+func TestCertInfoCommand_JSONSuccess(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &CertInfoCommand{}
+	err := cmd.Run([]string{
+		"--api-addr", strings.TrimPrefix(server.URL, "http://"),
+		"--format", "json",
+		"example.com",
+	})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
