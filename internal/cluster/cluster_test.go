@@ -542,3 +542,291 @@ func TestCluster_sendHeartbeats(t *testing.T) {
 		t.Errorf("Term = %d, want 3", cluster.GetTerm())
 	}
 }
+
+func TestCluster_StartStopRun(t *testing.T) {
+	config := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      7946,
+		ElectionTick:  300 * time.Millisecond,
+		HeartbeatTick: 100 * time.Millisecond,
+	}
+	sm := newMockStateMachine()
+	c, err := New(config, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if err := c.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Wait for election to fire and node to become leader.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if c.GetState() == StateLeader {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if c.GetState() != StateLeader {
+		t.Fatalf("expected leader state, got %v", c.GetState())
+	}
+
+	// Send a command through Propose (exercises commandCh path in run()).
+	result, err := c.Propose([]byte("hello=world"))
+	if err != nil {
+		t.Fatalf("Propose: %v", err)
+	}
+	if result.Error != nil {
+		t.Fatalf("Propose result error: %v", result.Error)
+	}
+	if result.Index != 1 {
+		t.Errorf("result.Index = %d, want 1", result.Index)
+	}
+	if sm.data["hello"] != "world" {
+		t.Errorf("state machine: got %q, want %q", sm.data["hello"], "world")
+	}
+
+	// Stop exercises the stopCh path in run().
+	if err := c.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Comprehensive HandleAppendEntries tests
+// ---------------------------------------------------------------------------
+
+func TestHandleAppendEntries_LogTooShort(t *testing.T) {
+	config := &Config{
+		NodeID:   "node1",
+		BindAddr: "127.0.0.1",
+		BindPort: 7946,
+	}
+	sm := newMockStateMachine()
+	cluster, _ := New(config, sm)
+	cluster.currentTerm.Store(1)
+
+	// Our log has 2 entries.
+	cluster.log = []*LogEntry{
+		{Index: 1, Term: 1, Command: []byte("a")},
+		{Index: 2, Term: 1, Command: []byte("b")},
+	}
+
+	// Leader claims PrevLogIndex=5, but we only have 2 entries.
+	resp := cluster.HandleAppendEntries(&AppendEntries{
+		Term:         2,
+		LeaderID:     "leader1",
+		PrevLogIndex: 5,
+		PrevLogTerm:  1,
+		Entries:      nil,
+		LeaderCommit: 0,
+	})
+
+	if resp.Success {
+		t.Error("expected failure when log is too short")
+	}
+	if resp.ConflictIndex != 2 {
+		t.Errorf("ConflictIndex = %d, want 2", resp.ConflictIndex)
+	}
+}
+
+func TestHandleAppendEntries_TermMismatch(t *testing.T) {
+	config := &Config{
+		NodeID:   "node1",
+		BindAddr: "127.0.0.1",
+		BindPort: 7946,
+	}
+	sm := newMockStateMachine()
+	cluster, _ := New(config, sm)
+	cluster.currentTerm.Store(1)
+
+	cluster.log = []*LogEntry{
+		{Index: 1, Term: 1, Command: []byte("a")},
+		{Index: 2, Term: 1, Command: []byte("b")},
+		{Index: 3, Term: 2, Command: []byte("c")},
+	}
+
+	// Leader says PrevLogIndex=3 should have term 5, but ours has term 2.
+	resp := cluster.HandleAppendEntries(&AppendEntries{
+		Term:         3,
+		LeaderID:     "leader1",
+		PrevLogIndex: 3,
+		PrevLogTerm:  5,
+		Entries:      nil,
+		LeaderCommit: 0,
+	})
+
+	if resp.Success {
+		t.Error("expected failure on term mismatch")
+	}
+	if resp.ConflictTerm != 2 {
+		t.Errorf("ConflictTerm = %d, want 2", resp.ConflictTerm)
+	}
+	if resp.ConflictIndex != 3 {
+		t.Errorf("ConflictIndex = %d, want 3", resp.ConflictIndex)
+	}
+}
+
+func TestHandleAppendEntries_AppendNewEntries(t *testing.T) {
+	config := &Config{
+		NodeID:   "node1",
+		BindAddr: "127.0.0.1",
+		BindPort: 7946,
+	}
+	sm := newMockStateMachine()
+	cluster, _ := New(config, sm)
+	cluster.currentTerm.Store(1)
+
+	cluster.log = []*LogEntry{
+		{Index: 1, Term: 1, Command: []byte("a")},
+	}
+
+	resp := cluster.HandleAppendEntries(&AppendEntries{
+		Term:         2,
+		LeaderID:     "leader1",
+		PrevLogIndex: 1,
+		PrevLogTerm:  1,
+		Entries: []*LogEntry{
+			{Index: 2, Term: 2, Command: []byte("b")},
+			{Index: 3, Term: 2, Command: []byte("c")},
+		},
+		LeaderCommit: 0,
+	})
+
+	if !resp.Success {
+		t.Error("expected success appending new entries")
+	}
+
+	cluster.logMu.RLock()
+	defer cluster.logMu.RUnlock()
+	if len(cluster.log) != 3 {
+		t.Errorf("log length = %d, want 3", len(cluster.log))
+	}
+	if cluster.log[1].Command == nil || string(cluster.log[1].Command) != "b" {
+		t.Errorf("log[1].Command = %v, want 'b'", cluster.log[1].Command)
+	}
+	if cluster.log[2].Command == nil || string(cluster.log[2].Command) != "c" {
+		t.Errorf("log[2].Command = %v, want 'c'", cluster.log[2].Command)
+	}
+}
+
+func TestHandleAppendEntries_OverwriteConflictingEntry(t *testing.T) {
+	config := &Config{
+		NodeID:   "node1",
+		BindAddr: "127.0.0.1",
+		BindPort: 7946,
+	}
+	sm := newMockStateMachine()
+	cluster, _ := New(config, sm)
+	cluster.currentTerm.Store(1)
+
+	cluster.log = []*LogEntry{
+		{Index: 1, Term: 1, Command: []byte("a")},
+		{Index: 2, Term: 1, Command: []byte("old")},
+		{Index: 3, Term: 1, Command: []byte("stale")},
+	}
+
+	resp := cluster.HandleAppendEntries(&AppendEntries{
+		Term:         2,
+		LeaderID:     "leader1",
+		PrevLogIndex: 1,
+		PrevLogTerm:  1,
+		Entries: []*LogEntry{
+			{Index: 2, Term: 2, Command: []byte("new")},
+		},
+		LeaderCommit: 0,
+	})
+
+	if !resp.Success {
+		t.Error("expected success overwriting conflicting entry")
+	}
+
+	cluster.logMu.RLock()
+	logLen := len(cluster.log)
+	defer cluster.logMu.RUnlock()
+
+	if logLen != 2 {
+		t.Errorf("log length = %d, want 2 (truncated from conflict + 1 new)", logLen)
+	}
+	if string(cluster.log[1].Command) != "new" {
+		t.Errorf("log[1].Command = %v, want 'new'", string(cluster.log[1].Command))
+	}
+}
+
+func TestHandleAppendEntries_AdvanceCommitIndex(t *testing.T) {
+	config := &Config{
+		NodeID:   "node1",
+		BindAddr: "127.0.0.1",
+		BindPort: 7946,
+	}
+	sm := newMockStateMachine()
+	cluster, _ := New(config, sm)
+	cluster.currentTerm.Store(2)
+
+	cluster.log = []*LogEntry{
+		{Index: 1, Term: 1, Command: []byte("x=1")},
+		{Index: 2, Term: 2, Command: []byte("y=2")},
+		{Index: 3, Term: 2, Command: []byte("z=3")},
+	}
+	cluster.commitIndex.Store(1)
+	cluster.lastApplied.Store(1)
+
+	resp := cluster.HandleAppendEntries(&AppendEntries{
+		Term:         2,
+		LeaderID:     "leader1",
+		PrevLogIndex: 3,
+		PrevLogTerm:  2,
+		Entries:      nil,
+		LeaderCommit: 3,
+	})
+
+	if !resp.Success {
+		t.Error("expected success advancing commit index")
+	}
+	if cluster.commitIndex.Load() != 3 {
+		t.Errorf("commitIndex = %d, want 3", cluster.commitIndex.Load())
+	}
+	if cluster.lastApplied.Load() != 3 {
+		t.Errorf("lastApplied = %d, want 3", cluster.lastApplied.Load())
+	}
+	if sm.data["y"] != "2" {
+		t.Errorf("state machine y = %q, want '2'", sm.data["y"])
+	}
+	if sm.data["z"] != "3" {
+		t.Errorf("state machine z = %q, want '3'", sm.data["z"])
+	}
+}
+
+func TestHandleAppendEntries_CommitLimitedByLogLength(t *testing.T) {
+	config := &Config{
+		NodeID:   "node1",
+		BindAddr: "127.0.0.1",
+		BindPort: 7946,
+	}
+	sm := newMockStateMachine()
+	cluster, _ := New(config, sm)
+	cluster.currentTerm.Store(1)
+
+	cluster.log = []*LogEntry{
+		{Index: 1, Term: 1, Command: []byte("a=1")},
+	}
+
+	resp := cluster.HandleAppendEntries(&AppendEntries{
+		Term:         1,
+		LeaderID:     "leader1",
+		PrevLogIndex: 0,
+		PrevLogTerm:  0,
+		Entries:      nil,
+		LeaderCommit: 100, // Way beyond log length
+	})
+
+	if !resp.Success {
+		t.Error("expected success")
+	}
+	// commitIndex should be limited to the last log index (1), not 100.
+	if cluster.commitIndex.Load() != 1 {
+		t.Errorf("commitIndex = %d, want 1 (limited by log length)", cluster.commitIndex.Load())
+	}
+}

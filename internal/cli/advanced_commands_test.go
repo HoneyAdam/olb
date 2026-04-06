@@ -2123,3 +2123,77 @@ func TestCommandStructure(t *testing.T) {
 		})
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Success-path tests for backend commands (exercise fmt.Printf output lines)
+// ---------------------------------------------------------------------------
+
+func TestBackendRemoveCommand_Success(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &BackendRemoveCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "web", "b1"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+func TestBackendDrainCommand_Success(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &BackendDrainCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "web", "b1"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+func TestBackendEnableCommand_Success(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &BackendEnableCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "web", "b1"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+func TestBackendDisableCommand_Success(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &BackendDisableCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "web", "b1"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Success-path tests for cert commands
+// ---------------------------------------------------------------------------
+
+func TestCertRemoveCommand_Success(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &CertRemoveCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "example.com"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+func TestCertRenewCommand_Success(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &CertRenewCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://"), "example.com"})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}

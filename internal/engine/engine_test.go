@@ -4682,3 +4682,262 @@ func generateTestCert(t *testing.T) tls.Certificate {
 	}
 	return cert
 }
+
+// --- Additional tests for coverage improvement ---
+
+// TestGetMCPAddress_Explicit tests getMCPAddress with an explicit MCP address.
+func TestGetMCPAddress_Explicit(t *testing.T) {
+	tests := []struct {
+		name     string
+		cfg      *config.Config
+		expected string
+	}{
+		{
+			name: "explicit MCP address",
+			cfg: &config.Config{
+				Admin: &config.Admin{
+					MCPAddress: "127.0.0.1:5555",
+				},
+			},
+			expected: "127.0.0.1:5555",
+		},
+		{
+			name:     "nil admin config",
+			cfg:      &config.Config{},
+			expected: ":8081",
+		},
+		{
+			name: "admin with port but no MCP address",
+			cfg: &config.Config{
+				Admin: &config.Admin{
+					Address: "192.168.1.1:3000",
+				},
+			},
+			expected: "192.168.1.1:3001",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := getMCPAddress(tt.cfg)
+			if result != tt.expected {
+				t.Errorf("getMCPAddress() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
+// TestValidateConfig_AllAlgorithms tests that all algorithm values pass validation.
+func TestValidateConfig_AllAlgorithms(t *testing.T) {
+	algorithms := []string{
+		"sticky",
+		"ring_hash",
+		"ringhash",
+		"weighted_random",
+		"wrandom",
+		"random",
+		"power_of_two",
+		"p2c",
+		"maglev",
+		"consistent_hash",
+		"ch",
+		"ketama",
+		"ip_hash",
+		"iphash",
+		"least_response_time",
+		"lrt",
+		"weighted_least_response_time",
+		"wlrt",
+		"weighted_least_connections",
+		"wlc",
+		"least_connections",
+		"lc",
+	}
+
+	for _, algo := range algorithms {
+		t.Run(algo, func(t *testing.T) {
+			cfg := &config.Config{
+				Version: "1",
+				Listeners: []*config.Listener{
+					{
+						Name:     "test",
+						Address:  "127.0.0.1:0",
+						Protocol: "http",
+						Routes:   []*config.Route{{Path: "/", Pool: "pool1"}},
+					},
+				},
+				Pools: []*config.Pool{
+					{
+						Name:      "pool1",
+						Algorithm: algo,
+						HealthCheck: &config.HealthCheck{
+							Type:     "http",
+							Path:     "/health",
+							Interval: "10s",
+							Timeout:  "5s",
+						},
+						Backends: []*config.Backend{
+							{ID: "b1", Address: "127.0.0.1:8081", Weight: 100},
+						},
+					},
+				},
+				Admin: &config.Admin{Enabled: true, Address: "127.0.0.1:0"},
+			}
+
+			configPath := createTempConfigFile(t, cfg)
+			engine, err := New(cfg, configPath)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			err = engine.validateConfig(cfg)
+			if err != nil {
+				t.Errorf("validateConfig() with algorithm %q error = %v", algo, err)
+			}
+		})
+	}
+}
+
+// TestEngineStart_WithTLSConfig tests engine Start with a valid TLS certificate.
+func TestEngineStart_WithTLSConfig(t *testing.T) {
+	tmpDir := t.TempDir()
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	keyFile := filepath.Join(tmpDir, "key.pem")
+	generateTestCertFiles(t, certFile, keyFile)
+
+	cfg := createTestConfig()
+	cfg.TLS = &config.TLSConfig{
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := engine.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+
+	if !engine.IsRunning() {
+		t.Error("Engine should be running")
+	}
+
+	time.Sleep(50 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	engine.Shutdown(ctx)
+}
+
+// TestEngineCertLister_WithCertificates tests ListCertificates when certs are loaded.
+func TestEngineCertLister_WithCertificates(t *testing.T) {
+	cfg := createTestConfig()
+	configPath := createTempConfigFile(t, cfg)
+
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Generate and load a certificate
+	tmpDir := t.TempDir()
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	keyFile := filepath.Join(tmpDir, "key.pem")
+	generateTestCertFiles(t, certFile, keyFile)
+
+	cert, err := engine.tlsManager.LoadCertificate(certFile, keyFile)
+	if err != nil {
+		t.Fatalf("LoadCertificate() error = %v", err)
+	}
+	engine.tlsManager.AddCertificate(cert)
+
+	// Create the cert lister adapter and verify certificates are returned
+	lister := &engineCertLister{tlsMgr: engine.tlsManager}
+	certs := lister.ListCertificates()
+	if len(certs) != 1 {
+		t.Fatalf("ListCertificates() returned %d certs, want 1", len(certs))
+	}
+
+	if len(certs[0].Names) == 0 {
+		t.Error("expected at least one DNS name in certificate")
+	}
+	if certs[0].Expiry == 0 {
+		t.Error("expected non-zero expiry")
+	}
+}
+
+// TestApplyConfig_WithTLSReload tests applyConfig with TLS reload path.
+func TestApplyConfig_WithTLSReload(t *testing.T) {
+	tmpDir := t.TempDir()
+	certFile := filepath.Join(tmpDir, "cert.pem")
+	keyFile := filepath.Join(tmpDir, "key.pem")
+	generateTestCertFiles(t, certFile, keyFile)
+
+	cfg := createTestConfig()
+	cfg.TLS = &config.TLSConfig{
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}
+
+	configPath := createTempConfigFile(t, cfg)
+	engine, err := New(cfg, configPath)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	if err := engine.Start(); err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	// Apply a new config with TLS reload
+	newCfg := createTestConfig()
+	newCfg.TLS = &config.TLSConfig{
+		CertFile: certFile,
+		KeyFile:  keyFile,
+	}
+
+	err = engine.applyConfig(newCfg)
+	if err != nil {
+		t.Errorf("applyConfig() error = %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	engine.Shutdown(ctx)
+}
+
+// generateTestCertFiles creates self-signed cert and key PEM files for testing.
+func generateTestCertFiles(t *testing.T, certFile, keyFile string) {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("Failed to generate key: %v", err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "localhost"},
+		DNSNames:     []string{"localhost"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatalf("Failed to create certificate: %v", err)
+	}
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+	if err := os.WriteFile(certFile, certPEM, 0644); err != nil {
+		t.Fatalf("Failed to write cert file: %v", err)
+	}
+	keyDER, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		t.Fatalf("Failed to marshal key: %v", err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+	if err := os.WriteFile(keyFile, keyPEM, 0600); err != nil {
+		t.Fatalf("Failed to write key file: %v", err)
+	}
+}
