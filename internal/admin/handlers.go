@@ -2,6 +2,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -273,8 +274,11 @@ func (s *Server) reloadConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.onReload(); err != nil {
-		writeError(w, http.StatusInternalServerError, "RELOAD_FAILED", "configuration reload failed")
+	err := s.circuitBreaker.Execute(func(ctx context.Context) error {
+		return s.onReload()
+	})
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "RELOAD_FAILED", err.Error())
 		return
 	}
 

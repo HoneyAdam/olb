@@ -75,6 +75,7 @@ type Server struct {
 	rateLimiter      *rateLimiter
 	rateLimitMaxReqs int
 	rateLimitWindow  string
+	circuitBreaker   *adminCircuitBreaker
 
 	// State
 	mu    sync.RWMutex
@@ -168,7 +169,8 @@ func NewServer(config *Config) (*Server, error) {
 		rateLimitMaxReqs: config.RateLimitMaxRequests,
 		rateLimitWindow:  config.RateLimitWindow,
 		startTime:        time.Now(),
-		state:          "running",
+		circuitBreaker:   newAdminCircuitBreaker(),
+		state:            "running",
 	}
 
 	s.setupRoutes()

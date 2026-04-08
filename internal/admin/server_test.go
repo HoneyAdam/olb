@@ -1240,8 +1240,8 @@ func TestReloadConfig_Failure(t *testing.T) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusInternalServerError {
-		t.Errorf("expected 500, got %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("expected 503 (circuit breaker), got %d", resp.StatusCode)
 	}
 
 	var result Response
