@@ -243,6 +243,12 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 			maxIdleConnsPerHost = cfg.Server.MaxIdleConnsPerHost
 		}
 	}
+	var idleConnTimeout time.Duration
+	if cfg.Server != nil && cfg.Server.IdleConnTimeout != "" {
+		if d, err := time.ParseDuration(cfg.Server.IdleConnTimeout); err == nil {
+			idleConnTimeout = d
+		}
+	}
 	proxyConfig := &l7.Config{
 		Router:              rtr,
 		PoolManager:         poolMgr,
@@ -254,6 +260,7 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		MaxRetries:          maxRetries,
 		MaxIdleConns:        maxIdleConns,
 		MaxIdleConnsPerHost: maxIdleConnsPerHost,
+		IdleConnTimeout:     idleConnTimeout,
 	}
 	proxy := l7.NewHTTPProxy(proxyConfig)
 

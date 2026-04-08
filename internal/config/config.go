@@ -43,6 +43,8 @@ type ServerConfig struct {
 	MaxIdleConns int `yaml:"max_idle_conns" json:"max_idle_conns"`
 	// MaxIdleConnsPerHost is the maximum idle connections per backend (default: 10).
 	MaxIdleConnsPerHost int `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
+	// IdleConnTimeout is the maximum duration to keep idle connections in the transport pool (default: "90s").
+	IdleConnTimeout string `yaml:"idle_conn_timeout" json:"idle_conn_timeout"`
 	// MaxConnectionsPerBackend is the maximum concurrent connections per backend (default: 1000).
 	MaxConnectionsPerBackend int `yaml:"max_connections_per_backend" json:"max_connections_per_backend"`
 	// DrainTimeout is the maximum duration to wait for connections to close during shutdown (default: "30s").

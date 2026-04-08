@@ -59,6 +59,7 @@ type HTTPProxy struct {
 	maxRetries          int
 	maxIdleConns        int
 	maxIdleConnsPerHost int
+	idleConnTimeout     time.Duration
 
 	// Error handling (protected by atomic for concurrent access)
 	errorHandler atomic.Value // stores func(http.ResponseWriter, *http.Request, error)
@@ -79,6 +80,7 @@ type Config struct {
 	MaxRetries      int
 	MaxIdleConns        int
 	MaxIdleConnsPerHost int
+	IdleConnTimeout     time.Duration
 	ShadowConfig        *ShadowConfig
 }
 
@@ -90,6 +92,7 @@ func DefaultConfig() *Config {
 		MaxRetries:          3,
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
 	}
 }
 
@@ -120,6 +123,10 @@ func NewHTTPProxy(config *Config) *HTTPProxy {
 	if maxIdleConnsPerHost == 0 {
 		maxIdleConnsPerHost = 10
 	}
+	idleConnTimeout := config.IdleConnTimeout
+	if idleConnTimeout == 0 {
+		idleConnTimeout = 90 * time.Second
+	}
 
 	p := &HTTPProxy{
 		router:          config.Router,
@@ -136,6 +143,7 @@ func NewHTTPProxy(config *Config) *HTTPProxy {
 		maxRetries:          maxRetries,
 		maxIdleConns:        maxIdleConns,
 		maxIdleConnsPerHost: maxIdleConnsPerHost,
+		idleConnTimeout:     idleConnTimeout,
 		errorHandler:        func() atomic.Value { v := atomic.Value{}; v.Store(defaultErrorHandler); return v }(),
 	}
 
@@ -178,7 +186,7 @@ func (p *HTTPProxy) createTransport() *http.Transport {
 		},
 		MaxIdleConns:          p.maxIdleConns,
 		MaxIdleConnsPerHost:   p.maxIdleConnsPerHost,
-		IdleConnTimeout:       90 * time.Second,
+		IdleConnTimeout:       p.idleConnTimeout,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		// Disable compression - we'll handle it in middleware if needed
