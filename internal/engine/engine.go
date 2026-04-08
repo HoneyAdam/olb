@@ -100,6 +100,10 @@ type Engine struct {
 	// Profiling cleanup function (non-nil when profiling is active)
 	profilingCleanup func()
 
+	// System metrics updater
+	sysMetrics   *systemMetrics
+	sysMetricsStop chan struct{}
+
 	// Log file output for SIGUSR1 reopening (non-nil when logging to file)
 	logFileOutput *logging.RotatingFileOutput
 
@@ -143,6 +147,9 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 
 	// Initialize metrics registry
 	metricsRegistry := metrics.NewRegistry()
+
+	// Register system-level metrics (backends, connections, health)
+	sysMetrics := registerSystemMetrics(metricsRegistry)
 
 	// Create TLS manager
 	tlsMgr := olbTLS.NewManager()
@@ -327,6 +334,8 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		webUIHandler:    webUIH,
 		geoDNS:          geoDNSMgr,
 		shadowMgr:       shadowManager,
+		sysMetrics:      sysMetrics,
+		sysMetricsStop:  make(chan struct{}),
 		state:           StateStopped,
 		stopCh:          make(chan struct{}),
 		reloadCh:        make(chan struct{}),
@@ -651,6 +660,26 @@ func (e *Engine) Start() error {
 		e.startConfigWatcher()
 	}
 
+	// 12a. Start system metrics refresh goroutine
+	if e.sysMetrics != nil {
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			ticker := time.NewTicker(10 * time.Second)
+			defer ticker.Stop()
+			// Initial update
+			e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker)
+			for {
+				select {
+				case <-ticker.C:
+					e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker)
+				case <-e.sysMetricsStop:
+					return
+				}
+			}
+		}()
+	}
+
 	// 13. Install signal handlers
 	e.setupSignalHandlers()
 
@@ -733,6 +762,12 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 	if e.configWatcher != nil {
 		e.configWatcher.Stop()
 		e.logger.Info("Config file watcher stopped")
+	}
+
+	// 0a. Stop system metrics refresh
+	if e.sysMetricsStop != nil {
+		close(e.sysMetricsStop)
+		e.logger.Info("System metrics updater stopped")
 	}
 
 	// 0a. Stop MCP transport
