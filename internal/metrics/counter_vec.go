@@ -46,10 +46,7 @@ func (cv *CounterVec) With(labelValues ...string) *Counter {
 		return c.(*Counter)
 	}
 
-	c := &Counter{
-		name: cv.name,
-		help: cv.help,
-	}
+	c := NewCounter(cv.name, cv.help)
 	actual, _ := cv.counters.LoadOrStore(key, c)
 	return actual.(*Counter)
 }
