@@ -1017,13 +1017,6 @@ func (g *Gossip) handleAck(payload []byte) {
 		return
 	}
 
-	// Mark sender as alive.
-	g.membersMu.RLock()
-	if m, ok := g.members[senderID]; ok {
-		_ = m // will be updated below
-	}
-	g.membersMu.RUnlock()
-
 	// Notify the pending ack handler.
 	g.ackHandlersMu.Lock()
 	ah, ok := g.ackHandlers[seqNo]

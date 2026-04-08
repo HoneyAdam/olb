@@ -608,7 +608,7 @@ func TestEncodeBase36(t *testing.T) {
 
 func TestEncodeBase36_LargeNumber(t *testing.T) {
 	// Test with a large int64 value
-	result := encodeBase36(1<<62)
+	result := encodeBase36(1 << 62)
 	if result == "" || result == "0" {
 		t.Errorf("encodeBase36(large) returned unexpected %q", result)
 	}
@@ -873,4 +873,3 @@ func TestSticky_URLParsing(t *testing.T) {
 		t.Errorf("SessionID = %v, want test123", sessionID)
 	}
 }
-

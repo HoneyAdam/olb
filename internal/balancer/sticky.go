@@ -111,7 +111,6 @@ func (s *Sticky) NextWithRequest(backends []*backend.Backend, r *http.Request) *
 	sessionID := s.extractSessionID(r)
 
 	if sessionID != "" {
-		// Check if we have a backend for this session
 		s.mu.RLock()
 		backendID, exists := s.sessions[sessionID]
 		s.mu.RUnlock()
@@ -123,9 +122,12 @@ func (s *Sticky) NextWithRequest(backends []*backend.Backend, r *http.Request) *
 					return b
 				}
 			}
-			// Backend not found or not available, clear session
+			// Backend not available — reselect under write lock to avoid TOCTOU race
 			s.mu.Lock()
-			delete(s.sessions, sessionID)
+			// Double-check: another goroutine may have already reassigned
+			if existing, ok := s.sessions[sessionID]; ok && existing == backendID {
+				delete(s.sessions, sessionID)
+			}
 			s.mu.Unlock()
 		}
 	}
@@ -165,9 +167,11 @@ func (s *Sticky) SelectAndStick(backends []*backend.Backend, r *http.Request) (*
 					return b, sessionID
 				}
 			}
-			// Backend not available, clear session and reselect
+			// Backend not available — reselect under write lock to avoid TOCTOU race
 			s.mu.Lock()
-			delete(s.sessions, sessionID)
+			if existing, ok := s.sessions[sessionID]; ok && existing == backendID {
+				delete(s.sessions, sessionID)
+			}
 			s.mu.Unlock()
 		}
 	}

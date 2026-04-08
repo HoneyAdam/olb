@@ -464,3 +464,199 @@ func TestWeightedLeastResponseTime_InvalidWindowSize(t *testing.T) {
 		t.Errorf("window size with negative input = %d, want %d", w.windowSize, DefaultResponseTimeWindowSize)
 	}
 }
+
+// TestLeastResponseTime_Next_MixedTrackedUntracked tests the path where
+// tracked backends with higher avg are compared against untracked backends.
+func TestLeastResponseTime_Next_MixedTrackedUntracked(t *testing.T) {
+	l := NewLeastResponseTime()
+
+	// be1 is tracked with recorded response times
+	be1 := backend.NewBackend("tracked", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	l.Add(be1)
+	l.Record("tracked", 200*time.Millisecond)
+	l.Record("tracked", 300*time.Millisecond)
+
+	// be2 is NOT tracked (no Add/Record) - should be treated as 0 (best choice)
+	be2 := backend.NewBackend("untracked", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+
+	backends := []*backend.Backend{be1, be2}
+	got := l.Next(backends)
+	if got == nil {
+		t.Fatal("Next() returned nil")
+	}
+	if got.ID != "untracked" {
+		t.Errorf("Next() = %v, want untracked (0 avg vs high avg)", got.ID)
+	}
+}
+
+// TestWeightedLeastResponseTime_Next_MixedTrackedUntracked tests the weighted version
+// with a mix of tracked and untracked backends.
+func TestWeightedLeastResponseTime_Next_MixedTrackedUntracked(t *testing.T) {
+	w := NewWeightedLeastResponseTime()
+
+	be1 := backend.NewBackend("tracked", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	be1.Weight = 1
+	w.Add(be1)
+	w.Record("tracked", 200*time.Millisecond)
+	w.Record("tracked", 300*time.Millisecond)
+
+	be2 := backend.NewBackend("untracked", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+	be2.Weight = 1
+
+	backends := []*backend.Backend{be1, be2}
+	got := w.Next(backends)
+	if got == nil {
+		t.Fatal("Next() returned nil")
+	}
+	if got.ID != "untracked" {
+		t.Errorf("Next() = %v, want untracked (0 weighted avg vs high)", got.ID)
+	}
+}
+
+// TestLeastResponseTime_Next_TrackedBetterThanUntracked tests when tracked
+// backend has lower avg than the untracked one's effective 0.
+func TestLeastResponseTime_Next_TrackedWithZeroSamples(t *testing.T) {
+	l := NewLeastResponseTime()
+
+	// be1 is tracked but has 0 samples (count == 0)
+	be1 := backend.NewBackend("tracked-empty", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	l.Add(be1)
+	// Don't record anything - count stays 0
+
+	// be2 is NOT tracked at all
+	be2 := backend.NewBackend("untracked", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+
+	backends := []*backend.Backend{be1, be2}
+	got := l.Next(backends)
+	if got == nil {
+		t.Fatal("Next() returned nil")
+	}
+	// Both should have 0 avg, first one wins
+	if got.ID != "tracked-empty" {
+		t.Errorf("Next() = %v, want tracked-empty (both 0, first wins)", got.ID)
+	}
+}
+
+// TestWeightedLeastResponseTime_Next_AllUnhealthy tests WLRT with all unhealthy.
+func TestWeightedLeastResponseTime_Next_AllUnhealthy(t *testing.T) {
+	w := NewWeightedLeastResponseTime()
+
+	be := backend.NewBackend("unhealthy", "10.0.0.1:8080")
+	be.SetState(backend.StateDown)
+	w.Add(be)
+
+	backends := []*backend.Backend{be}
+	if got := w.Next(backends); got != nil {
+		t.Errorf("Next() with all unhealthy = %v, want nil", got)
+	}
+}
+
+// TestLeastResponseTime_record_NewSlot tests record path where count < windowSize
+func TestLeastResponseTime_record_NewSlot(t *testing.T) {
+	be := backend.NewBackend("test", "10.0.0.1:8080")
+	bs := newLRTBackendState(be, 10)
+
+	// First record goes to a new slot (count goes from 0 to 1)
+	bs.record(50 * time.Millisecond)
+	if bs.count.Load() != 1 {
+		t.Errorf("count = %d, want 1", bs.count.Load())
+	}
+	if bs.total.Load() != int64(50*time.Millisecond) {
+		t.Errorf("total = %d, want %d", bs.total.Load(), int64(50*time.Millisecond))
+	}
+
+	// Second record also goes to a new slot
+	bs.record(100 * time.Millisecond)
+	if bs.count.Load() != 2 {
+		t.Errorf("count = %d, want 2", bs.count.Load())
+	}
+}
+
+// TestLeastResponseTime_record_HighContention exercises the CAS retry loops in record.
+func TestLeastResponseTime_record_HighContention(t *testing.T) {
+	be := backend.NewBackend("test", "10.0.0.1:8080")
+	bs := newLRTBackendState(be, 100)
+
+	var wg sync.WaitGroup
+	numGoroutines := 50
+	recordsPerGoroutine := 200
+
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < recordsPerGoroutine; j++ {
+				bs.record(time.Duration(i*1000+j) * time.Microsecond)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	// Count should be capped at windowSize
+	count := bs.count.Load()
+	if count != 100 {
+		t.Errorf("count = %d, want 100 (window size)", count)
+	}
+}
+
+// TestWeightedLeastResponseTime_Next_SelectsLowestWeighted tests weighted selection.
+func TestWeightedLeastResponseTime_Next_SelectsLowestWeighted(t *testing.T) {
+	w := NewWeightedLeastResponseTimeWithWindow(10)
+
+	be1 := backend.NewBackend("light", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	be1.Weight = 1
+
+	be2 := backend.NewBackend("heavy", "10.0.0.2:8080")
+	be2.SetState(backend.StateUp)
+	be2.Weight = 10
+
+	w.Add(be1)
+	w.Add(be2)
+
+	// Record different response times
+	for i := 0; i < 5; i++ {
+		w.Record("light", 50*time.Millisecond)
+		w.Record("heavy", 200*time.Millisecond)
+	}
+
+	backends := []*backend.Backend{be1, be2}
+	got := w.Next(backends)
+	if got == nil {
+		t.Fatal("Next() returned nil")
+	}
+
+	// heavy effective = 200/10 = 20ms, light effective = 50/1 = 50ms
+	// heavy should be selected (lower effective)
+	if got.ID != "heavy" {
+		t.Errorf("Next() = %v, want heavy (lower weighted avg)", got.ID)
+	}
+}
+
+// TestLeastResponseTime_Record_HighContention tests concurrent Record calls.
+func TestLeastResponseTime_Record_HighContention(t *testing.T) {
+	l := NewLeastResponseTimeWithWindow(50)
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	l.Add(be1)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				l.Record("be1", time.Duration(i*j)*time.Microsecond)
+			}
+		}(i)
+	}
+	wg.Wait()
+}

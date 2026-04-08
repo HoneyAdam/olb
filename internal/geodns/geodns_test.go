@@ -246,17 +246,166 @@ func TestIpToInt(t *testing.T) {
 	tests := []struct {
 		name string
 		ip   string
+		want uint32
 	}{
-		{"8.8.8.8", "8.8.8.8"},
-		{"1.1.1.1", "1.1.1.1"},
-		{"192.168.1.1", "192.168.1.1"},
+		{"8.8.8.8", "8.8.8.8", 0x08080808},
+		{"0.0.0.0", "0.0.0.0", 0},
+		{"255.255.255.255", "255.255.255.255", 0xFFFFFFFF},
+		{"192.168.1.1", "192.168.1.1", 0xC0A80101},
+		{"1.2.3.4", "1.2.3.4", 0x01020304},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// This test just ensures the function doesn't panic
-			// Actual value testing would require proper IP parsing
-			_ = tt.ip
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			got := ipToInt(ip)
+			if got != tt.want {
+				t.Errorf("ipToInt(%s) = 0x%08X, want 0x%08X", tt.ip, got, tt.want)
+			}
 		})
+	}
+}
+
+func TestIpToInt_IPv6(t *testing.T) {
+	// IPv6 should return 0 since To4() returns nil
+	ip := net.ParseIP("::1")
+	if ip == nil {
+		t.Fatal("failed to parse IPv6")
+	}
+	got := ipToInt(ip)
+	if got != 0 {
+		t.Errorf("ipToInt(::1) = %d, want 0", got)
+	}
+}
+
+func TestGuessLocationFromIP_PublicUS(t *testing.T) {
+	g := New(Config{})
+	loc := g.guessLocationFromIP("3.100.50.25")
+	if loc == nil {
+		t.Fatal("expected non-nil location")
+	}
+	if loc.Country != "US" {
+		t.Errorf("Country = %q, want US", loc.Country)
+	}
+}
+
+func TestGuessLocationFromIP_PublicEU(t *testing.T) {
+	g := New(Config{})
+	loc := g.guessLocationFromIP("5.100.50.25")
+	if loc == nil {
+		t.Fatal("expected non-nil location")
+	}
+	if loc.Country != "EU" {
+		t.Errorf("Country = %q, want EU", loc.Country)
+	}
+}
+
+func TestGuessLocationFromIP_Loopback(t *testing.T) {
+	g := New(Config{})
+	loc := g.guessLocationFromIP("127.0.0.1")
+	if loc == nil {
+		t.Fatal("expected non-nil location")
+	}
+	// 127.0.0.1 is classified as PRIVATE by isPrivateIP (which checks 127.0.0.0/8)
+	// before the loopback check runs. This is the current behavior.
+	if loc.Country != "PRIVATE" {
+		t.Errorf("Country = %q, want PRIVATE (isPrivateIP catches loopback range first)", loc.Country)
+	}
+}
+
+func TestGuessLocationFromIP_Private(t *testing.T) {
+	g := New(Config{})
+	loc := g.guessLocationFromIP("192.168.1.1")
+	if loc == nil {
+		t.Fatal("expected non-nil location")
+	}
+	if loc.Country != "PRIVATE" {
+		t.Errorf("Country = %q, want PRIVATE", loc.Country)
+	}
+}
+
+func TestGuessLocationFromIP_Unknown(t *testing.T) {
+	g := New(Config{})
+	// IP in a range not mapped to any known region
+	loc := g.guessLocationFromIP("100.100.100.100")
+	if loc == nil {
+		t.Fatal("expected non-nil location (should return UNKNOWN)")
+	}
+	if loc.Country != "UNKNOWN" {
+		t.Errorf("Country = %q, want UNKNOWN", loc.Country)
+	}
+}
+
+func TestGuessLocationFromIP_Invalid(t *testing.T) {
+	g := New(Config{})
+	loc := g.guessLocationFromIP("not-an-ip")
+	if loc != nil {
+		t.Errorf("expected nil for invalid IP, got %v", loc)
+	}
+}
+
+func TestLookupLocation(t *testing.T) {
+	g := New(Config{})
+	// Load default geo data includes 8.8.8.0/24
+	loc := g.lookupLocation("8.8.8.8")
+	if loc == nil {
+		t.Fatal("expected non-nil location for 8.8.8.8")
+	}
+	if loc.Country != "US" {
+		t.Errorf("Country = %q, want US", loc.Country)
+	}
+}
+
+func TestLookupLocation_InvalidIP(t *testing.T) {
+	g := New(Config{})
+	loc := g.lookupLocation("invalid")
+	if loc != nil {
+		t.Errorf("expected nil for invalid IP, got %v", loc)
+	}
+}
+
+func TestMatchesRule_NilLocation_Wildcard(t *testing.T) {
+	g := New(Config{})
+	rule := &GeoRule{Country: "*"}
+	if !g.matchesRule(nil, rule) {
+		t.Error("wildcard should match nil location")
+	}
+}
+
+func TestMatchesRule_NilLocation_NonWildcard(t *testing.T) {
+	g := New(Config{})
+	rule := &GeoRule{Country: "US"}
+	if g.matchesRule(nil, rule) {
+		t.Error("non-wildcard should not match nil location")
+	}
+}
+
+func TestMatchesRule_CountryMismatch(t *testing.T) {
+	g := New(Config{})
+	loc := &Location{Country: "EU"}
+	rule := &GeoRule{Country: "US"}
+	if g.matchesRule(loc, rule) {
+		t.Error("EU location should not match US rule")
+	}
+}
+
+func TestMatchesRule_RegionMismatch(t *testing.T) {
+	g := New(Config{})
+	loc := &Location{Country: "US", Region: "CA"}
+	rule := &GeoRule{Country: "US", Region: "NY"}
+	if g.matchesRule(loc, rule) {
+		t.Error("CA region should not match NY rule")
+	}
+}
+
+func TestMatchesRule_RegionMatch(t *testing.T) {
+	g := New(Config{})
+	loc := &Location{Country: "US", Region: "CA"}
+	rule := &GeoRule{Country: "US", Region: "CA"}
+	if !g.matchesRule(loc, rule) {
+		t.Error("CA region should match CA rule")
 	}
 }

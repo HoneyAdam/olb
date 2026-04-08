@@ -184,3 +184,47 @@ func TestClusterSync_DefaultSyncInterval(t *testing.T) {
 		t.Errorf("expected default sync interval of 5s, got %v", cs.syncInterval)
 	}
 }
+
+// --- Coverage improvement tests ---
+
+// TestCov_SyncLoop_TickerFires exercises the ticker.C branch of syncLoop
+// by using a short interval and verifying that flush gets called.
+func TestCov_SyncLoop_TickerFires(t *testing.T) {
+	var mu sync.Mutex
+	var proposedData []byte
+
+	rl := New(Config{})
+	defer rl.Stop()
+
+	proposeFn := func(command []byte) error {
+		mu.Lock()
+		proposedData = command
+		mu.Unlock()
+		return nil
+	}
+
+	cs := NewClusterSync(rl, 50*time.Millisecond, proposeFn)
+	defer cs.Stop()
+
+	// Record some local data so the flush has something to send
+	cs.RecordLocal("sync-key-1")
+
+	// Wait for at least one ticker cycle to fire
+	time.Sleep(120 * time.Millisecond)
+
+	mu.Lock()
+	data := proposedData
+	mu.Unlock()
+
+	if data == nil {
+		t.Error("expected syncLoop to flush via ticker, but proposeFn was never called")
+	}
+
+	var delta SyncDelta
+	if err := json.Unmarshal(data, &delta); err != nil {
+		t.Fatalf("failed to unmarshal proposed data: %v", err)
+	}
+	if delta.Deltas["sync-key-1"] != 1 {
+		t.Errorf("expected delta sync-key-1=1, got %d", delta.Deltas["sync-key-1"])
+	}
+}

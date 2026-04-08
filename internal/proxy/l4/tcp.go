@@ -114,16 +114,21 @@ func (p *TCPProxy) Stop(ctx context.Context) error {
 func (p *TCPProxy) HandleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	// Check max connections
+	// Check max connections (atomic CAS to prevent TOCTOU overshoot)
 	if p.config.MaxConnections > 0 {
-		current := p.activeConns.Load()
-		if current >= int64(p.config.MaxConnections) {
-			return
+		maxConns := int64(p.config.MaxConnections)
+		for {
+			current := p.activeConns.Load()
+			if current >= maxConns {
+				return
+			}
+			if p.activeConns.CompareAndSwap(current, current+1) {
+				break
+			}
 		}
+	} else {
+		p.activeConns.Add(1)
 	}
-
-	// Track connection
-	p.activeConns.Add(1)
 	defer p.activeConns.Add(-1)
 
 	p.connWg.Add(1)

@@ -679,3 +679,111 @@ func TestLRU_ResizeDetailed(t *testing.T) {
 		t.Errorf("Capacity() = %d after Resize(0), want %d", lru.Capacity(), oldCap)
 	}
 }
+
+func TestLRU_Peek_Expired(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	lru.PutWithTTL("key", 42, 50*time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	val, ok := lru.Peek("key")
+	if ok {
+		t.Errorf("Peek on expired should return false, got %d, %v", val, ok)
+	}
+}
+
+func TestLRU_Peek_Missing(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	val, ok := lru.Peek("missing")
+	if ok {
+		t.Error("Peek on missing should return false")
+	}
+	if val != 0 {
+		t.Errorf("Zero value = %d, want 0", val)
+	}
+}
+
+func TestLRU_Clear_Empty(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	lru.Clear()
+	if lru.Len() != 0 {
+		t.Errorf("Len after Clear on empty = %d, want 0", lru.Len())
+	}
+}
+
+func TestLRU_Clear_WithOnEvict(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	evicted := []string{}
+	lru.SetOnEvict(func(key string, value int) {
+		evicted = append(evicted, key)
+	})
+	lru.Put("a", 1)
+	lru.Put("b", 2)
+	lru.Clear()
+	if len(evicted) != 2 {
+		t.Errorf("Expected 2 evictions on Clear, got %d", len(evicted))
+	}
+	if lru.Len() != 0 {
+		t.Errorf("Len after Clear = %d, want 0", lru.Len())
+	}
+}
+
+func TestMustNewLRU_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("Expected panic for zero capacity")
+		}
+	}()
+	MustNewLRU[string, int](0)
+}
+
+func TestLRU_Contains_Expired(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	lru.PutWithTTL("a", 1, 1*time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	if lru.Contains("a") {
+		t.Error("Contains should return false for expired key")
+	}
+}
+
+func TestLRU_EvictOldest_EmptyList(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	// Resize to smaller triggers evictOldest on empty - shouldn't panic
+	lru.Resize(5)
+	if lru.Len() != 0 {
+		t.Errorf("Len = %d, want 0", lru.Len())
+	}
+}
+
+func TestLRU_Keys_ExpiredFiltered(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	lru.PutWithTTL("a", 1, 1*time.Millisecond)
+	lru.Put("b", 2)
+	time.Sleep(10 * time.Millisecond)
+	keys := lru.Keys()
+	if len(keys) != 1 || keys[0] != "b" {
+		t.Errorf("Keys = %v, want [b]", keys)
+	}
+}
+
+func TestLRU_Values_ExpiredFiltered(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	lru.PutWithTTL("a", 1, 1*time.Millisecond)
+	lru.Put("b", 2)
+	time.Sleep(10 * time.Millisecond)
+	vals := lru.Values()
+	if len(vals) != 1 || vals[0] != 2 {
+		t.Errorf("Values = %v, want [2]", vals)
+	}
+}
+
+func TestLRU_Delete_AfterGetExpired(t *testing.T) {
+	lru := MustNewLRU[string, int](10)
+	lru.PutWithTTL("a", 1, 1*time.Millisecond)
+	time.Sleep(10 * time.Millisecond)
+	// Get triggers lazy expiration
+	lru.Get("a")
+	// Now Delete should return false since Get removed it
+	if lru.Delete("a") {
+		t.Error("Delete should return false after Get expired the key")
+	}
+}

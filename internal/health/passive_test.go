@@ -874,3 +874,71 @@ func BenchmarkPassiveChecker_ConcurrentRecordAndRead(b *testing.B) {
 		}
 	})
 }
+
+// TestPassiveChecker_CheckHealth_UnknownBackend tests checkHealth with an unregistered backend address.
+func TestPassiveChecker_CheckHealth_UnknownBackend(t *testing.T) {
+	pc := NewPassiveChecker(DefaultPassiveHealthConfig())
+	pc.checkHealth("nonexistent-address:9999")
+}
+
+// TestPassiveChecker_EvalLoop_ZeroInterval tests evalLoop with zero EvalInterval uses default.
+func TestPassiveChecker_EvalLoop_ZeroInterval(t *testing.T) {
+	cfg := DefaultPassiveHealthConfig()
+	cfg.EvalInterval = 0
+	cfg.MinRequests = 1
+
+	pc := NewPassiveChecker(cfg)
+	pc.RecordSuccess("backend1")
+
+	pc.Start()
+	time.Sleep(200 * time.Millisecond)
+	pc.Stop()
+}
+
+// TestPassiveChecker_MarkRecovered_AlreadyHealthy tests markRecovered on already healthy backend.
+func TestPassiveChecker_MarkRecovered_AlreadyHealthy(t *testing.T) {
+	cfg := DefaultPassiveHealthConfig()
+	pc := NewPassiveChecker(cfg)
+	pc.RecordSuccess("backend1")
+
+	recovered := false
+	pc.OnBackendRecovered = func(addr string) {
+		recovered = true
+	}
+
+	pc.mu.RLock()
+	bs := pc.backends["backend1"]
+	pc.mu.RUnlock()
+	pc.markRecovered("backend1", bs)
+	if recovered {
+		t.Error("OnBackendRecovered should not be called when already healthy")
+	}
+}
+
+// TestPassiveChecker_MarkUnhealthy_AlreadyUnhealthy tests markUnhealthy on already unhealthy backend.
+func TestPassiveChecker_MarkUnhealthy_AlreadyUnhealthy(t *testing.T) {
+	cfg := DefaultPassiveHealthConfig()
+	cfg.MinRequests = 1
+	cfg.ErrorRateThreshold = 0.5
+
+	pc := NewPassiveChecker(cfg)
+	pc.RecordSuccess("backend1")
+
+	unhealthyCount := 0
+	pc.OnBackendUnhealthy = func(addr string) {
+		unhealthyCount++
+	}
+
+	pc.mu.RLock()
+	bs := pc.backends["backend1"]
+	pc.mu.RUnlock()
+	bs.mu.Lock()
+	bs.status = StatusUnhealthy
+	bs.unhealthySince = time.Now()
+	bs.mu.Unlock()
+
+	pc.markUnhealthy("backend1", bs)
+	if unhealthyCount != 0 {
+		t.Error("OnBackendUnhealthy should not be called when already unhealthy")
+	}
+}

@@ -349,6 +349,66 @@ func TestRendezvousHash_Remove_FirstOfThree(t *testing.T) {
 	}
 }
 
+func TestRendezvousHash_Remove_Nonexistent(t *testing.T) {
+	rh := NewRendezvousHash()
+
+	// Remove on empty should not panic
+	rh.Remove("nonexistent")
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	rh.Add(be1)
+
+	// Remove nonexistent when there are backends
+	rh.Remove("nonexistent")
+
+	stats := rh.Stats()
+	if stats["backend_count"].(int) != 1 {
+		t.Errorf("Expected 1 backend after removing nonexistent, got %d", stats["backend_count"])
+	}
+}
+
+func TestRendezvousHash_Add_Duplicate(t *testing.T) {
+	rh := NewRendezvousHash()
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	rh.Add(be1)
+	rh.Add(be1) // duplicate
+
+	stats := rh.Stats()
+	if stats["backend_count"].(int) != 1 {
+		t.Errorf("Expected 1 backend after duplicate add, got %d", stats["backend_count"])
+	}
+	if stats["seed_count"].(int) != 1 {
+		t.Errorf("Expected 1 seed after duplicate add, got %d", stats["seed_count"])
+	}
+}
+
+func TestRendezvousHash_Next_AllUnhealthy(t *testing.T) {
+	rh := NewRendezvousHash()
+
+	backends := []*backend.Backend{
+		backend.NewBackend("be1", "10.0.0.1:8080"),
+		backend.NewBackend("be2", "10.0.0.2:8080"),
+	}
+
+	// Both down
+	backends[0].SetState(backend.StateDown)
+	backends[1].SetState(backend.StateDown)
+
+	rh.Add(backends[0])
+	rh.Add(backends[1])
+
+	// Should fall back to first backend
+	result := rh.Next(backends)
+	if result == nil {
+		t.Fatal("Next() with all unhealthy should fall back to first")
+	}
+	if result.ID != "be1" {
+		t.Errorf("Next() with all unhealthy = %s, want be1 (fallback)", result.ID)
+	}
+}
+
 func BenchmarkRendezvousHash_Next(b *testing.B) {
 	rh := NewRendezvousHash()
 	backends := []*backend.Backend{

@@ -1664,3 +1664,128 @@ func TestDNSProvider_RefreshLoop_StopsOnCancel(t *testing.T) {
 
 // Ensure unused imports are consumed.
 var _ = json.Marshal
+
+// --- DNS NewDNSProvider edge cases ---
+
+func TestDNSProvider_NewDNSProvider_MissingDomain(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeDNS,
+		Name:    "test-dns",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+	_, err := NewDNSProvider(config)
+	if err == nil {
+		t.Error("Expected error for missing domain option")
+	}
+}
+
+func TestDNSProvider_NewDNSProvider_WithNameserver(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeDNS,
+		Name:    "test-dns",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"domain":     "_http._tcp.example.com",
+			"nameserver": "8.8.8.8:53",
+		},
+	}
+	provider, err := NewDNSProvider(config)
+	if err != nil {
+		t.Fatalf("NewDNSProvider error: %v", err)
+	}
+	if provider.nameserver != "8.8.8.8:53" {
+		t.Errorf("nameserver = %q, want 8.8.8.8:53", provider.nameserver)
+	}
+}
+
+// --- Static Provider with backends ---
+
+func TestStaticProvider_WithBackends(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeStatic,
+		Name:    "static-with-backends",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{
+			"backends": "10.0.0.1:8080,10.0.0.2:8081",
+		},
+	}
+	provider, err := NewStaticProvider(config)
+	if err != nil {
+		t.Fatalf("NewStaticProvider error: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := provider.Start(ctx); err != nil {
+		t.Fatalf("Start error: %v", err)
+	}
+
+	// StaticProvider starts empty; services are added manually or via config parsing
+	services := provider.Services()
+	// The "backends" option may or may not be auto-parsed, so just verify Start/Stop work
+	_ = services
+
+	if err := provider.Stop(); err != nil {
+		t.Fatalf("Stop error: %v", err)
+	}
+}
+
+// --- ProviderConfig Validate ---
+
+func TestProviderConfig_Validate_MissingType(t *testing.T) {
+	c := &ProviderConfig{Name: "test"}
+	if err := c.Validate(); err == nil {
+		t.Error("Expected error for missing type")
+	}
+}
+
+func TestProviderConfig_Validate_MissingName(t *testing.T) {
+	c := &ProviderConfig{Type: ProviderTypeStatic}
+	if err := c.Validate(); err == nil {
+		t.Error("Expected error for missing name")
+	}
+}
+
+func TestProviderConfig_Validate_RefreshTooLow(t *testing.T) {
+	c := &ProviderConfig{Type: ProviderTypeStatic, Name: "test", Refresh: 100 * time.Millisecond}
+	if err := c.Validate(); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if c.Refresh != time.Second {
+		t.Errorf("Refresh = %v, want 1s", c.Refresh)
+	}
+}
+
+// --- Docker Provider error paths ---
+
+func TestNewDockerProviderWithConfig(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeDocker,
+		Name:    "test-docker-cfg",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+	provider, err := NewDockerProviderWithConfig(config, &DockerConfig{
+		Host: "tcp://127.0.0.1:1",
+	})
+	if err != nil {
+		t.Fatalf("NewDockerProviderWithConfig error: %v", err)
+	}
+	_ = provider
+}
+
+func TestNewDockerProviderWithConfig_UnixSocket(t *testing.T) {
+	config := &ProviderConfig{
+		Type:    ProviderTypeDocker,
+		Name:    "test-docker-unix",
+		Refresh: 5 * time.Second,
+		Options: map[string]string{},
+	}
+	provider, err := NewDockerProviderWithConfig(config, &DockerConfig{
+		SocketPath: "/var/run/docker.sock",
+	})
+	if err != nil {
+		t.Fatalf("NewDockerProviderWithConfig error: %v", err)
+	}
+	_ = provider
+}

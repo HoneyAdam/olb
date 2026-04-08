@@ -429,6 +429,149 @@ func TestHasPermission_Wildcard(t *testing.T) {
 	}
 }
 
+func TestAPIKey_DefaultHash(t *testing.T) {
+	// Test the default hash case (unknown hash type falls through to plain comparison)
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "unknown"
+	config.Keys = map[string]string{
+		"key1": "secret123",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedKeyID string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedKeyID = GetAPIKeyID(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-API-Key", "secret123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedKeyID != "key1" {
+		t.Errorf("Expected key ID 'key1', got '%s'", receivedKeyID)
+	}
+}
+
+func TestAPIKey_WithKeyMetadata(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "plain"
+	config.Keys = map[string]string{
+		"key1": "secret123",
+	}
+	config.KeyMetadata = map[string]KeyInfo{
+		"key1": {
+			Name:        "Service A",
+			Permissions: []string{"read", "write"},
+			Metadata:    map[string]string{"env": "prod"},
+		},
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedInfo KeyInfo
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedInfo = GetKeyInfo(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-API-Key", "secret123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedInfo.Name != "Service A" {
+		t.Errorf("Expected Name 'Service A', got '%s'", receivedInfo.Name)
+	}
+	if len(receivedInfo.Permissions) != 2 {
+		t.Errorf("Expected 2 permissions, got %d", len(receivedInfo.Permissions))
+	}
+}
+
+func TestAPIKey_BearerToken(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Header = "Authorization"
+	config.Hash = "plain"
+	config.Keys = map[string]string{
+		"key1": "Bearer my-token",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedKeyID string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedKeyID = GetAPIKeyID(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer my-token")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedKeyID != "key1" {
+		t.Errorf("Expected key ID 'key1', got '%s'", receivedKeyID)
+	}
+}
+
+func TestGetKeyInfo_EmptyContext(t *testing.T) {
+	ctx := t.Context()
+	info := GetKeyInfo(ctx)
+	if info.Name != "" || len(info.Permissions) != 0 || len(info.Metadata) != 0 {
+		t.Errorf("Expected empty KeyInfo for context without key info, got %+v", info)
+	}
+}
+
+func TestAPIKey_SHA256InvalidKey(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "sha256"
+	config.Keys = map[string]string{
+		"key1": "secret123",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called with invalid key")
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-API-Key", "wrong-key")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
 func TestExtractAPIKey(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -479,5 +622,94 @@ func TestExtractAPIKey(t *testing.T) {
 				t.Errorf("extractAPIKey() = %v, want %v", key, tt.wantKey)
 			}
 		})
+	}
+}
+
+// TestAPIKey_DefaultHashType tests the default hash branch in New() and validateKey()
+func TestAPIKey_DefaultHashType(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "custom" // Not "sha256" or "plain" - triggers default branch
+	config.Keys = map[string]string{
+		"key1": "secret123",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedKeyID string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedKeyID = GetAPIKeyID(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-API-Key", "secret123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedKeyID != "key1" {
+		t.Errorf("Expected key ID 'key1', got '%s'", receivedKeyID)
+	}
+
+	// Also test that wrong key is rejected with default hash
+	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2.Header.Set("X-API-Key", "wrong")
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req2)
+
+	if rec2.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401 for wrong key, got %d", rec2.Code)
+	}
+}
+
+// TestAPIKey_EmptyHeaderFallback tests that an empty Header config falls back to X-API-Key
+func TestAPIKey_EmptyHeaderFallback(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "plain"
+	config.Header = "" // Empty - should fall back to X-API-Key
+	config.Keys = map[string]string{
+		"key1": "secret123",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var receivedKeyID string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedKeyID = GetAPIKeyID(r.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Use the default X-API-Key header
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("X-API-Key", "secret123")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+	if receivedKeyID != "key1" {
+		t.Errorf("Expected key ID 'key1', got '%s'", receivedKeyID)
+	}
+}
+
+// TestAPIKey_GetKeyInfoEmpty tests GetKeyInfo returns empty struct when no info set
+func TestAPIKey_GetKeyInfoEmpty(t *testing.T) {
+	info := GetKeyInfo(t.Context())
+	if info.Name != "" {
+		t.Errorf("Expected empty Name, got '%s'", info.Name)
+	}
+	if len(info.Permissions) != 0 {
+		t.Errorf("Expected empty Permissions, got %v", info.Permissions)
 	}
 }

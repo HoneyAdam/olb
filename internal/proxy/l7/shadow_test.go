@@ -141,41 +141,63 @@ func TestShadowManager_AddTarget(t *testing.T) {
 }
 
 func TestShadowManager_ShouldShadow(t *testing.T) {
-	tests := []struct {
-		name    string
-		enabled bool
-		want    bool
-	}{
-		{
-			name:    "enabled returns true",
-			enabled: true,
-			want:    true,
-		},
-		{
-			name:    "disabled returns false",
-			enabled: false,
-			want:    false,
-		},
-	}
+	t.Run("disabled returns false", func(t *testing.T) {
+		config := ShadowConfig{Enabled: false, Percentage: 50.0}
+		sm := NewShadowManager(config)
+		if sm.ShouldShadow() {
+			t.Error("disabled ShouldShadow() should return false")
+		}
+	})
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			config := ShadowConfig{
-				Enabled:    tt.enabled,
-				Percentage: 50.0,
+	t.Run("no targets returns false", func(t *testing.T) {
+		config := ShadowConfig{Enabled: true, Percentage: 50.0}
+		sm := NewShadowManager(config)
+		if sm.ShouldShadow() {
+			t.Error("ShouldShadow() with no targets should return false")
+		}
+	})
+
+	t.Run("100 percent always shadows", func(t *testing.T) {
+		config := ShadowConfig{Enabled: true, Percentage: 100.0}
+		sm := NewShadowManager(config)
+		sm.AddTarget(nil, []*backend.Backend{backend.NewBackend("test", "localhost:0")}, 100)
+		for i := 0; i < 10; i++ {
+			if !sm.ShouldShadow() {
+				t.Error("100%% ShouldShadow() should always return true")
 			}
-			sm := NewShadowManager(config)
-			got := sm.ShouldShadow()
-			if got != tt.want {
-				t.Errorf("ShouldShadow() = %v, want %v", got, tt.want)
+		}
+	})
+
+	t.Run("50 percent shadows approximately half", func(t *testing.T) {
+		config := ShadowConfig{Enabled: true, Percentage: 50.0}
+		sm := NewShadowManager(config)
+		sm.AddTarget(nil, []*backend.Backend{backend.NewBackend("test", "localhost:0")}, 50)
+		shadowed := 0
+		total := 100
+		for i := 0; i < total; i++ {
+			if sm.ShouldShadow() {
+				shadowed++
 			}
-		})
-	}
+		}
+		if shadowed == 0 || shadowed == total {
+			t.Errorf("50%% ShouldShadow() got %d/%d shadowed, expected ~50", shadowed, total)
+		}
+	})
+
+	t.Run("0 percent never shadows", func(t *testing.T) {
+		config := ShadowConfig{Enabled: true, Percentage: 0}
+		sm := NewShadowManager(config)
+		sm.AddTarget(nil, []*backend.Backend{backend.NewBackend("test", "localhost:0")}, 0)
+		for i := 0; i < 10; i++ {
+			if sm.ShouldShadow() {
+				t.Error("0%% ShouldShadow() should never return true")
+			}
+		}
+	})
 
 	t.Run("nil manager returns false", func(t *testing.T) {
 		var sm *ShadowManager
-		got := sm.ShouldShadow()
-		if got {
+		if sm.ShouldShadow() {
 			t.Error("ShouldShadow() on nil manager should return false")
 		}
 	})

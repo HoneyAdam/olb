@@ -684,3 +684,293 @@ func writePEM(path, blockType string, data []byte) error {
 	}
 	return os.WriteFile(path, pem.EncodeToMemory(block), 0644)
 }
+
+// --- Additional coverage for security.go uncovered paths ---
+
+func TestBuildNodeTLSConfig_InvalidNodeCert(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Generate a valid CA
+	_, caCert, err := generateTestCA()
+	if err != nil {
+		t.Fatalf("generateTestCA: %v", err)
+	}
+
+	caCertPath := filepath.Join(tmpDir, "ca.pem")
+	writePEM(caCertPath, "CERTIFICATE", caCert)
+
+	// Write invalid cert/key files
+	certPath := filepath.Join(tmpDir, "node.pem")
+	keyPath := filepath.Join(tmpDir, "node-key.pem")
+	os.WriteFile(certPath, []byte("not a cert"), 0644)
+	os.WriteFile(keyPath, []byte("not a key"), 0644)
+
+	config := &NodeAuthConfig{
+		CACertFile: caCertPath,
+		CertFile:   certPath,
+		KeyFile:    keyPath,
+	}
+
+	_, err = BuildNodeTLSConfig(config)
+	if err == nil {
+		t.Error("expected error for invalid node cert/key pair")
+	}
+}
+
+func TestVerifyNodeCertificate_NoCNOrDNS(t *testing.T) {
+	caKey, caCert, err := generateTestCA()
+	if err != nil {
+		t.Fatalf("generateTestCA: %v", err)
+	}
+
+	caCertParsed, err := x509.ParseCertificate(caCert)
+	if err != nil {
+		t.Fatalf("parse CA: %v", err)
+	}
+
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+
+	// Create a cert with no CN and no DNS SANs
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(99),
+		Subject:      pkix.Name{}, // no CommonName
+		NotBefore:    time.Now(),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+	}
+
+	certDER, err := x509.CreateCertificate(rand.Reader, tmpl, caCertParsed, &key.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create cert: %v", err)
+	}
+
+	err = VerifyNodeCertificate([][]byte{certDER}, nil)
+	if err == nil {
+		t.Error("expected error for cert with no CN or DNS SANs")
+	}
+}
+
+func TestNodeAuthMiddleware_Accept_ReadError(t *testing.T) {
+	secret := []byte("test-secret")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	authListener := NewNodeAuthMiddleware(listener, secret, nil)
+
+	// Accept will be called; we connect and immediately close to trigger a read error.
+	accepted := make(chan net.Conn, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		// First Accept call will get a connection that closes immediately (read error -> continue)
+		// Second Accept call will get a valid connection
+		for i := 0; i < 2; i++ {
+			conn, err := authListener.Accept()
+			if err != nil {
+				errCh <- err
+				return
+			}
+			accepted <- conn
+		}
+	}()
+
+	// First connection: connect and close immediately (triggers read error)
+	conn1, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	conn1.Close()
+
+	// Second connection: proper auth
+	conn2, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn2.Close()
+
+	err = AuthenticateToNode(conn2, "node1", secret)
+	if err != nil {
+		t.Fatalf("AuthenticateToNode: %v", err)
+	}
+
+	select {
+	case conn := <-accepted:
+		conn.Close()
+	case err := <-errCh:
+		t.Fatalf("Accept error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for accepted connection")
+	}
+}
+
+func TestNodeAuthMiddleware_Accept_InvalidAuthFormat(t *testing.T) {
+	secret := []byte("test-secret")
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	authListener := NewNodeAuthMiddleware(listener, secret, nil)
+
+	accepted := make(chan net.Conn, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		conn, err := authListener.Accept()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		accepted <- conn
+	}()
+
+	// Connect and send invalid auth format
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	// Send invalid format (no AUTH prefix), then send valid auth
+	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	conn.Write([]byte("HELLO node1 token\n"))
+
+	// Now send valid auth on a new connection
+	conn2, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial2: %v", err)
+	}
+	defer conn2.Close()
+
+	err = AuthenticateToNode(conn2, "node1", secret)
+	if err != nil {
+		t.Fatalf("AuthenticateToNode: %v", err)
+	}
+
+	select {
+	case conn := <-accepted:
+		conn.Close()
+	case err := <-errCh:
+		t.Fatalf("Accept error: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("timeout waiting for accepted connection")
+	}
+}
+
+func TestAuthenticateToNode_WriteError(t *testing.T) {
+	// Create a server that closes immediately to trigger write error
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		conn.Close()
+	}()
+	defer listener.Close()
+
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+
+	// Close the connection immediately to cause write to fail
+	conn.Close()
+
+	err = AuthenticateToNode(conn, "node1", []byte("secret"))
+	if err == nil {
+		t.Error("expected error writing to closed connection")
+	}
+}
+
+func TestAuthenticateToNode_ReadError(t *testing.T) {
+	// Create a server that closes immediately after receiving the auth message
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer listener.Close()
+
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			return
+		}
+		// Read the auth message and immediately close
+		buf := make([]byte, 512)
+		conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+		conn.Read(buf)
+		conn.Close()
+	}()
+
+	conn, err := net.Dial("tcp", listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+
+	err = AuthenticateToNode(conn, "node1", []byte("test-secret"))
+	if err == nil {
+		t.Error("expected error when server closes connection after auth")
+	}
+}
+
+func TestBuildNodeTLSConfig_AllowedNodeIDsVerifyFunc(t *testing.T) {
+	// Test that the VerifyPeerCertificate function set by AllowedNodeIDs works correctly
+	tmpDir := t.TempDir()
+	caKey, caCert, err := generateTestCA()
+	if err != nil {
+		t.Fatalf("generateTestCA: %v", err)
+	}
+	caCertPath := filepath.Join(tmpDir, "ca.pem")
+	writePEM(caCertPath, "CERTIFICATE", caCert)
+
+	nodeKey, nodeCert, err := generateTestNodeCert(caKey, caCert, "allowed-node")
+	if err != nil {
+		t.Fatalf("generateTestNodeCert: %v", err)
+	}
+	certPath := filepath.Join(tmpDir, "node.pem")
+	keyPath := filepath.Join(tmpDir, "node-key.pem")
+	writePEM(certPath, "CERTIFICATE", nodeCert)
+	keyBytes, _ := x509.MarshalECPrivateKey(nodeKey)
+	writePEM(keyPath, "EC PRIVATE KEY", keyBytes)
+
+	config := &NodeAuthConfig{
+		CACertFile:     caCertPath,
+		CertFile:       certPath,
+		KeyFile:        keyPath,
+		AllowedNodeIDs: []string{"allowed-node"},
+	}
+
+	tlsConfig, err := BuildNodeTLSConfig(config)
+	if err != nil {
+		t.Fatalf("BuildNodeTLSConfig: %v", err)
+	}
+
+	// Call the verify function with the allowed node's cert
+	err = tlsConfig.VerifyPeerCertificate([][]byte{nodeCert}, nil)
+	if err != nil {
+		t.Errorf("VerifyPeerCertificate with allowed node: %v", err)
+	}
+
+	// Call with a cert that's NOT allowed
+	_, otherCert, err := generateTestNodeCert(caKey, caCert, "other-node")
+	if err != nil {
+		t.Fatalf("generateTestNodeCert: %v", err)
+	}
+	err = tlsConfig.VerifyPeerCertificate([][]byte{otherCert}, nil)
+	if err == nil {
+		t.Error("expected error for disallowed node")
+	}
+}

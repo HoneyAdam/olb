@@ -144,6 +144,10 @@ func (m *RetryMiddleware) Wrap(next http.Handler) http.Handler {
 				m.sleepFunc(delay)
 			}
 
+			// Release previous recorder back to pool
+			if lastRecorder != nil {
+				lastRecorder.release()
+			}
 			// Create a buffered response writer to capture the response
 			recorder := newBufferedResponseWriter()
 			next.ServeHTTP(recorder, r)

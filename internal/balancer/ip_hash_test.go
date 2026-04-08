@@ -509,6 +509,46 @@ func BenchmarkIPHash_NextWithIP_SingleBackend(b *testing.B) {
 	}
 }
 
+func TestIPHash_Next_EmptyIPHash(t *testing.T) {
+	ih := NewIPHash()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	b2 := backend.NewBackend("b2", "127.0.0.1:8081")
+	backends := []*backend.Backend{b1, b2}
+
+	// Next() uses empty IP internally (hash=0), should return backends[0]
+	for i := 0; i < 10; i++ {
+		result := ih.Next(backends)
+		if result == nil {
+			t.Fatal("Next() returned nil")
+		}
+		if result.ID != "b1" {
+			t.Errorf("Next() = %s, want b1 (hash of empty is 0)", result.ID)
+		}
+	}
+}
+
+func TestIPHash_Update_Nonexistent(t *testing.T) {
+	ih := NewIPHash()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	// Update on a backend not yet added should not panic
+	ih.Update(b1)
+
+	// Verify no backend was added
+	if len(ih.GetBackends()) != 0 {
+		t.Errorf("GetBackends() = %d, want 0 after updating nonexistent", len(ih.GetBackends()))
+	}
+}
+
+func TestIPHash_Next_EmptyBackends_Slice(t *testing.T) {
+	ih := NewIPHash()
+	result := ih.Next([]*backend.Backend{})
+	if result != nil {
+		t.Error("Next() with empty backends should return nil")
+	}
+}
+
 func BenchmarkIPHash_HashIP(b *testing.B) {
 	ih := NewIPHash()
 	testIPs := []string{

@@ -230,6 +230,11 @@ func ValidateRequest(r *http.Request) error {
 		return fmt.Errorf("invalid Host header")
 	}
 
+	// Sanitize request path to prevent traversal attacks
+	if r.URL != nil {
+		r.URL.Path = SanitizePath(r.URL.Path)
+	}
+
 	return nil
 }
 

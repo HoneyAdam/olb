@@ -275,3 +275,24 @@ func TestStripPrefix_PartialMatch(t *testing.T) {
 		t.Errorf("Expected path 'v2/users', got '%s'", capturedPath)
 	}
 }
+
+func TestStripPrefix_PrefixWithoutLeadingSlash(t *testing.T) {
+	// Prefix "api" (no leading /) should have / prepended internally.
+	mw := NewStripPrefixMiddleware(StripPrefixConfig{
+		Prefix: "api",
+	})
+
+	var capturedPath string
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/api/users", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if capturedPath != "/users" {
+		t.Errorf("Expected path '/users', got '%s'", capturedPath)
+	}
+}

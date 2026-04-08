@@ -559,3 +559,236 @@ func TestRealIP_InvalidHeaderValue(t *testing.T) {
 	// But X-Forwarded-For is checked first in default config...
 	// Actually the behavior depends on header order in config
 }
+
+func TestRealIP_ForwardedHeader(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	// Add Forwarded to headers so extractRealIP processes it
+	config.Headers = append([]string{"Forwarded"}, config.Headers...)
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		if !strings.HasPrefix(r.RemoteAddr, "192.0.2.60") {
+			t.Errorf("Expected RemoteAddr to start with 192.0.2.60, got %s", r.RemoteAddr)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("Forwarded", "for=192.0.2.60;proto=http;by=203.0.113.43")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+}
+
+func TestRealIP_XClientIP(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		if !strings.HasPrefix(r.RemoteAddr, "198.51.100.20") {
+			t.Errorf("Expected RemoteAddr to start with 198.51.100.20, got %s", r.RemoteAddr)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Client-IP", "198.51.100.20")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+}
+
+func TestRealIP_XForwardedHeader(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		if !strings.HasPrefix(r.RemoteAddr, "203.0.113.75") {
+			t.Errorf("Expected RemoteAddr to start with 203.0.113.75, got %s", r.RemoteAddr)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Forwarded", "203.0.113.75")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+}
+
+func TestRealIP_ForwardedForHeader(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		if !strings.HasPrefix(r.RemoteAddr, "192.0.2.30") {
+			t.Errorf("Expected RemoteAddr to start with 192.0.2.30, got %s", r.RemoteAddr)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("Forwarded-For", "192.0.2.30")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+}
+
+func TestRealIP_XOriginalForwardedFor(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw := New(config)
+
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		if !strings.HasPrefix(r.RemoteAddr, "203.0.113.99") {
+			t.Errorf("Expected RemoteAddr to start with 203.0.113.99, got %s", r.RemoteAddr)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	req.Header.Set("X-Original-Forwarded-For", "203.0.113.99, 10.0.0.2")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+}
+
+func TestRealIP_IsTrustedProxy_InvalidIP(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.RejectUntrusted = true
+	config.TrustedProxies = []string{"10.0.0.0/8"}
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// RemoteAddr without port (SplitHostPort fails)
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "not-a-valid-addr"
+	req.Header.Set("X-Real-IP", "203.0.113.50")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for invalid IP, got %d", rec.Code)
+	}
+}
+
+func TestRealIP_IsTrustedProxy_NoPort(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.RejectUntrusted = true
+	config.TrustedProxies = []string{"10.0.0.0/8"}
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// RemoteAddr is a valid IP without port
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.5" // Valid IP but no port
+	req.Header.Set("X-Real-IP", "203.0.113.50")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected 200 for trusted IP (no port), got %d", rec.Code)
+	}
+}
+
+func TestRealIP_ExtractRealIP_EmptyForwarded(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Headers = []string{"Forwarded"}
+
+	mw := New(config)
+
+	originalAddr := "192.168.1.100:12345"
+	callCount := int32(0)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&callCount, 1)
+		if r.RemoteAddr != originalAddr {
+			t.Errorf("RemoteAddr = %q, want %q", r.RemoteAddr, originalAddr)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Forwarded header with no for= directive
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = originalAddr
+	req.Header.Set("Forwarded", "proto=https;by=203.0.113.43")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if atomic.LoadInt32(&callCount) != 1 {
+		t.Errorf("Expected 1 call, got %d", callCount)
+	}
+}
+
+func TestRealIP_RejectUntrusted_DefaultTrusted(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.RejectUntrusted = true
+	// No TrustedProxies set, so it uses DefaultTrusted
+
+	mw := New(config)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Public IP should be rejected
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "203.0.113.1:12345"
+	req.Header.Set("X-Real-IP", "192.0.2.1")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("Expected 403 for public IP, got %d", rec.Code)
+	}
+}

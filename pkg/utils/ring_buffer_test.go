@@ -535,3 +535,23 @@ func TestRingBuffer_ResetFunctionality(t *testing.T) {
 		t.Error("Buffer should be empty after Reset")
 	}
 }
+
+func TestMustNewRingBuffer_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("Expected panic for zero capacity")
+		}
+	}()
+	MustNewRingBuffer[int](0)
+}
+
+func TestMustNewRingBuffer_Panics_Negative(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("Expected panic for negative capacity")
+		}
+	}()
+	MustNewRingBuffer[int](-1)
+}

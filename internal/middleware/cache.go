@@ -651,16 +651,18 @@ func parseCacheControl(value string) cacheDirectives {
 // a handler so they can be inspected and optionally cached.
 type responseCapturer struct {
 	http.ResponseWriter
-	body       *bytes.Buffer
-	statusCode int
-	wroteBody  bool
+	body        *bytes.Buffer
+	statusCode  int
+	wroteHeader bool
+	wroteBody   bool
 }
 
 // WriteHeader captures the status code and forwards it.
 func (rc *responseCapturer) WriteHeader(status int) {
-	if rc.wroteBody {
+	if rc.wroteHeader {
 		return
 	}
+	rc.wroteHeader = true
 	rc.statusCode = status
 	rc.ResponseWriter.WriteHeader(status)
 }

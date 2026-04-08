@@ -17,7 +17,7 @@ import (
 // Reference: https://en.wikipedia.org/wiki/Rendezvous_hashing
 type RendezvousHash struct {
 	mu       sync.RWMutex
-	seeds    []uint32 // Per-backend seeds for randomness
+	seeds    []uint32       // Per-backend seeds for randomness
 	backends map[string]int // Backend ID to index mapping
 }
 
@@ -148,8 +148,8 @@ func (r *RendezvousHash) Stats() map[string]interface{} {
 	defer r.mu.RUnlock()
 
 	return map[string]interface{}{
-		"algorithm":       "rendezvous_hash",
-		"backend_count":   len(r.backends),
-		"seed_count":      len(r.seeds),
+		"algorithm":     "rendezvous_hash",
+		"backend_count": len(r.backends),
+		"seed_count":    len(r.seeds),
 	}
 }

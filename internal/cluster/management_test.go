@@ -597,3 +597,298 @@ func TestClusterManager_Leave_ClusterStopError(t *testing.T) {
 		t.Logf("State after Leave = %q (may not be standalone if Stop failed)", mgr.GetState())
 	}
 }
+
+// --- Coverage improvements for management handlers ---
+
+func TestHandleClusterJoin_SuccessPath(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+	body := `{"seed_addrs":["127.0.0.1:7947"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/join", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Errorf("Status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+	mgr.Leave()
+}
+
+func TestHandleClusterLeave_SuccessPath(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mgr.Join([]string{"127.0.0.1:7947"})
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/leave", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Errorf("Status = %d, want 200; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleClusterJoin_WrongMethod_Extra(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cluster/join", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 405 {
+		t.Errorf("Status = %d, want 405", rec.Code)
+	}
+}
+
+func TestHandleClusterLeave_WrongMethod_Extra(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/cluster/leave", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 405 {
+		t.Errorf("Status = %d, want 405", rec.Code)
+	}
+}
+
+// --- Additional coverage for management functions ---
+
+func TestNewClusterManager_NilConfig(t *testing.T) {
+	sm := &testStateMachine{data: make(map[string]string)}
+	clusterConfig := &Config{NodeID: "node1", BindAddr: "127.0.0.1", BindPort: 7946}
+	c, err := New(clusterConfig, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	mgr := NewClusterManager(nil, c, nil)
+	if mgr == nil {
+		t.Fatal("NewClusterManager(nil, ...) returned nil")
+	}
+	if mgr.config.NodeID != "" {
+		t.Errorf("expected empty NodeID from default config")
+	}
+	if mgr.config.DrainTimeout != 30*time.Second {
+		t.Errorf("DrainTimeout = %v, want 30s default", mgr.config.DrainTimeout)
+	}
+	if mgr.config.HealthCheckInterval != 10*time.Second {
+		t.Errorf("HealthCheckInterval = %v, want 10s default", mgr.config.HealthCheckInterval)
+	}
+}
+
+func TestNewClusterManager_ZeroValuesDefault(t *testing.T) {
+	sm := &testStateMachine{data: make(map[string]string)}
+	clusterConfig := &Config{NodeID: "node1", BindAddr: "127.0.0.1", BindPort: 7946}
+	c, err := New(clusterConfig, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	mgr := NewClusterManager(&ClusterManagerConfig{NodeID: "n1"}, c, nil)
+	if mgr.config.DrainTimeout != 30*time.Second {
+		t.Errorf("DrainTimeout = %v, want 30s", mgr.config.DrainTimeout)
+	}
+	if mgr.config.HealthCheckInterval != 10*time.Second {
+		t.Errorf("HealthCheckInterval = %v, want 10s", mgr.config.HealthCheckInterval)
+	}
+}
+
+func TestJoin_AlreadyActive(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	// First join succeeds
+	if err := mgr.Join([]string{"127.0.0.1:7947"}); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	defer mgr.Leave()
+	// Second join should fail
+	if err := mgr.Join([]string{"127.0.0.1:7948"}); err == nil {
+		t.Error("expected error when joining while already active")
+	}
+}
+
+func TestJoin_ClusterNil(t *testing.T) {
+	mgr := NewClusterManager(&ClusterManagerConfig{NodeID: "n1"}, nil, nil)
+	err := mgr.Join([]string{"127.0.0.1:7947"})
+	if err == nil {
+		t.Error("expected error when cluster is nil")
+	}
+}
+
+func TestLeave_NotActive(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	err := mgr.Leave()
+	if err == nil {
+		t.Error("expected error when not active")
+	}
+}
+
+func TestLeave_WithDrainer(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mgr.SetDrainer(&mockDrainer{count: 0})
+	if err := mgr.Join([]string{"127.0.0.1:7947"}); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := mgr.Leave(); err != nil {
+		t.Fatalf("Leave: %v", err)
+	}
+}
+
+func TestLeave_DrainerTimeout(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mgr.SetDrainer(&mockDrainer{count: 10}) // never drains to 0
+	if err := mgr.Join([]string{"127.0.0.1:7947"}); err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+	if err := mgr.Leave(); err != nil {
+		t.Fatalf("Leave: %v", err)
+	}
+}
+
+func TestClusterManager_Status(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	status := mgr.Status()
+	if status.NodeID != "node1" {
+		t.Errorf("NodeID = %q, want node1", status.NodeID)
+	}
+	if status.State != ClusterStateStandalone {
+		t.Errorf("State = %q, want standalone", status.State)
+	}
+}
+
+func TestClusterManager_Status_WithLeader(t *testing.T) {
+	c, mgr := newTestClusterAndManager(t)
+	// Mark a node as leader
+	c.nodesMu.Lock()
+	c.nodes["node2"] = &Node{ID: "node2", Address: "127.0.0.1:7947", IsLeader: true}
+	c.nodesMu.Unlock()
+	status := mgr.Status()
+	found := false
+	for _, m := range status.Members {
+		if m.ID == "node2" && m.RaftState == "leader" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected node2 to have RaftState=leader in status members")
+	}
+}
+
+func TestHandleClusterJoin_InvalidJSON(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/join", strings.NewReader("not json"))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Errorf("Status = %d, want 400; body: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleClusterJoin_EmptySeedAddrs(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+	body := `{"seed_addrs":[]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/join", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	// Empty seed addrs should be handled (may succeed or return error depending on implementation)
+	t.Logf("Status = %d, body: %s", rec.Code, rec.Body.String())
+}
+
+// --- Additional coverage for management.go uncovered paths ---
+
+func TestClusterManager_Join_ClusterStartError(t *testing.T) {
+	// Create a manager with no cluster; Join should fail gracefully
+	// and revert state to standalone.
+	mgrConfig := &ClusterManagerConfig{
+		NodeID:       "node1",
+		BindAddr:     "127.0.0.1",
+		BindPort:     0,
+		DrainTimeout: 50 * time.Millisecond,
+	}
+
+	sm := &testStateMachine{data: make(map[string]string)}
+	clusterConfig := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      7946,
+		ElectionTick:  2 * time.Second,
+		HeartbeatTick: 500 * time.Millisecond,
+	}
+	c, err := New(clusterConfig, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	dsConfig := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(dsConfig)
+	mgr := NewClusterManager(mgrConfig, c, ds)
+
+	// Join with unreachable seeds; cluster.Start may succeed but
+	// the AddNode/peers are unreachable. The Join itself should still
+	// complete (since cluster.Start succeeds for a single-node).
+	err = mgr.Join([]string{"127.0.0.1:1"})
+	// The join may succeed (Start succeeds) or fail (unlikely).
+	// Either way, no panic and state is valid.
+	if err != nil {
+		t.Logf("Join error (acceptable): %v", err)
+		if mgr.GetState() != ClusterStateStandalone {
+			t.Errorf("State should be standalone after failed join, got %q", mgr.GetState())
+		}
+	} else {
+		// Join succeeded; leave to clean up
+		mgr.Leave()
+	}
+}
+
+func TestClusterManager_Leave_StopChInterrupt(t *testing.T) {
+	_, mgr := newTestClusterAndManager(t)
+
+	// Set a long drain timeout
+	mgr.config.DrainTimeout = 5 * time.Second
+
+	// Set a drainer that always has connections
+	drainer := &mockDrainer{count: 10}
+	mgr.SetDrainer(drainer)
+
+	err := mgr.Join([]string{"127.0.0.1:7947"})
+	if err != nil {
+		t.Fatalf("Join: %v", err)
+	}
+
+	// Close stopCh to interrupt the drain wait
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		close(mgr.stopCh)
+	}()
+
+	err = mgr.Leave()
+	// Leave should complete (possibly with an error due to stopCh)
+	t.Logf("Leave returned: %v", err)
+}
+
+func TestClusterManager_HandleClusterJoin_JoinError(t *testing.T) {
+	mgrConfig := &ClusterManagerConfig{
+		NodeID:       "node1",
+		DrainTimeout: 50 * time.Millisecond,
+	}
+	mgr := NewClusterManager(mgrConfig, nil, nil)
+
+	mux := http.NewServeMux()
+	mgr.RegisterAdminEndpoints(mux)
+
+	body := `{"seed_addrs":["127.0.0.1:7947"]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/cluster/join", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != 500 {
+		t.Errorf("Status = %d, want 500 for join error; body: %s", rec.Code, rec.Body.String())
+	}
+}

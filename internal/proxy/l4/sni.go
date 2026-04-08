@@ -132,13 +132,27 @@ func (r *SNIRouter) peekClientHello(conn net.Conn) (string, net.Conn, error) {
 		defer conn.SetReadDeadline(time.Time{})
 	}
 
-	// Read ClientHello
-	buf := make([]byte, r.config.MaxHandshakeSize)
-	n, err := conn.Read(buf)
-	if err != nil {
+	// Read TLS record header (5 bytes: type, version, length)
+	header := make([]byte, 5)
+	if _, err := io.ReadFull(conn, header); err != nil {
 		return "", conn, err
 	}
-	buf = buf[:n]
+
+	// Check this is a ClientHello (type 0x16) and version is valid
+	if header[0] != 0x16 {
+		return "", &peekedConn{Conn: conn, peeked: header}, fmt.Errorf("not a TLS handshake record")
+	}
+
+	// Read the rest of the record based on declared length
+	recordLen := int(header[3])<<8 | int(header[4])
+	if recordLen > r.config.MaxHandshakeSize {
+		recordLen = r.config.MaxHandshakeSize
+	}
+	record := make([]byte, recordLen)
+	if _, err := io.ReadFull(conn, record); err != nil {
+		return "", conn, err
+	}
+	buf := append(header, record...)
 
 	// Parse ClientHello
 	sni, err := ParseClientHelloSNI(buf)

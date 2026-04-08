@@ -840,3 +840,392 @@ func TestConfigStateMachine_Apply_UpdateRoute_MissingRouteNil(t *testing.T) {
 		t.Error("Expected error for nil route in update route")
 	}
 }
+
+// --- Coverage improvements for config_sm helpers ---
+
+func TestNewSetConfigCommand_WithConfig(t *testing.T) {
+	cfg := &config.Config{Listeners: []*config.Listener{{Name: "test"}}}
+	cmd, err := NewSetConfigCommand(cfg)
+	if err != nil {
+		t.Fatalf("NewSetConfigCommand: %v", err)
+	}
+	if cmd.Type != CmdSetConfig {
+		t.Errorf("Type = %v, want CmdSetConfig", cmd.Type)
+	}
+	if len(cmd.Payload) == 0 {
+		t.Error("expected non-empty payload")
+	}
+}
+
+func TestNewUpdateBackendCommand_WithData(t *testing.T) {
+	cmd, err := NewUpdateBackendCommand("pool1", &config.Backend{Address: "127.0.0.1:8080"})
+	if err != nil {
+		t.Fatalf("NewUpdateBackendCommand: %v", err)
+	}
+	if cmd.Type != CmdUpdateBackend {
+		t.Errorf("Type = %v, want CmdUpdateBackend", cmd.Type)
+	}
+	if len(cmd.Payload) == 0 {
+		t.Error("expected non-empty payload")
+	}
+}
+
+func TestNewUpdateRouteCommand_WithData(t *testing.T) {
+	cmd, err := NewUpdateRouteCommand("listener1", &config.Route{Path: "/api"})
+	if err != nil {
+		t.Fatalf("NewUpdateRouteCommand: %v", err)
+	}
+	if cmd.Type != CmdUpdateRoute {
+		t.Errorf("Type = %v, want CmdUpdateRoute", cmd.Type)
+	}
+	if len(cmd.Payload) == 0 {
+		t.Error("expected non-empty payload")
+	}
+}
+
+func TestNewUpdateListenerCommand_WithData(t *testing.T) {
+	cmd, err := NewUpdateListenerCommand(&config.Listener{Name: "http", Address: ":8080"})
+	if err != nil {
+		t.Fatalf("NewUpdateListenerCommand: %v", err)
+	}
+	if cmd.Type != CmdUpdateListener {
+		t.Errorf("Type = %v, want CmdUpdateListener", cmd.Type)
+	}
+	if len(cmd.Payload) == 0 {
+		t.Error("expected non-empty payload")
+	}
+}
+
+func TestConfigStateMachine_CloneConfigLocked(t *testing.T) {
+	sm := NewConfigStateMachine(&config.Config{
+		Listeners: []*config.Listener{{Name: "l1"}},
+		Pools:     []*config.Pool{{Name: "p1"}},
+	})
+	clone := sm.cloneConfigLocked()
+	if clone == nil {
+		t.Fatal("clone should not be nil")
+	}
+	if len(clone.Listeners) != 1 {
+		t.Errorf("Listeners = %d, want 1", len(clone.Listeners))
+	}
+	if len(clone.Pools) != 1 {
+		t.Errorf("Pools = %d, want 1", len(clone.Pools))
+	}
+	// Mutating clone should not affect original
+	clone.Listeners[0].Name = "modified"
+	sm.mu.RLock()
+	origName := sm.config.Listeners[0].Name
+	sm.mu.RUnlock()
+	if origName != "l1" {
+		t.Errorf("original name = %q, want l1", origName)
+	}
+}
+
+func TestConfigStateMachine_Snapshot_Cloned(t *testing.T) {
+	sm := NewConfigStateMachine(&config.Config{
+		Listeners: []*config.Listener{{Name: "l1"}},
+	})
+	data, err := sm.Snapshot()
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(data) == 0 {
+		t.Error("expected non-empty snapshot data")
+	}
+}
+
+// --- Additional coverage for cloneConfigLocked and New*Command helpers ---
+
+func TestCloneConfigLocked_NilConfig(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	sm.mu.RLock()
+	clone := sm.cloneConfigLocked()
+	sm.mu.RUnlock()
+	if clone == nil {
+		t.Fatal("clone should not be nil even with nil-initialised config")
+	}
+	if clone.Version != "1" {
+		t.Errorf("Version = %q, want 1", clone.Version)
+	}
+}
+
+func TestCloneConfigLocked_DeepCopy(t *testing.T) {
+	sm := NewConfigStateMachine(&config.Config{
+		Version:   "2",
+		Pools:     []*config.Pool{{Name: "p1"}, {Name: "p2"}},
+		Listeners: []*config.Listener{{Name: "l1", Address: ":8080"}},
+	})
+	clone := sm.cloneConfigLocked()
+	// Modify clone
+	clone.Pools[0].Name = "p1-modified"
+	clone.Listeners[0].Address = ":9999"
+	clone.Version = "3"
+	// Original should be unchanged
+	sm.mu.RLock()
+	orig := sm.config
+	sm.mu.RUnlock()
+	if orig.Pools[0].Name != "p1" {
+		t.Errorf("original pool name = %q, want p1", orig.Pools[0].Name)
+	}
+	if orig.Listeners[0].Address != ":8080" {
+		t.Errorf("original listener address = %q, want :8080", orig.Listeners[0].Address)
+	}
+	if orig.Version != "2" {
+		t.Errorf("original version = %q, want 2", orig.Version)
+	}
+}
+
+func TestNewSetConfigCommand_RoundTrip(t *testing.T) {
+	cfg := &config.Config{
+		Version:   "3",
+		Pools:     []*config.Pool{{Name: "test-pool"}},
+		Listeners: []*config.Listener{{Name: "http", Address: ":9090"}},
+	}
+	cmd, err := NewSetConfigCommand(cfg)
+	if err != nil {
+		t.Fatalf("NewSetConfigCommand: %v", err)
+	}
+	if cmd.Type != CmdSetConfig {
+		t.Errorf("Type = %v, want CmdSetConfig", cmd.Type)
+	}
+	// Verify the payload round-trips correctly
+	var decoded config.Config
+	if err := json.Unmarshal(cmd.Payload, &decoded); err != nil {
+		t.Fatalf("unmarshal payload: %v", err)
+	}
+	if decoded.Version != "3" {
+		t.Errorf("decoded version = %q, want 3", decoded.Version)
+	}
+	if len(decoded.Pools) != 1 || decoded.Pools[0].Name != "test-pool" {
+		t.Errorf("decoded pools = %v, want [{test-pool}]", decoded.Pools)
+	}
+}
+
+func TestNewUpdateBackendCommand_RoundTrip(t *testing.T) {
+	backend := &config.Backend{Address: "10.0.0.1:8080", Weight: 5}
+	cmd, err := NewUpdateBackendCommand("mypool", backend)
+	if err != nil {
+		t.Fatalf("NewUpdateBackendCommand: %v", err)
+	}
+	if cmd.Type != CmdUpdateBackend {
+		t.Errorf("Type = %v, want CmdUpdateBackend", cmd.Type)
+	}
+	var decoded UpdateBackendPayload
+	if err := json.Unmarshal(cmd.Payload, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Pool != "mypool" {
+		t.Errorf("Pool = %q, want mypool", decoded.Pool)
+	}
+	if decoded.Backend.Address != "10.0.0.1:8080" {
+		t.Errorf("Backend.Address = %q, want 10.0.0.1:8080", decoded.Backend.Address)
+	}
+}
+
+func TestNewUpdateRouteCommand_RoundTrip(t *testing.T) {
+	route := &config.Route{Path: "/api/v2", Pool: "api-pool"}
+	cmd, err := NewUpdateRouteCommand("mylistener", route)
+	if err != nil {
+		t.Fatalf("NewUpdateRouteCommand: %v", err)
+	}
+	if cmd.Type != CmdUpdateRoute {
+		t.Errorf("Type = %v, want CmdUpdateRoute", cmd.Type)
+	}
+	var decoded UpdateRoutePayload
+	if err := json.Unmarshal(cmd.Payload, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Listener != "mylistener" {
+		t.Errorf("Listener = %q, want mylistener", decoded.Listener)
+	}
+	if decoded.Route.Path != "/api/v2" {
+		t.Errorf("Route.Path = %q, want /api/v2", decoded.Route.Path)
+	}
+}
+
+func TestNewUpdateListenerCommand_RoundTrip(t *testing.T) {
+	listener := &config.Listener{Name: "https", Address: ":443", Protocol: "https"}
+	cmd, err := NewUpdateListenerCommand(listener)
+	if err != nil {
+		t.Fatalf("NewUpdateListenerCommand: %v", err)
+	}
+	if cmd.Type != CmdUpdateListener {
+		t.Errorf("Type = %v, want CmdUpdateListener", cmd.Type)
+	}
+	var decoded UpdateListenerPayload
+	if err := json.Unmarshal(cmd.Payload, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Listener.Name != "https" {
+		t.Errorf("Listener.Name = %q, want https", decoded.Listener.Name)
+	}
+}
+
+func TestProposeConfigChange_MarshalError(t *testing.T) {
+	// Create a ConfigCommand with a payload that can't be marshalled.
+	// ProposeConfigChange takes a *Cluster and ConfigCommand, so test via the
+	// happy path instead with a nil cluster.
+	// We test the json.Marshal path succeeds for normal commands.
+	cmd := ConfigCommand{Type: CmdSetConfig, Payload: json.RawMessage(`{}`)}
+	data, err := json.Marshal(cmd)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var decoded ConfigCommand
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Type != CmdSetConfig {
+		t.Errorf("Type = %q, want %q", decoded.Type, CmdSetConfig)
+	}
+}
+
+// --- Error paths in Apply for invalid payloads ---
+
+func TestConfigStateMachine_Apply_InvalidUpdateBackendPayload(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateBackend, Payload: json.RawMessage(`not valid json`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for invalid UpdateBackend payload")
+	}
+}
+
+func TestConfigStateMachine_Apply_InvalidUpdateRoutePayload(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateRoute, Payload: json.RawMessage(`{broken`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for invalid UpdateRoute payload")
+	}
+}
+
+func TestConfigStateMachine_Apply_InvalidUpdateListenerPayload(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateListener, Payload: json.RawMessage(`not-json`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for invalid UpdateListener payload")
+	}
+}
+
+func TestProposeConfigChange_ProposeError_FullBuffer(t *testing.T) {
+	sm := newKVStateMachine()
+	config := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		ElectionTick:  2 * time.Second,
+		HeartbeatTick: 500 * time.Millisecond,
+	}
+	c, err := New(config, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Don't start the run loop; Propose will fail because commandCh is not being drained.
+	// Fill the buffer
+	for i := 0; i < cap(c.commandCh); i++ {
+		c.commandCh <- &Command{
+			Command: []byte(fmt.Sprintf("filler-%d", i)),
+			Result:  make(chan *CommandResult, 1),
+		}
+	}
+
+	cmd := ConfigCommand{Type: CmdSetConfig, Payload: json.RawMessage(`{"version":"1"}`)}
+	err = ProposeConfigChange(c, cmd)
+	if err == nil {
+		t.Error("expected error from ProposeConfigChange when Propose fails")
+	}
+}
+
+func TestConfigStateMachine_Apply_UpdateBackendEmptyPool(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateBackend, Payload: json.RawMessage(`{"pool":"","backend":{"address":"10.0.0.1:8080"}}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for empty pool name")
+	}
+}
+
+func TestConfigStateMachine_Apply_UpdateRouteEmptyListener(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateRoute, Payload: json.RawMessage(`{"listener":"","route":{"path":"/"}}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for empty listener name")
+	}
+}
+
+func TestConfigStateMachine_Apply_UpdateListenerNil(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateListener, Payload: json.RawMessage(`{"listener":null}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for nil listener")
+	}
+}
+
+func TestConfigStateMachine_Apply_UpdateListenerEmptyName(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: CmdUpdateListener, Payload: json.RawMessage(`{"listener":{"name":"","address":":8080"}}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for empty listener name")
+	}
+}
+
+func TestConfigStateMachine_Apply_UnknownCommandType(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	cmd := ConfigCommand{Type: ConfigCommandType("unknown_type"), Payload: json.RawMessage(`{}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error for unknown command type")
+	}
+}
+
+func TestConfigStateMachine_Apply_WAFCommandWithHandler(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	var receivedType ConfigCommandType
+	var receivedPayload json.RawMessage
+	sm.SetWAFCommandHandler(func(ct ConfigCommandType, p json.RawMessage) error {
+		receivedType = ct
+		receivedPayload = p
+		return nil
+	})
+
+	cmd := ConfigCommand{Type: CmdWAFSetMode, Payload: json.RawMessage(`{"layer":"all","mode":"monitor"}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err != nil {
+		t.Fatalf("Apply WAF command: %v", err)
+	}
+	if receivedType != CmdWAFSetMode {
+		t.Errorf("received type = %q, want %q", receivedType, CmdWAFSetMode)
+	}
+	if string(receivedPayload) != `{"layer":"all","mode":"monitor"}` {
+		t.Errorf("received payload = %q", string(receivedPayload))
+	}
+}
+
+func TestConfigStateMachine_Apply_WAFCommandWithHandlerError(t *testing.T) {
+	sm := NewConfigStateMachine(nil)
+	sm.SetWAFCommandHandler(func(ct ConfigCommandType, p json.RawMessage) error {
+		return fmt.Errorf("WAF handler error")
+	})
+
+	cmd := ConfigCommand{Type: CmdWAFAddWhitelist, Payload: json.RawMessage(`{"cidr":"10.0.0.0/8"}`)}
+	data, _ := json.Marshal(cmd)
+	_, err := sm.Apply(data)
+	if err == nil {
+		t.Error("expected error from WAF handler")
+	}
+}

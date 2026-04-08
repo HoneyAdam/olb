@@ -15,6 +15,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/openloadbalancer/olb/internal/cli"
@@ -22,10 +23,12 @@ import (
 )
 
 func main() {
-	// Create CLI instance
-	c := cli.New("olb", version.String())
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
 
-	// Register all commands
+func run(args []string, stdout, stderr io.Writer) int {
+	c := cli.NewWithWriters("olb", version.String(), stdout, stderr)
+
 	c.Register(&cli.StartCommand{})
 	c.Register(&cli.StopCommand{})
 	c.Register(&cli.ReloadCommand{})
@@ -35,9 +38,9 @@ func main() {
 	c.Register(&cli.BackendCommand{})
 	c.Register(&cli.HealthCommand{})
 
-	// Run CLI with os.Args
-	if err := c.Run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+	if err := c.Run(args); err != nil {
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
 	}
+	return 0
 }

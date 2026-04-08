@@ -169,3 +169,138 @@ func TestRoundDuration(t *testing.T) {
 		t.Errorf("RoundDuration = %v, want %v", rounded, time.Hour)
 	}
 }
+
+func TestParseCustomDuration(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{"1d", 24 * time.Hour, false},
+		{"2w", 14 * 24 * time.Hour, false},
+		{"1d12h", 36 * time.Hour, false},
+		{"1h30m", time.Hour + 30*time.Minute, false},
+		{"5s", 5 * time.Second, false},
+		{"10m", 10 * time.Minute, false},
+		{"abc", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := parseCustomDuration(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got != tt.expected {
+					t.Errorf("got %v, want %v", got, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestParseCustomDuration_MoreUnits(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected time.Duration
+		wantErr  bool
+	}{
+		{"1w2d", 9 * 24 * time.Hour, false},
+		{".5d", 12 * time.Hour, false},
+		{"", 0, false}, // empty returns 0, no error
+		{"x", 0, true},
+		{"1x", 0, true},
+		{"1", 0, true}, // trailing number with no unit
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := parseCustomDuration(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got != tt.expected {
+					t.Errorf("got %v, want %v", got, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestParseByteSize_MoreFormats(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected int64
+		wantErr  bool
+	}{
+		{"1KB", 1000, false},
+		{"1KIB", 1024, false},
+		{"1MB", 1000000, false},
+		{"1MIB", 1024 * 1024, false},
+		{"1GB", 1000000000, false},
+		{"1GIB", 1024 * 1024 * 1024, false},
+		{"1TB", 1000000000000, false},
+		{"1TIB", 1024 * 1024 * 1024 * 1024, false},
+		{"1PB", 1000000000000000, false},
+		{"1PIB", 1024 * 1024 * 1024 * 1024 * 1024, false},
+		{"512", 512, false},
+		{"", 0, false},
+		{"KB", 0, true}, // no number prefix
+		{"1XB", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ParseByteSize(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got != tt.expected {
+					t.Errorf("got %d, want %d", got, tt.expected)
+				}
+			}
+		})
+	}
+}
+
+func TestMustParseByteSize_Panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("Expected panic for invalid byte size")
+		}
+	}()
+	MustParseByteSize("invalid")
+}
+
+func TestFormatByteSize_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{-1024, "-1 KiB"},
+		{0, "0 B"},
+		{512, "512 B"},
+	}
+	for _, tt := range tests {
+		got := FormatByteSize(tt.input)
+		if got != tt.expected {
+			t.Errorf("FormatByteSize(%d) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}

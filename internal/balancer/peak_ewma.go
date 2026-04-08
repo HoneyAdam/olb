@@ -14,17 +14,17 @@ import (
 // This is particularly effective for handling variable load and backend performance.
 type PeakEWMA struct {
 	mu       sync.RWMutex
-	decay    float64        // Decay factor for EWMA calculation
+	decay    float64                    // Decay factor for EWMA calculation
 	samples  map[string]*peakEWMASample // Per-backend samples
 	lastTick time.Time
 }
 
 // peakEWMASample tracks EWMA statistics for a single backend
 type peakEWMASample struct {
-	peakLatency    float64   // Current peak EWMA latency in nanoseconds
-	requestCount   uint64    // Total requests
-	errorCount     uint64    // Failed requests
-	lastUpdate     time.Time // Last update time
+	peakLatency  float64   // Current peak EWMA latency in nanoseconds
+	requestCount uint64    // Total requests
+	errorCount   uint64    // Failed requests
+	lastUpdate   time.Time // Last update time
 }
 
 // NewPeakEWMA creates a new Peak EWMA balancer.

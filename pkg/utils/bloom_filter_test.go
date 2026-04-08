@@ -447,3 +447,47 @@ func TestBloomFilter_CapAndK(t *testing.T) {
 		t.Error("K() should not change after adding items")
 	}
 }
+
+func TestNewBloomFilter_EdgeCases(t *testing.T) {
+	// Zero n should default to 1000
+	bf := NewBloomFilter(0, 0.01)
+	if bf == nil {
+		t.Fatal("Expected non-nil bloom filter")
+	}
+
+	// p out of range should default to 0.01
+	bf2 := NewBloomFilter(100, -0.5)
+	if bf2 == nil {
+		t.Fatal("Expected non-nil bloom filter for negative p")
+	}
+
+	bf3 := NewBloomFilter(100, 2.0)
+	if bf3 == nil {
+		t.Fatal("Expected non-nil bloom filter for p > 1")
+	}
+}
+
+func TestOptimalBloomFilter_EdgeCases(t *testing.T) {
+	// Small n
+	m, k := OptimalBloomFilter(1, 0.01)
+	if m == 0 {
+		t.Error("m should be > 0")
+	}
+	if k == 0 {
+		t.Error("k should be > 0")
+	}
+
+	// Very large k should be capped at 30
+	m, k = OptimalBloomFilter(1000000, 0.00001)
+	if k > 30 {
+		t.Errorf("k = %d, should be capped at 30", k)
+	}
+}
+
+func TestBloomFilter_FalsePositiveRateEmpty(t *testing.T) {
+	bf := NewBloomFilter(100, 0.01)
+	fpr := bf.FalsePositiveRate()
+	if fpr != 0 {
+		t.Errorf("FPR of empty filter = %f, want 0", fpr)
+	}
+}

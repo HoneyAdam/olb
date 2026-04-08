@@ -120,3 +120,66 @@ func TestExtractVersion(t *testing.T) {
 		}
 	}
 }
+
+func TestBotDetector_TLSFingerprintEnabled(t *testing.T) {
+	bd := New(Config{
+		UAEnabled:             true,
+		TLSFingerprintEnabled: true,
+		BehaviorEnabled:       false,
+	})
+	defer bd.Stop()
+
+	// Normal request with TLS fingerprint enabled
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36")
+	result := bd.Analyze(req)
+	if result.Blocked {
+		t.Error("expected normal request to pass with TLS fingerprint enabled")
+	}
+}
+
+func TestBotDetector_AllEnabledNormalRequest(t *testing.T) {
+	bd := New(Config{
+		UAEnabled:             true,
+		TLSFingerprintEnabled: true,
+		BehaviorEnabled:       true,
+		BehaviorConfig: BehaviorConfig{
+			RPSThreshold:       10,
+			ErrorRateThreshold: 30,
+		},
+	})
+	defer bd.Stop()
+
+	// Normal request should not be blocked
+	req := httptest.NewRequest("GET", "http://example.com/page", nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36")
+	req.RemoteAddr = "192.168.1.1:12345"
+	result := bd.Analyze(req)
+	if result.Blocked {
+		t.Error("expected normal request to not be blocked")
+	}
+}
+
+func TestBotDetector_ScannerUAOverridesBehavior(t *testing.T) {
+	bd := New(Config{
+		UAEnabled:       true,
+		BehaviorEnabled: true,
+		BehaviorConfig: BehaviorConfig{
+			RPSThreshold:       10,
+			ErrorRateThreshold: 30,
+		},
+	})
+	defer bd.Stop()
+
+	// Scanner UA should cause blocking regardless of behavior
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+	req.Header.Set("User-Agent", "sqlmap/1.7")
+	req.RemoteAddr = "192.168.1.2:12345"
+	result := bd.Analyze(req)
+	if !result.Blocked {
+		t.Error("expected scanner UA to be blocked even with behavior enabled")
+	}
+	if result.Score < 70 {
+		t.Errorf("expected score >= 70, got %d", result.Score)
+	}
+}

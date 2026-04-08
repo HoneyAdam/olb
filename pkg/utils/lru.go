@@ -177,9 +177,10 @@ func (c *LRU[K, V]) Contains(key K) bool {
 
 // Peek retrieves a value without updating the access order.
 // Returns the value and true if found and not expired.
+// Expired entries are evicted (consistent with Get/Contains).
 func (c *LRU[K, V]) Peek(key K) (V, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	elem, ok := c.items[key]
 	if !ok {
@@ -189,6 +190,7 @@ func (c *LRU[K, V]) Peek(key K) (V, bool) {
 
 	ent := elem.Value.(*entry[K, V])
 	if ent.isExpired() {
+		c.removeElement(elem)
 		var zero V
 		return zero, false
 	}

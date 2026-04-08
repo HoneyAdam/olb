@@ -444,6 +444,105 @@ func BenchmarkRandomManyBackends(b *testing.B) {
 	})
 }
 
+func TestRandom_Add_Duplicate(t *testing.T) {
+	r := NewRandom()
+
+	b1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	r.Add(b1)
+	r.Add(b1) // duplicate
+
+	r.mu.RLock()
+	count := len(r.backends)
+	r.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("Expected 1 backend after duplicate add, got %d", count)
+	}
+}
+
+func TestRandom_Remove_NotFound(t *testing.T) {
+	r := NewRandom()
+	r.Remove("nonexistent") // should not panic
+}
+
+func TestRandom_Remove_SingleBackend(t *testing.T) {
+	r := NewRandom()
+
+	b1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	r.Add(b1)
+	r.Remove("backend-1")
+
+	r.mu.RLock()
+	count := len(r.backends)
+	r.mu.RUnlock()
+	if count != 0 {
+		t.Errorf("Expected 0 backends after remove, got %d", count)
+	}
+}
+
+func TestWeightedRandom_Update_Nonexistent(t *testing.T) {
+	wr := NewWeightedRandom()
+
+	b1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	b1.Weight = 5
+
+	// Update should not panic on unknown backend
+	wr.Update(b1)
+}
+
+func TestWeightedRandom_Add_ZeroWeight(t *testing.T) {
+	wr := NewWeightedRandom()
+
+	b1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	b1.Weight = 0
+
+	wr.Add(b1)
+
+	// Backend should be added with effective weight of 1
+	wr.mu.RLock()
+	if len(wr.backends) != 1 {
+		t.Errorf("Expected 1 backend, got %d", len(wr.backends))
+	}
+	if wr.backends[0].weight != 1 {
+		t.Errorf("Expected weight 1 for zero-weight backend, got %d", wr.backends[0].weight)
+	}
+	wr.mu.RUnlock()
+}
+
+func TestWeightedRandom_Remove_SingleBackend(t *testing.T) {
+	wr := NewWeightedRandom()
+
+	b1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	b1.Weight = 5
+	wr.Add(b1)
+	wr.Remove("backend-1")
+
+	wr.mu.RLock()
+	if len(wr.backends) != 0 {
+		t.Errorf("Expected 0 backends after remove, got %d", len(wr.backends))
+	}
+	wr.mu.RUnlock()
+}
+
+func TestWeightedRandom_Add_Duplicate(t *testing.T) {
+	wr := NewWeightedRandom()
+
+	b1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	b1.Weight = 5
+	wr.Add(b1)
+	wr.Add(b1) // duplicate
+
+	wr.mu.RLock()
+	count := len(wr.backends)
+	total := wr.total
+	wr.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("Expected 1 backend after duplicate add, got %d", count)
+	}
+	if total != 5 {
+		t.Errorf("Expected total 5 after duplicate add, got %d", total)
+	}
+}
+
 // BenchmarkWeightedRandomManyBackends benchmarks WeightedRandom with many backends.
 func BenchmarkWeightedRandomManyBackends(b *testing.B) {
 	wr := NewWeightedRandom()

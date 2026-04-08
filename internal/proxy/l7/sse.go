@@ -54,7 +54,8 @@ func IsSSEResponse(resp *http.Response) bool {
 
 // SSEHandler handles Server-Sent Events proxying.
 type SSEHandler struct {
-	config *SSEConfig
+	config    *SSEConfig
+	transport *http.Transport
 }
 
 // NewSSEHandler creates a new SSE handler.
@@ -63,7 +64,22 @@ func NewSSEHandler(config *SSEConfig) *SSEHandler {
 		config = DefaultSSEConfig()
 	}
 	return &SSEHandler{
-		config: config,
+		config:    config,
+		transport: newSSETransport(),
+	}
+}
+
+// newSSETransport creates an HTTP transport optimized for SSE.
+func newSSETransport() *http.Transport {
+	return &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  true,
 	}
 }
 
@@ -83,9 +99,6 @@ func (sh *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request, b *backe
 	}
 	defer b.ReleaseConn()
 
-	// Create transport with SSE-specific settings
-	transport := sh.createSSETransport()
-
 	// Prepare outbound request
 	outReq, err := sh.prepareSSERequest(r, b)
 	if err != nil {
@@ -93,7 +106,7 @@ func (sh *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request, b *backe
 	}
 
 	// Execute request
-	resp, err := transport.RoundTrip(outReq)
+	resp, err := sh.transport.RoundTrip(outReq)
 	if err != nil {
 		return fmt.Errorf("backend request failed: %w", err)
 	}
@@ -107,21 +120,6 @@ func (sh *SSEHandler) HandleSSE(w http.ResponseWriter, r *http.Request, b *backe
 
 	// Handle SSE response with streaming
 	return sh.streamSSEResponseWithContext(w, r, resp, b)
-}
-
-// createSSETransport creates an HTTP transport optimized for SSE.
-func (sh *SSEHandler) createSSETransport() *http.Transport {
-	return &http.Transport{
-		DialContext: (&net.Dialer{
-			Timeout:   10 * time.Second,
-			KeepAlive: 30 * time.Second,
-		}).DialContext,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-		// Disable response compression for SSE (we need to read line by line)
-		DisableCompression: true,
-	}
 }
 
 // prepareSSERequest creates the outbound SSE request.
@@ -422,33 +420,33 @@ func (sp *SSEProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Get route match
 		routeMatch, ok := sp.httpProxy.router.Match(r)
 		if !ok {
-			sp.httpProxy.errorHandler(w, r, errors.New("route not found"))
+			sp.httpProxy.getErrorHandler()(w, r, errors.New("route not found"))
 			return
 		}
 
 		// Get backend pool
 		pool := sp.httpProxy.poolManager.GetPool(routeMatch.Route.BackendPool)
 		if pool == nil {
-			sp.httpProxy.errorHandler(w, r, errors.New("pool not found"))
+			sp.httpProxy.getErrorHandler()(w, r, errors.New("pool not found"))
 			return
 		}
 
 		// Select backend
 		backends := pool.GetHealthyBackends()
 		if len(backends) == 0 {
-			sp.httpProxy.errorHandler(w, r, errors.New("no healthy backends"))
+			sp.httpProxy.getErrorHandler()(w, r, errors.New("no healthy backends"))
 			return
 		}
 
 		selected := pool.GetBalancer().Next(backends)
 		if selected == nil {
-			sp.httpProxy.errorHandler(w, r, errors.New("no backend available"))
+			sp.httpProxy.getErrorHandler()(w, r, errors.New("no backend available"))
 			return
 		}
 
 		// Handle SSE
 		if err := sp.sseHandler.HandleSSE(w, r, selected); err != nil {
-			sp.httpProxy.errorHandler(w, r, err)
+			sp.httpProxy.getErrorHandler()(w, r, err)
 		}
 		return
 	}

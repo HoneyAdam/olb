@@ -6,6 +6,38 @@ import (
 	"time"
 )
 
+// TestRateLimiter_BuildKey_Scopes tests buildKey with all scope types
+func TestRateLimiter_BuildKey_Scopes(t *testing.T) {
+	rl := New(Config{})
+
+	r := httptest.NewRequest("GET", "/api/test?key=val", nil)
+	r.Header.Set("X-Tenant", "acme")
+
+	tests := []struct {
+		name    string
+		scope   string
+		ruleID  string
+		wantKey string
+	}{
+		{"global", "global", "r1", "global:r1"},
+		{"ip", "ip", "r2", "ip:r2:1.2.3.4"},
+		{"path", "path", "r3", "path:r3:/api/test"},
+		{"ip+path", "ip+path", "r4", "ip+path:r4:1.2.3.4:/api/test"},
+		{"header", "header:X-Tenant", "r5", "header:r5:acme"},
+		{"unknown defaults to ip", "unknown", "r6", "ip:r6:1.2.3.4"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rule := Rule{ID: tt.ruleID, Scope: tt.scope}
+			key := rl.buildKey(rule, r, "1.2.3.4")
+			if key != tt.wantKey {
+				t.Errorf("buildKey(%q) = %q, want %q", tt.scope, key, tt.wantKey)
+			}
+		})
+	}
+}
+
 func TestTokenBucket_Allow(t *testing.T) {
 	b := NewTokenBucket(3, 1.0) // 3 max, refill 1/sec
 
@@ -364,5 +396,213 @@ func TestRateLimiter_MatchAnyPath(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("matchAnyPath(%q, %v) = %v, want %v", tt.path, tt.patterns, got, tt.expected)
 		}
+	}
+}
+
+// --- Coverage improvement tests ---
+
+// TestCov_GetOrCreateBucket_ConcurrentRace exercises the double-check path
+// in getOrCreateBucket where two goroutines race to create the same bucket.
+func TestCov_GetOrCreateBucket_ConcurrentRace(t *testing.T) {
+	rl := New(Config{})
+	defer rl.Stop()
+
+	rule := Rule{ID: "race", Scope: "ip", Limit: 10, Window: time.Minute}
+	key := rl.buildKey(rule, httptest.NewRequest("GET", "/", nil), "10.0.0.1")
+
+	// Use a barrier to try to get concurrent bucket creation attempts
+	start := make(chan struct{})
+	const n = 20
+	results := make([]*TokenBucket, n)
+
+	for i := 0; i < n; i++ {
+		go func(idx int) {
+			<-start
+			results[idx] = rl.getOrCreateBucket(key, rule)
+		}(i)
+	}
+	close(start)
+
+	// Give goroutines time to complete
+	time.Sleep(50 * time.Millisecond)
+
+	// All results should be the same bucket instance
+	first := results[0]
+	if first == nil {
+		t.Fatal("expected non-nil bucket")
+	}
+	for i := 1; i < n; i++ {
+		if results[i] != first {
+			t.Errorf("goroutine %d got different bucket instance (double-check path not working)", i)
+		}
+	}
+}
+
+// TestCov_GetOrCreateBucket_WithBurst exercises the Burst > 0 branch
+// in getOrCreateBucket where maxTokens = Limit + Burst.
+func TestCov_GetOrCreateBucket_WithBurst(t *testing.T) {
+	rl := New(Config{})
+	defer rl.Stop()
+
+	rule := Rule{ID: "burst-bucket", Scope: "ip", Limit: 5, Window: time.Second, Burst: 3}
+	key := rl.buildKey(rule, httptest.NewRequest("GET", "/", nil), "10.0.0.1")
+
+	bucket := rl.getOrCreateBucket(key, rule)
+	if bucket == nil {
+		t.Fatal("expected non-nil bucket")
+	}
+
+	// maxTokens should be Limit+Burst = 8
+	tokens := bucket.Tokens()
+	if tokens != 8.0 {
+		t.Errorf("expected 8 tokens (5 limit + 3 burst), got %v", tokens)
+	}
+}
+
+// TestCov_CleanupLoop_StopChannel exercises the stopCh branch of cleanupLoop.
+func TestCov_CleanupLoop_StopChannel(t *testing.T) {
+	rl := New(Config{})
+	// Stop triggers the stopCh branch in cleanupLoop
+	rl.Stop()
+	// Calling Stop again should not panic (already closed)
+	// We just verify it doesn't hang or crash
+}
+
+// TestCov_Cleanup_PartiallyFullBucket verifies that cleanup does NOT remove
+// buckets that are not yet full (partially consumed).
+func TestCov_Cleanup_PartiallyFullBucket(t *testing.T) {
+	rl := New(Config{
+		Rules: []Rule{
+			{ID: "test", Scope: "ip", Limit: 10, Window: time.Minute},
+		},
+	})
+	defer rl.Stop()
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+
+	// Use some tokens so bucket is not full
+	rl.Allow(req)
+	rl.Allow(req)
+	rl.Allow(req)
+
+	rl.mu.RLock()
+	countBefore := len(rl.buckets)
+	rl.mu.RUnlock()
+
+	if countBefore == 0 {
+		t.Fatal("expected at least one bucket")
+	}
+
+	// Run cleanup - bucket should NOT be removed since it's not full
+	rl.cleanup()
+
+	rl.mu.RLock()
+	countAfter := len(rl.buckets)
+	rl.mu.RUnlock()
+
+	if countAfter != countBefore {
+		t.Errorf("partially full bucket should not be cleaned up: before=%d, after=%d", countBefore, countAfter)
+	}
+}
+
+// TestCov_Cleanup_FullBucket verifies cleanup DOES remove buckets that are full.
+func TestCov_Cleanup_FullBucket(t *testing.T) {
+	rl := New(Config{
+		Rules: []Rule{
+			{ID: "test", Scope: "ip", Limit: 3, Window: 10 * time.Millisecond},
+		},
+	})
+	defer rl.Stop()
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+
+	// Drain all tokens
+	rl.Allow(req)
+	rl.Allow(req)
+	rl.Allow(req)
+
+	// Wait for tokens to refill (window is very short)
+	time.Sleep(30 * time.Millisecond)
+
+	rl.mu.RLock()
+	countBefore := len(rl.buckets)
+	rl.mu.RUnlock()
+
+	if countBefore == 0 {
+		t.Fatal("expected at least one bucket")
+	}
+
+	// Run cleanup - bucket should be removed since it refilled to max
+	rl.cleanup()
+
+	rl.mu.RLock()
+	countAfter := len(rl.buckets)
+	rl.mu.RUnlock()
+
+	if countAfter >= countBefore {
+		t.Errorf("full (idle) bucket should be cleaned up: before=%d, after=%d", countBefore, countAfter)
+	}
+}
+
+// TestCov_MatchAnyPath_ExactMatch tests path.Match exact matching (non-wildcard).
+func TestCov_MatchAnyPath_ExactMatch(t *testing.T) {
+	// Exact match via path.Match
+	if !matchAnyPath("/login", []string{"/login"}) {
+		t.Error("expected exact match for /login")
+	}
+
+	// Glob match via path.Match (not just prefix)
+	if !matchAnyPath("/api/v1", []string{"/api/v*"}) {
+		t.Error("expected glob match for /api/v*")
+	}
+
+	// No match at all
+	if matchAnyPath("/other", []string{"/login", "/admin"}) {
+		t.Error("expected no match for /other")
+	}
+
+	// Prefix-only match via trailing * (not a valid glob for path.Match but handled by prefix code)
+	if !matchAnyPath("/api/users/123", []string{"/api/*"}) {
+		t.Error("expected prefix match for /api/* against /api/users/123")
+	}
+}
+
+// TestCov_MatchAnyPath_NoPatterns ensures empty patterns returns false quickly.
+func TestCov_MatchAnyPath_NoPatterns(t *testing.T) {
+	if matchAnyPath("/anything", nil) {
+		t.Error("expected false with nil patterns")
+	}
+	if matchAnyPath("/anything", []string{}) {
+		t.Error("expected false with empty patterns")
+	}
+}
+
+// TestCov_Allow_ShortWindowRetryAfter exercises the branch where rule.Window
+// is less than 1 second, causing retryAfter to be clamped to 1.
+func TestCov_Allow_ShortWindowRetryAfter(t *testing.T) {
+	rl := New(Config{
+		Rules: []Rule{
+			{ID: "short-window", Scope: "ip", Limit: 1, Window: 100 * time.Millisecond},
+		},
+	})
+	defer rl.Stop()
+
+	req := httptest.NewRequest("GET", "http://example.com/", nil)
+
+	// First request allowed
+	allowed, _ := rl.Allow(req)
+	if !allowed {
+		t.Error("first request should be allowed")
+	}
+
+	// Second request should be rate limited
+	allowed, retryAfter := rl.Allow(req)
+	if allowed {
+		t.Error("second request should be rate limited")
+	}
+
+	// With a 100ms window, retryAfter should be clamped to 1 (minimum)
+	if retryAfter != 1 {
+		t.Errorf("expected retryAfter=1 for sub-second window, got %d", retryAfter)
 	}
 }

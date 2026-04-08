@@ -327,6 +327,30 @@ func (c *Cluster) startElection() {
 	}
 	c.nodesMu.RUnlock()
 
+	// Wait for votes with timeout
+	done := make(chan struct{}, 1)
+	needed := len(c.nodes)/2 + 1 // majority
+	totalPeers := len(peers)
+	var finished atomic.Int32
+
+	// Signal done when all peers respond or quorum is reached
+	checkDone := func() {
+		votesMu.Lock()
+		v := votes
+		votesMu.Unlock()
+		if v >= needed || int(finished.Add(1)) >= totalPeers {
+			select {
+			case done <- struct{}{}:
+			default:
+			}
+		}
+	}
+
+	// Single-node cluster: already have quorum with self-vote
+	if needed <= votes {
+		done <- struct{}{}
+	}
+
 	for _, addr := range peers {
 		go func(addr string) {
 
@@ -339,11 +363,13 @@ func (c *Cluster) startElection() {
 					LastLogTerm:  lastLogTerm,
 				})
 				if err != nil {
+					checkDone()
 					return
 				}
 				if resp.Term > term {
 					c.currentTerm.Store(resp.Term)
 					c.setState(StateFollower)
+					checkDone()
 					return
 				}
 				if resp.VoteGranted {
@@ -351,25 +377,23 @@ func (c *Cluster) startElection() {
 					votes++
 					votesMu.Unlock()
 				}
+				checkDone()
 			} else {
 				// Local/test mode: simulate a successful vote
 				votesMu.Lock()
 				votes++
 				votesMu.Unlock()
+				checkDone()
 			}
 		}(addr)
 	}
 
-	// Wait for votes with timeout
-	done := make(chan struct{})
-	go func() {
-		close(done)
-	}()
-
 	select {
 	case <-done:
-		// Check if we won
-		if votes > len(c.nodes)/2 {
+		votesMu.Lock()
+		v := votes
+		votesMu.Unlock()
+		if v >= needed {
 			c.becomeLeader()
 		} else {
 			c.setState(StateFollower)

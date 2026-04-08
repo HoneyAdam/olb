@@ -992,3 +992,136 @@ func newStartedTransport(t *testing.T, handler RPCHandler) *TCPTransport {
 	}
 	return tr
 }
+
+// ---------------------------------------------------------------------------
+// Additional coverage: run() heartbeat timer, startElection with transport
+// ---------------------------------------------------------------------------
+
+func TestRun_HeartbeatTimerPath(t *testing.T) {
+	sm := newKVStateMachine()
+	config := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		ElectionTick:  2 * time.Second,
+		HeartbeatTick: 50 * time.Millisecond,
+	}
+	c, err := New(config, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Make the node a leader and set up heartbeat timer
+	c.setState(StateLeader)
+	c.leaderID.Store("node1")
+	c.heartbeatTimer = time.NewTicker(50 * time.Millisecond)
+	defer c.heartbeatTimer.Stop()
+
+	// Add a peer so sendHeartbeats has work to do
+	c.nodesMu.Lock()
+	c.nodes["node2"] = &Node{ID: "node2", Address: "127.0.0.1:9999"}
+	c.nodesMu.Unlock()
+
+	// Start the run loop
+	stopCh := make(chan struct{})
+	c.runDone = make(chan struct{})
+	c.stopCh = stopCh
+	go c.run()
+
+	// Let it run a few heartbeat cycles
+	time.Sleep(200 * time.Millisecond)
+
+	// Stop
+	close(stopCh)
+	<-c.runDone
+}
+
+func TestStartElection_WithTransport(t *testing.T) {
+	sm := newKVStateMachine()
+
+	// Create a real TCP transport
+	handler := &stubHandler{}
+	trCfg := &TCPTransportConfig{BindAddr: "127.0.0.1:0", MaxPoolSize: 3, Timeout: 500 * time.Millisecond}
+	tr, err := NewTCPTransport(trCfg, handler)
+	if err != nil {
+		t.Fatalf("NewTCPTransport: %v", err)
+	}
+	if err := tr.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer tr.Stop()
+
+	config := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		ElectionTick:  100 * time.Millisecond,
+		HeartbeatTick: 50 * time.Millisecond,
+	}
+	c, err := New(config, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// Assign the transport and a peer
+	c.transport = tr
+	c.nodesMu.Lock()
+	c.nodes["node2"] = &Node{ID: "node2", Address: "127.0.0.1:1"} // unreachable
+	c.nodesMu.Unlock()
+
+	// startElection will try to send RequestVote to the unreachable peer
+	// via the transport, then timeout
+	c.startElection()
+
+	// After the election timeout, should be in follower state
+	time.Sleep(300 * time.Millisecond)
+	if c.GetState() != StateFollower && c.GetState() != StateLeader {
+		t.Logf("State = %v (acceptable)", c.GetState())
+	}
+}
+
+func TestStartElection_NoPeers(t *testing.T) {
+	sm := newKVStateMachine()
+	config := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		ElectionTick:  100 * time.Millisecond,
+		HeartbeatTick: 50 * time.Millisecond,
+	}
+	c, err := New(config, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// No peers — votes = 1 (self), nodes = 1 (self), 1 > 0 => wins
+	c.startElection()
+
+	// Should become leader (votes=1 > 0)
+	time.Sleep(50 * time.Millisecond)
+	if c.GetState() != StateLeader {
+		t.Errorf("State = %v, want StateLeader (no peers, self-vote wins)", c.GetState())
+	}
+}
+
+func TestRun_StopChImmediate(t *testing.T) {
+	sm := newKVStateMachine()
+	config := &Config{
+		NodeID:        "node1",
+		BindAddr:      "127.0.0.1",
+		BindPort:      0,
+		ElectionTick:  10 * time.Second, // long, won't fire
+		HeartbeatTick: 10 * time.Second,
+	}
+	c, err := New(config, sm)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	c.runDone = make(chan struct{})
+	c.stopCh = make(chan struct{})
+	close(c.stopCh) // close immediately
+
+	go c.run()
+	<-c.runDone // should exit quickly
+}

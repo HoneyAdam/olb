@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -717,5 +718,423 @@ func TestDistributedState_NoBroadcastWithoutSync(t *testing.T) {
 	_, ok := ds.GetSession("key")
 	if !ok {
 		t.Error("Expected session to exist even without sync")
+	}
+}
+
+// --------------------------------------------------------------------------
+// handleIncoming: additional coverage for session and full message types
+// --------------------------------------------------------------------------
+
+func TestDistributedState_HandleIncoming_InvalidJSON(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+
+	// Send invalid JSON — should be silently ignored (no panic).
+	mockSync.simulateReceive([]byte("not json at all"))
+
+	// Verify no state was added.
+	if ds.HealthCount() != 0 {
+		t.Errorf("Expected 0 health entries after invalid JSON, got %d", ds.HealthCount())
+	}
+	if ds.SessionCount() != 0 {
+		t.Errorf("Expected 0 sessions after invalid JSON, got %d", ds.SessionCount())
+	}
+}
+
+func TestDistributedState_HandleIncoming_SessionMessage(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+
+	// Simulate receiving a session message from another node.
+	msg := &StateMessage{
+		Type:     StateMessageSession,
+		SenderID: "node2",
+		Sessions: map[string]*SessionEntry{
+			"sess-incoming": {
+				Key:         "sess-incoming",
+				BackendAddr: "10.0.0.5:8080",
+				Expires:     time.Now().Add(10 * time.Minute),
+				Timestamp:   time.Now(),
+			},
+		},
+		Timestamp: time.Now(),
+	}
+
+	data, _ := json.Marshal(msg)
+	mockSync.simulateReceive(data)
+
+	addr, ok := ds.GetSession("sess-incoming")
+	if !ok {
+		t.Fatal("Expected session to be merged from incoming session message")
+	}
+	if addr != "10.0.0.5:8080" {
+		t.Errorf("Session addr = %q, want 10.0.0.5:8080", addr)
+	}
+}
+
+func TestDistributedState_HandleIncoming_FullMessageWithSessions(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+
+	// Simulate receiving a full state message with both health and sessions.
+	msg := &StateMessage{
+		Type:     StateMessageFull,
+		SenderID: "node2",
+		Health: map[string]*HealthStatus{
+			"10.0.0.10:8080": {
+				BackendAddr:   "10.0.0.10:8080",
+				Healthy:       true,
+				CheckerNodeID: "node2",
+				Timestamp:     time.Now(),
+			},
+		},
+		Sessions: map[string]*SessionEntry{
+			"sess-full-incoming": {
+				Key:         "sess-full-incoming",
+				BackendAddr: "10.0.0.11:8080",
+				Expires:     time.Now().Add(5 * time.Minute),
+				Timestamp:   time.Now(),
+			},
+		},
+		Timestamp: time.Now(),
+	}
+
+	data, _ := json.Marshal(msg)
+	mockSync.simulateReceive(data)
+
+	// Verify health was merged.
+	status, ok := ds.GetHealthStatus("10.0.0.10:8080")
+	if !ok {
+		t.Fatal("Expected health status from full message to be merged")
+	}
+	if !status.Healthy {
+		t.Error("Expected healthy = true")
+	}
+
+	// Verify session was merged.
+	addr, ok := ds.GetSession("sess-full-incoming")
+	if !ok {
+		t.Fatal("Expected session from full message to be merged")
+	}
+	if addr != "10.0.0.11:8080" {
+		t.Errorf("Session addr = %q, want 10.0.0.11:8080", addr)
+	}
+}
+
+func TestDistributedState_HandleIncoming_NilHealthAndSessions(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+
+	// Health message with nil Health — should not panic.
+	msg := &StateMessage{
+		Type:      StateMessageHealth,
+		SenderID:  "node2",
+		Health:    nil,
+		Timestamp: time.Now(),
+	}
+	data, _ := json.Marshal(msg)
+	mockSync.simulateReceive(data)
+
+	// Session message with nil Sessions — should not panic.
+	msg2 := &StateMessage{
+		Type:      StateMessageSession,
+		SenderID:  "node2",
+		Sessions:  nil,
+		Timestamp: time.Now(),
+	}
+	data2, _ := json.Marshal(msg2)
+	mockSync.simulateReceive(data2)
+
+	// Full message with nil fields — should not panic.
+	msg3 := &StateMessage{
+		Type:      StateMessageFull,
+		SenderID:  "node2",
+		Timestamp: time.Now(),
+	}
+	data3, _ := json.Marshal(msg3)
+	mockSync.simulateReceive(data3)
+
+	// No state should have been added.
+	if ds.HealthCount() != 0 {
+		t.Errorf("Expected 0 health entries, got %d", ds.HealthCount())
+	}
+	if ds.SessionCount() != 0 {
+		t.Errorf("Expected 0 sessions, got %d", ds.SessionCount())
+	}
+}
+
+// --- Coverage improvements for broadcast functions ---
+
+func TestBroadcastHealth_VerifyContent(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+	health := map[string]*HealthStatus{
+		"10.0.0.1:8080": {BackendAddr: "10.0.0.1:8080", Healthy: true, Timestamp: time.Now()},
+	}
+	ds.broadcastHealth(health)
+	if mockSync.getBroadcastCount() != 1 {
+		t.Fatalf("broadcast count = %d, want 1", mockSync.getBroadcastCount())
+	}
+	var msg StateMessage
+	mockSync.mu.Lock()
+	data := mockSync.broadcasts[0]
+	mockSync.mu.Unlock()
+	if err := json.Unmarshal(data, &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg.Type != StateMessageHealth {
+		t.Errorf("type = %q, want %q", msg.Type, StateMessageHealth)
+	}
+	if len(msg.Health) != 1 {
+		t.Errorf("health entries = %d, want 1", len(msg.Health))
+	}
+}
+
+func TestBroadcastSessions_VerifyContent(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+	sessions := map[string]*SessionEntry{
+		"sess-1": {Key: "sess-1", BackendAddr: "10.0.0.1:8080", Expires: time.Now().Add(5 * time.Minute), Timestamp: time.Now()},
+	}
+	ds.broadcastSessions(sessions)
+	if mockSync.getBroadcastCount() != 1 {
+		t.Fatalf("broadcast count = %d, want 1", mockSync.getBroadcastCount())
+	}
+	var msg StateMessage
+	mockSync.mu.Lock()
+	data := mockSync.broadcasts[0]
+	mockSync.mu.Unlock()
+	if err := json.Unmarshal(data, &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg.Type != StateMessageSession {
+		t.Errorf("type = %q, want %q", msg.Type, StateMessageSession)
+	}
+}
+
+func TestBroadcastFullState_VerifyContent(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+	ds.healthMu.Lock()
+	ds.healthState["10.0.0.1:8080"] = &HealthStatus{BackendAddr: "10.0.0.1:8080", Healthy: true, Timestamp: time.Now()}
+	ds.healthMu.Unlock()
+	ds.sessionMu.Lock()
+	ds.sessionState["sess-full"] = &SessionEntry{Key: "sess-full", BackendAddr: "10.0.0.2:8080", Expires: time.Now().Add(10 * time.Minute), Timestamp: time.Now()}
+	ds.sessionMu.Unlock()
+	ds.broadcastFullState()
+	if mockSync.getBroadcastCount() != 1 {
+		t.Fatalf("broadcast count = %d, want 1", mockSync.getBroadcastCount())
+	}
+	var msg StateMessage
+	mockSync.mu.Lock()
+	data := mockSync.broadcasts[0]
+	mockSync.mu.Unlock()
+	if err := json.Unmarshal(data, &msg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if msg.Type != StateMessageFull {
+		t.Errorf("type = %q, want %q", msg.Type, StateMessageFull)
+	}
+	if len(msg.Health) != 1 {
+		t.Errorf("health entries = %d, want 1", len(msg.Health))
+	}
+	if len(msg.Sessions) != 1 {
+		t.Errorf("session entries = %d, want 1", len(msg.Sessions))
+	}
+}
+
+func TestBroadcastHealth_NilSync(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	ds.broadcastHealth(map[string]*HealthStatus{"a": {BackendAddr: "a", Timestamp: time.Now()}})
+}
+
+func TestBroadcastSessions_NilSync(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	ds.broadcastSessions(map[string]*SessionEntry{"a": {Key: "a", BackendAddr: "b", Expires: time.Now().Add(time.Minute), Timestamp: time.Now()}})
+}
+
+func TestDeserialize_NilHealthAndSessions(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	msg := &StateMessage{Type: StateMessageFull, SenderID: "node2", Timestamp: time.Now()}
+	data, _ := json.Marshal(msg)
+	err := ds.Deserialize(data)
+	if err != nil {
+		t.Fatalf("Deserialize: %v", err)
+	}
+	if ds.HealthCount() != 0 {
+		t.Errorf("health count = %d, want 0", ds.HealthCount())
+	}
+	if ds.SessionCount() != 0 {
+		t.Errorf("session count = %d, want 0", ds.SessionCount())
+	}
+}
+
+func TestGetSession_NonExistent(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	_, ok := ds.GetSession("does-not-exist")
+	if ok {
+		t.Error("expected false for non-existent session")
+	}
+}
+
+// --- Additional coverage: cleanupLoop, Deserialize error paths ---
+
+func TestDistributedState_CleanupLoop_Runs(t *testing.T) {
+	config := &DistributedStateConfig{
+		NodeID:            "node1",
+		SessionDefaultTTL: 10 * time.Minute,
+	}
+	ds := NewDistributedState(config)
+
+	// Add an expired session
+	ds.sessionMu.Lock()
+	ds.sessionState["expired-cleanup"] = &SessionEntry{
+		Key:     "expired-cleanup",
+		Expires: time.Now().Add(-1 * time.Second),
+	}
+	ds.sessionState["active-cleanup"] = &SessionEntry{
+		Key:         "active-cleanup",
+		BackendAddr: "10.0.0.1:8080",
+		Expires:     time.Now().Add(10 * time.Minute),
+	}
+	ds.sessionMu.Unlock()
+
+	ds.Start()
+	ds.cleanupExpiredSessions()
+	ds.Stop()
+
+	if ds.SessionCount() != 1 {
+		t.Errorf("SessionCount = %d, want 1 after cleanup", ds.SessionCount())
+	}
+	addr, ok := ds.GetSession("active-cleanup")
+	if !ok || addr != "10.0.0.1:8080" {
+		t.Errorf("active session not preserved: ok=%v, addr=%q", ok, addr)
+	}
+}
+
+func TestDistributedState_Deserialize_InvalidData(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	err := ds.Deserialize([]byte("not json"))
+	if err == nil {
+		t.Error("expected error deserializing invalid data")
+	}
+}
+
+func TestDistributedState_PropagateHealthStatus_WithBroadcastError(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	// Use a sync that returns error on broadcast
+	ds.SetSync(&errorStateSync{})
+	// Should still update local state even if broadcast fails
+	ds.PropagateHealthStatus("10.0.0.1:8080", true, 5*time.Millisecond)
+	status, ok := ds.GetHealthStatus("10.0.0.1:8080")
+	if !ok {
+		t.Fatal("expected health status to exist even with broadcast error")
+	}
+	if !status.Healthy {
+		t.Error("expected healthy = true")
+	}
+}
+
+func TestDistributedState_PropagateSession_WithBroadcastError(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1", SessionDefaultTTL: 10 * time.Minute}
+	ds := NewDistributedState(config)
+	ds.SetSync(&errorStateSync{})
+	ds.PropagateSession("sess-err", "10.0.0.1:8080", time.Now().Add(5*time.Minute))
+	addr, ok := ds.GetSession("sess-err")
+	if !ok {
+		t.Fatal("expected session to exist even with broadcast error")
+	}
+	if addr != "10.0.0.1:8080" {
+		t.Errorf("addr = %q, want 10.0.0.1:8080", addr)
+	}
+}
+
+type errorStateSync struct{}
+
+func (e *errorStateSync) Broadcast(data []byte) error {
+	return fmt.Errorf("broadcast failed")
+}
+func (e *errorStateSync) OnReceive(fn func(data []byte)) {}
+
+func TestDistributedState_GetHealthStatus_NonExistent(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	_, ok := ds.GetHealthStatus("nonexistent")
+	if ok {
+		t.Error("expected false for non-existent health status")
+	}
+}
+
+func TestDistributedState_HandleIncoming_UnknownMessageType(t *testing.T) {
+	config := &DistributedStateConfig{NodeID: "node1"}
+	ds := NewDistributedState(config)
+	mockSync := newMockStateSync()
+	ds.SetSync(mockSync)
+
+	msg := &StateMessage{
+		Type:      "unknown_type",
+		SenderID:  "node2",
+		Timestamp: time.Now(),
+	}
+	data, _ := json.Marshal(msg)
+	// Should not panic
+	mockSync.simulateReceive(data)
+}
+
+// --- Additional coverage for state.go ---
+
+func TestDistributedState_CleanupLoop_TickerPath(t *testing.T) {
+	config := &DistributedStateConfig{
+		NodeID: "node1",
+	}
+	ds := NewDistributedState(config)
+
+	// Add an expired session and a valid session
+	ds.sessionMu.Lock()
+	ds.sessionState["expired-key"] = &SessionEntry{
+		Key:         "expired-key",
+		BackendAddr: "10.0.0.1:8080",
+		Expires:     time.Now().Add(-1 * time.Second), // already expired
+	}
+	ds.sessionState["valid-key"] = &SessionEntry{
+		Key:         "valid-key",
+		BackendAddr: "10.0.0.2:8080",
+		Expires:     time.Now().Add(5 * time.Minute), // still valid
+	}
+	ds.sessionMu.Unlock()
+
+	// Call cleanup directly
+	ds.cleanupExpiredSessions()
+
+	ds.sessionMu.RLock()
+	_, expiredOk := ds.sessionState["expired-key"]
+	_, validOk := ds.sessionState["valid-key"]
+	ds.sessionMu.RUnlock()
+
+	if expiredOk {
+		t.Error("expired session should have been cleaned up")
+	}
+	if !validOk {
+		t.Error("valid session should still exist")
 	}
 }

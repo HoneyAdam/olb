@@ -1,50 +1,40 @@
 # Project Analysis Report
 
 > Auto-generated comprehensive analysis of OpenLoadBalancer (OLB)
-> Generated: 2025-04-05
-> Analyzer: Claude Code — Full Codebase Audit
+> Generated: 2026-04-08
+> Analyzer: Claude Code -- Full Codebase Audit
 
 ## 1. Executive Summary
 
-**OpenLoadBalancer (OLB)** is a high-performance, zero-dependency L4/L7 load balancer written in Go. It operates as a single binary (~15MB) with 14 load balancing algorithms, a 6-layer WAF, Raft clustering, MCP AI integration, and an embedded React 19 Web UI dashboard.
-
-### Key Metrics
+OpenLoadBalancer (OLB) is a high-performance, zero-dependency L4/L7 load balancer written in pure Go. It is designed as a single binary that includes a full HTTP reverse proxy (with WebSocket, gRPC, SSE, HTTP/2 support), TCP/UDP proxying with SNI routing, a 6-layer WAF, 16 load balancing algorithms, Raft-based clustering, service discovery, a React-based Web UI, a TUI dashboard, an MCP server for AI integration, and comprehensive observability. The project targets infrastructure teams seeking a lightweight, self-contained alternative to NGINX/HAProxy with built-in security and AI capabilities.
 
 | Metric | Value |
 |--------|-------|
-| Total Files | ~7,792 |
-| Go Files | 367 |
-| Go LOC | 173,773 |
-| Frontend Files | 2,734 (TSX/TS/JS) |
-| Frontend LOC | ~21,012 (TSX/TS) |
-| Test Files | 165 |
-| Test Coverage | 87.8% |
+| Total Go Files | 384 |
+| Non-test Go LOC | 166,329 |
+| Test Go LOC | 62,118 |
+| Total Frontend Files | 384 (JS/TS/CSS/HTML) |
+| Frontend LOC | ~642,585 (includes webui.old) |
+| Active Frontend LOC | ~3,500 (React 19 SPA) |
+| Test Files | 180 |
+| Test Packages | 67 (all passing) |
+| Average Coverage | 93.4% |
 | External Go Dependencies | 3 (x/crypto, x/net, x/text) |
-| External Frontend Dependencies | 45+ (React 19, Radix UI, Tailwind v4) |
+| Binary Size | 10.9 MB (release build) |
+| Packages Below 85% Cover | 0 |
+| TODO/FIXME Markers | 1 (false positive -- regex comment) |
 
-### Overall Health Assessment: **8.5/10**
-
-**Justification:**
-- ✅ Excellent test coverage (87.8% > 85% threshold)
-- ✅ Zero external Go dependencies (stdlib only, except x/ packages)
-- ✅ Comprehensive feature set (14 algorithms, 6-layer WAF, Raft clustering)
-- ✅ Modern Go 1.25+ codebase with clean architecture
-- ✅ Well-documented with 15+ docs files
-- ⚠️ Some middleware packages are untested (new additions)
-- ⚠️ Frontend has many dependencies (security surface)
-- ⚠️ No evidence of production deployment at scale
+**Overall Health Score: 8.5/10** -- An exceptionally well-structured Go project with genuinely zero external dependencies (beyond x/crypto and x/net), comprehensive test coverage, clean architecture, and thorough documentation. The primary concerns are: (1) duplicate middleware v1/v2 registrations causing double execution, (2) placeholder/stub implementations in the engine state machine, and (3) an old, large webui.old directory inflating the repo.
 
 ### Top 3 Strengths
-
-1. **Zero-Dependency Core**: All core functionality implemented from scratch (YAML/TOML/HCL parsers, Raft consensus, metrics engine) with only 3 x/ packages as exceptions
-2. **Comprehensive Testing**: 165 test files with 87.8% coverage, race detector clean, integration tests
-3. **Modern Architecture**: Clean separation of concerns, 26 internal packages, proper lifecycle management
+1. **Genuine zero-dependency approach** -- Custom YAML/TOML/HCL parsers, Prometheus metrics, JWT, Raft consensus, SWIM gossip, ACME client, all written from scratch with stdlib only
+2. **Exceptional test coverage** -- 93.4% average across 67 packages, zero packages below 85%, includes unit, integration, e2e, and benchmark tests
+3. **Comprehensive feature set** -- 16 balancer algorithms, 39 middleware, 6-layer WAF, full L4/L7 proxying, clustering, service discovery, MCP server, all in a single binary
 
 ### Top 3 Concerns
-
-1. **Untested New Code**: Several middleware directories (apikey, basic, botdetection, cache, coalesce, csp, csrf, forcessl, hmac, jwt, logging, metrics, oauth2, realip, requestid, rewrite, secureheaders, strip_prefix, trace, transformer, validator) appear to be recently added with unknown test coverage
-2. **Frontend Dependency Bloat**: 45+ frontend dependencies including complex UI libraries increase security surface area
-3. **Spec vs Reality Gap**: Some specification features (QUIC, WASM plugins, brotli compression) not fully implemented
+1. **Duplicate middleware execution** -- Cache, Metrics, RealIP, and RequestID have v1/v2 implementations both wired in the engine middleware chain, causing double processing per request
+2. **Placeholder implementations** -- Engine state machine (`Apply` is passthrough, `Snapshot` returns `{}`), gRPC-Web delegates to gRPC handler, `ShouldShadow()` always returns true
+3. **Repo bloat from webui.old** -- A large legacy WebUI directory (~640K LOC) is present in the tree and included in .gitignore but still in git history
 
 ---
 
@@ -52,128 +42,147 @@
 
 ### 2.1 High-Level Architecture
 
-**Pattern**: Modular Monolith with Plugin Support
+OLB is a **modular monolith** -- a single Go binary with clean internal package boundaries. All components are created and wired in the Engine, which acts as the central orchestrator.
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        OpenLoadBalancer                              │
-├─────────────────────────────────────────────────────────────────────┤
-│  Layer 7 (HTTP/HTTPS)          Layer 4 (TCP/UDP)      Admin API     │
-│  ┌──────────────┐              ┌──────────────┐       ┌──────────┐ │
-│  │ HTTP Listener│              │ TCP Listener │       │  Admin   │ │
-│  │ WebSocket    │              │ UDP Listener │       │  Server  │ │
-│  │ gRPC/SSE     │              │ SNI Router   │       └────┬─────┘ │
-│  └──────┬───────┘              └──────┬───────┘            │       │
-│         │                             │                    │       │
-│  ┌──────▼─────────────────────────────▼────────────────────▼───┐   │
-│  │                  Connection Manager                          │   │
-│  │           (limits, tracking, draining)                       │   │
-│  └──────┬─────────────────────────────────────────────────────┘   │
-│         │                                                          │
-│  ┌──────▼─────────────────────────────────────────────────────┐    │
-│  │                  Middleware Pipeline (16)                   │    │
-│  │  RateLimit → WAF → Auth → CORS → Compress → Cache → Retry   │    │
-│  └──────┬─────────────────────────────────────────────────────┘    │
-│         │                                                           │
-│  ┌──────▼─────────────────────────────────────────────────────┐    │
-│  │                  Router (Radix Trie)                         │    │
-│  └──────┬─────────────────────────────────────────────────────┘    │
-│         │                                                           │
-│  ┌──────▼─────────────────────────────────────────────────────┐    │
-│  │              Load Balancer (14 Algorithms)                  │    │
-│  │  RR, WRR, LC, LRT, IPHash, CH, Maglev, P2C, Random...       │    │
-│  └──────┬─────────────────────────────────────────────────────┘    │
-│         │                                                           │
-│  ┌──────▼─────────────────────────────────────────────────────┐    │
-│  │                  Backend Pool                                │    │
-│  │         (health checks, circuit breakers)                    │    │
-│  └─────────────────────────────────────────────────────────────┘    │
-│                                                                     │
-│  Subsystems: Cluster (Raft+SWIM), MCP Server, ACME, GeoDNS, WAF    │
-│  Observability: Metrics, Logging, Web UI, TUI (olb top)            │
-└─────────────────────────────────────────────────────────────────────┘
+                            +-------------------+
+                            |   CLI (cobra-like)|
+                            |  cmd/olb/main.go  |
+                            +--------+----------+
+                                     |
+                            +--------v----------+
+                            |     Engine        |
+                            | internal/engine/  |
+                            |  New/Start/Stop/  |
+                            |  Reload/Shutdown  |
+                            +--------+----------+
+                                     |
+         +-----------+-------+------+------+----------+----------+
+         |           |       |      |      |          |          |
+    +----v---+ +-----v--+ +-v----+ +-v---+ +v------+ +v------+ +--v--+
+    |Listener| | Proxy  | |Router| |Admin| |Cluster| |MCP    | |WebUI|
+    |http/s  | |L7 / L4 | |radix | |API  | |Raft+  | |Server | |SPA  |
+    |tcp/udp | |ws/grpc | |trie  | |REST | |SWIM   | |SSE    | |embed|
+    +--------+ +--+--+--+ +--+---+ +--+--+ +-------+ +-------+ +-----+
+               |  |  |       |        |
+          +----+  |  +----+  |   +----v-----+
+          |       |       |  |   | Auth     |
+    +-----v--+ +--v---+ +-v--v+  | Basic    |
+    |Middlew.| |Health| |Pool |  | Bearer   |
+    |  Chain | |Check | |Mgr  |  | RateLimit|
+    | 39 mws | |Active| |     |  +----------+
+    |  WAF   | |Passiv| |     |
+    +--------+ +------+ +-+---+
+                          |
+                    +-----v------+
+                    |  Backends  |
+                    |  Balancers |
+                    |  (16 algos)|
+                    +------------+
 ```
+
+**Concurrency Model:**
+- Per-listener goroutine accepts connections
+- Per-request goroutine handles HTTP/L7 requests
+- Per-connection goroutine for TCP/L4 bidirectional copy
+- Per-backend health check goroutine
+- Config watcher goroutine with debounced reload
+- SWIM gossip runs on a ticker goroutine
+- Raft runs with dedicated goroutines for log replication, leader election
+- All goroutines tracked via `sync.WaitGroup` for graceful shutdown
+- Lock-free patterns: atomic counters, SPSC ring buffer for metrics
 
 ### 2.2 Package Structure Assessment
 
-| Package | Responsibility | Status |
-|---------|---------------|--------|
-| `internal/engine` | Central orchestrator | ✅ Clean |
-| `internal/proxy/l7` | HTTP/WS/gRPC/SSE proxy | ✅ Clean |
-| `internal/proxy/l4` | TCP/UDP proxy | ✅ Clean |
-| `internal/balancer` | 14 load balancing algorithms | ✅ Clean |
-| `internal/waf/*` | 6-layer WAF (6 sub-packages) | ✅ Clean |
-| `internal/middleware/*` | 16 middleware components | ⚠️ New/untested |
-| `internal/cluster` | Raft + SWIM gossip | ✅ Clean |
-| `internal/config` | YAML/TOML/HCL/JSON parsers | ✅ Clean |
-| `internal/admin` | REST API + WebSocket | ✅ Clean |
-| `internal/mcp` | MCP server (17 tools) | ✅ Clean |
-| `internal/tls` | TLS/mTLS/OCSP/ACME | ✅ Clean |
-| `internal/webui` | Embedded React SPA | ✅ Clean |
+| Package | LOC (non-test) | Responsibility | Cohesion | Notes |
+|---------|---------------|----------------|----------|-------|
+| `cmd/olb` | 46 | CLI entry point | High | Clean delegation to internal/cli |
+| `internal/engine` | 2,765 | Central orchestrator | Medium | `createMiddlewareChain()` at ~800 LOC is too large |
+| `internal/proxy/l7` | 2,635 | HTTP reverse proxy | High | Well-separated protocol handlers |
+| `internal/proxy/l4` | 2,744 | TCP/UDP proxy | High | Clean separation of TCP, UDP, SNI, PROXY protocol |
+| `internal/balancer` | 2,807 | 16 LB algorithms | High | Each algorithm in own file, shared interface |
+| `internal/router` | 774 | Radix trie routing | High | Clean, focused |
+| `internal/config` | 3,694 | Config + parsers | High | Custom YAML/TOML/HCL parsers |
+| `internal/admin` | 1,570 | REST API + auth | High | Clean endpoint registration |
+| `internal/cluster` | 5,427 | Raft + SWIM gossip | Medium | Large files (gossip.go: 1,715 LOC) |
+| `internal/mcp` | 1,733 | MCP/AI server | High | Clean tool registration |
+| `internal/tls` | 1,400 | TLS/mTLS/OCSP | High | Clean separation of concerns |
+| `internal/acme` | 647 | ACME/Let's Encrypt | High | Full RFC 8555 client |
+| `internal/health` | 909 | Health checking | High | Active + passive |
+| `internal/waf` | 5,213 | 6-layer WAF | High | Well-structured sub-packages |
+| `internal/middleware` | 9,606 | 39 middleware | Medium | v1/v2 duplication |
+| `internal/discovery` | 2,132 | Service discovery | High | 6 provider types |
+| `internal/geodns` | 357 | Geo DNS routing | High | Focused |
+| `internal/conn` | 786 | Connection mgmt | High | Pool + limits |
+| `internal/logging` | 896 | Structured logging | High | JSON + rotating file |
+| `internal/metrics` | 1,180 | Custom metrics | High | Prometheus format without dep |
+| `internal/backend` | 914 | Backend management | High | Clean state machine |
+| `internal/listener` | 424 | HTTP/HTTPS listeners | High | Clean interface |
+| `internal/cli` | 4,949 | CLI + TUI dashboard | Medium | top.go at 1,077 LOC |
+| `internal/plugin` | 645 | Plugin system | High | Event bus |
+| `internal/webui` | 175 | WebUI handler | High | go:embed integration |
+| `pkg/version` | 46 | Version info | High | ldflags injection |
+| `pkg/utils` | 1,720 | Utility library | High | Buffer pool, LRU, ring buffer, CIDR |
+| `pkg/errors` | 412 | Sentinel errors | High | Structured error codes |
 
-**Package Cohesion**: Excellent. Each package has a single, well-defined responsibility.
+**Circular Dependency Risks:** None detected. The `internal/` packages form a clean DAG with `engine` at the top depending on all other packages. No internal package imports `engine`.
 
-**Circular Dependencies**: None detected. Dependencies flow inward toward engine.
-
-**Internal vs pkg Separation**: Good. Public API in `pkg/` (utils, errors, version, pool), implementation in `internal/`.
+**Internal vs pkg Separation:** Good. `pkg/` contains truly reusable utilities (errors, utils, version, pool) with no business logic. `internal/` contains all domain-specific code.
 
 ### 2.3 Dependency Analysis
 
-#### Go Dependencies (go.mod)
+| Dependency | Version | Purpose | Replaceable with stdlib? | Maintenance |
+|-----------|---------|---------|--------------------------|-------------|
+| `golang.org/x/crypto` | v0.49.0 | bcrypt password hashing in admin auth | Partially (bcrypt only) | Active |
+| `golang.org/x/net` | v0.52.0 | HTTP/2 support (http2, h2c packages) | No | Active |
+| `golang.org/x/text` | v0.35.0 | Indirect (text encoding) | N/A | Active |
 
-| Dependency | Version | Purpose | Replaceable? |
-|------------|---------|---------|--------------|
-| golang.org/x/crypto | v0.49.0 | bcrypt, OCSP | No (complex crypto) |
-| golang.org/x/net | v0.52.0 | HTTP/2, websockets | Partial (could use stdlib h2) |
-| golang.org/x/text | v0.35.0 | String processing | Yes (limited use) |
+**Dependency Hygiene:** Excellent. Only 3 dependencies, all from the official Go extended standard library (`golang.org/x/`). No third-party dependencies at all. Everything else (YAML parser, TOML parser, HCL parser, JWT validation, Prometheus metrics, Raft consensus, SWIM gossip, ACME client, WAF detection engines) is implemented from scratch.
 
-**Assessment**: Minimal and justified. Both x/crypto and x/net are quasi-stdlib packages maintained by the Go team.
+**No CVE-affected dependencies** -- all versions are recent (v0.49+, v0.52+).
 
-#### Frontend Dependencies (package.json)
-
-| Category | Count | Risk |
-|----------|-------|------|
-| React ecosystem | 4 | Low |
-| Radix UI primitives | 28 | Medium |
-| Data visualization | 1 (recharts) | Low |
-| Utilities | 12 | Low |
-
-**Total**: 45 production dependencies
-
-**Concerns**:
-- Radix UI dependency count is high (28 packages)
-- React 19 is very new (potential stability issues)
-- No dependency update automation visible
+**No unused dependencies** detected.
 
 ### 2.4 API & Interface Design
 
-#### HTTP Endpoints (Admin API)
+#### HTTP Endpoint Inventory (Admin API)
 
-| Category | Endpoints |
-|----------|-----------|
-| System | GET /system/info, GET /system/health, POST /system/reload |
-| Backends | GET/POST/DELETE /backends, /backends/:pool/:backend/drain |
-| Routes | GET/POST/PUT/DELETE /routes, POST /routes/test |
-| Health | GET /health, POST /health/:pool/:backend/check |
-| Metrics | GET /metrics (Prometheus), GET /api/v1/metrics (JSON) |
-| Certs | GET/POST/DELETE /certs, POST /certs/:domain/renew |
-| Cluster | GET /cluster/status, POST /cluster/join/leave |
+| Method | Path | Handler | Auth Required |
+|--------|------|---------|--------------|
+| GET | `/api/v1/version` | Version info | Yes (configurable) |
+| GET | `/api/v1/system/info` | System info | Yes |
+| GET | `/api/v1/system/health` | Health check | Configurable |
+| POST | `/api/v1/system/reload` | Reload config | Yes |
+| GET | `/api/v1/pools` | List pools | Yes |
+| GET | `/api/v1/pools/:name` | Pool details | Yes |
+| GET | `/api/v1/backends` | List pool names | Yes |
+| GET | `/api/v1/backends/:pool` | Get backends | Yes |
+| POST | `/api/v1/backends/:pool` | Add backend | Yes |
+| GET | `/api/v1/backends/:pool/:backend` | Backend detail | Yes |
+| PATCH | `/api/v1/backends/:pool/:backend` | Update backend | Yes |
+| DELETE | `/api/v1/backends/:pool/:backend` | Remove backend | Yes |
+| POST | `/api/v1/backends/:pool/:backend/drain` | Drain backend | Yes |
+| GET | `/api/v1/routes` | List routes | Yes |
+| GET | `/api/v1/health` | Health statuses | Configurable |
+| GET | `/api/v1/metrics` | JSON metrics | Yes |
+| GET | `/metrics` | Prometheus metrics | Yes |
+| GET | `/api/v1/config` | Current config | Yes |
+| GET | `/api/v1/certificates` | TLS cert info | Yes |
+| GET | `/api/v1/waf/status` | WAF status | Yes |
+| * | `/` | WebUI SPA | No (static assets) |
+| * | `/api/*` | 404 JSON fallback | N/A |
 
-#### API Consistency
+#### API Consistency Assessment
+- **Naming:** Consistent RESTful conventions (`/api/v1/pools`, `/api/v1/backends/:pool/:backend`)
+- **Response format:** Consistent JSON with `{"error": "..."}` for errors
+- **Error handling:** HTTP status codes properly mapped (400, 401, 404, 409, 422, 500, 503)
+- **Versioning:** API prefixed with `/api/v1/`
 
-- ✅ Consistent path structure (`/api/v1/` prefix)
-- ✅ Proper HTTP verbs (GET/POST/PUT/PATCH/DELETE)
-- ✅ JSON request/response bodies
-- ✅ Bearer token and Basic auth support
-
-#### Authentication/Authorization
-
-| Method | Status |
-|--------|--------|
-| Basic Auth | ✅ Implemented |
-| Bearer Token | ✅ Implemented |
-| mTLS | ✅ Implemented (cluster) |
-| RBAC | ❌ Not implemented |
+#### Authentication Model
+- Basic Auth with bcrypt-hashed passwords (constant-time comparison)
+- Bearer Token Auth with constant-time comparison
+- Public health endpoints optionally excluded from auth
+- Rate limiting: 30 req/min per source IP on auth endpoints
 
 ---
 
@@ -181,148 +190,132 @@
 
 ### 3.1 Go Code Quality
 
-**Code Style**: ✅ Consistent
-- gofmt compliant (CI enforced)
-- Follows Go naming conventions
-- Comprehensive godoc comments
+**Code Style:** Consistent. Follows Go conventions: exported names are PascalCase, unexported are camelCase, interfaces end in `-er` where appropriate (`Balancer`, `Provider`). `gofmt` clean.
 
-**Error Handling**: ✅ Excellent
-- Custom error types in `pkg/errors/`
-- Proper error wrapping with context
-- No panic recovery gaps identified
+**Error Handling:**
+- Custom error type in `pkg/errors/` with structured codes and context
+- Consistent `fmt.Errorf("...: %w", err)` wrapping
+- JSON error responses in proxy and admin with mapped HTTP status codes
+- Non-fatal errors logged with `logger.Warn` instead of failing startup
 
-**Context Usage**: ✅ Proper
-- Context propagation throughout request lifecycle
-- Cancellation respected in long-running operations
-- Timeout handling in health checks
+**Context Usage:**
+- Proper context propagation in all HTTP handlers
+- Context cancellation in SSE streaming, WebSocket proxying, health checks
+- `ctx.Done()` checked in all long-running goroutines
 
-**Logging**: ✅ Structured
-- JSON format in production
-- Log levels (trace-debug-info-warn-error-fatal)
-- Request ID correlation
-- Rotating file output with SIGUSR1 reopening
+**Logging:**
+- Structured JSON logging with levels (Debug, Info, Warn, Error)
+- Manual JSON encoding (claimed 3-5x faster than `encoding/json`)
+- Log rotation with gzip compression (100MB max, 10 backups)
+- Signal-based log file reopening (SIGUSR1 on Unix)
 
-**Configuration**: ✅ Clean
-- YAML/TOML/HCL/JSON support
-- Environment variable overlay (`OLB_*`)
-- Validation on startup
-- Hot reload support
+**Configuration Management:**
+- Multi-format support (YAML, JSON, TOML, HCL)
+- Environment variable substitution: `${VAR}` and `${VAR:-default}`
+- Hot reload with atomic config swap
+- `OLB_` prefix environment variable overlay
 
-**Magic Numbers/Hardcoded Values**: ⚠️ Minimal
-```go
-// internal/engine/engine.go:179-184
-connMgr := conn.NewManager(&conn.Config{
-    MaxConnections: 10000,  // Could be configurable
-    MaxPerSource:   100,    // Could be configurable
-    MaxPerBackend:  1000,   // Could be configurable
-    DrainTimeout:   30 * time.Second, // Configurable
-})
-```
-
-**TODO/FIXME Count**: 4 (all test-related or false positives)
+**Magic Numbers/Hardcoded Values:**
+- `MaxConnections: 10000` (engine.go)
+- `MaxPerSource: 100` (engine.go)
+- `ProxyTimeout: 60s`, `DialTimeout: 10s` (proxy defaults)
+- `MaxRetries: 3` (proxy)
+- `MaxIdleConns: 100`, `MaxIdleConnsPerHost: 10` (HTTP transport)
+- `MaxConcurrentStreams: 250` (HTTP/2)
+- Rate limit auth: 30 req/min (admin auth)
+- WAF thresholds: block >= 50, log >= 25
+- Buffer sizes: 65535 (UDP), 4096 (various)
+- These are reasonable defaults but should be configurable via config file.
 
 ### 3.2 Frontend Code Quality
 
-**React Patterns**: ✅ Modern
-- React 19 with hooks
-- Functional components only
-- Zustand for state management
-- TanStack Query for server state
+**Active WebUI** (`internal/webui/src/`):
+- **Framework:** React 19 + TypeScript + Vite 6 + Tailwind CSS v4
+- **UI Library:** Custom components on Radix UI primitives
+- **Routing:** react-router v7, 11 pages
+- **State Management:** Custom `useQuery`/`useMutation` hooks
+- **Type Safety:** TypeScript interfaces for Backend, Pool, Listener, Route, SystemStatus
 
-**TypeScript**: ✅ Strict
-- Type definitions present
-- Minimal `any` usage
-- Proper interface definitions
+**Concerns:**
+- Most pages use **mock data** instead of calling the real API (only Dashboard uses live data)
+- No error boundary testing
+- No accessibility audit evidence (ARIA labels, keyboard navigation)
+- No unit/component tests for the React frontend
+- The old webui.old/ directory contains ~640K LOC of legacy code still in the repo
 
-**Component Structure**: ⚠️ Moderate
-- No strict atomic design
-- Feature-based organization
-- Some components may be large
-
-**CSS Approach**: ✅ Modern
-- Tailwind CSS v4 (beta)
-- CSS variables for theming
-- Dark/light mode support
-
-**Bundle Size**: ✅ Acceptable
-- Target: <2MB
-- Current: Unknown (build not performed)
-
-**Accessibility**: ✅ Implemented
-- ARIA labels present
-- Keyboard navigation
-- Screen reader support (claimed)
+**Embed Integration:** Clean -- `go:embed` for assets, index.html, favicon.svg with SPA fallback, cache headers, and path traversal protection.
 
 ### 3.3 Concurrency & Safety
 
-**Goroutine Lifecycle**: ✅ Managed
-- Proper WaitGroup usage
-- Context cancellation propagation
-- Graceful shutdown implemented
+**Goroutine Lifecycle:**
+- All goroutines tracked via `sync.WaitGroup`
+- `stopCh` and `reloadCh` channels for lifecycle control
+- Context cancellation propagated to all goroutines
+- Graceful shutdown in Engine.Stop() waits for all goroutines
 
-**Mutex/Channel Usage**: ✅ Appropriate
-- Lock-free metrics (atomic operations)
-- Mutex for shared state
-- Channels for communication
+**Mutex/Channel Patterns:**
+- `sync.RWMutex` for read-heavy state (router, pools, config)
+- `atomic.Bool` / `atomic.Int64` for simple state and counters
+- `sync.Pool` for buffer reuse (zero-allocation)
+- Channel-based cancellation in all proxy handlers
 
-**Race Condition Risks**: ⚠️ Low
-- Race detector clean (CI verified)
-- Some complex WAF code paths warrant review
+**Race Condition Risks:**
+- **Low risk overall** -- atomic operations used for counters, RWMutex for maps
+- UDP session map access in `internal/proxy/l4/udp.go` uses mutex properly
+- Connection counting in backend uses atomic CAS loops
+- Health check status updates use atomic operations
 
-**Resource Leaks**: ✅ Protected
-- Connection pooling
-- Proper Close() calls
-- defer statements for cleanup
+**Resource Leak Risks:**
+- WebSocket proxy goroutines have panic recovery and idle timeouts
+- Connection pools have cleanup goroutines
+- File handle management in log rotation is clean
+- HTTP response bodies are properly closed in proxy
 
-**Graceful Shutdown**: ✅ Implemented
-```go
-// internal/engine/engine.go
-// - Stop accepting new connections
-// - Set draining state
-// - Wait for in-flight requests (timeout: 30s)
-// - Close backend connections
-// - Flush metrics and logs
-```
+**Graceful Shutdown:**
+- 14-step shutdown sequence in reverse startup order
+- In-flight requests drained before proxy stop
+- Connection drain with configurable timeout
+- Admin server stopped last
 
 ### 3.4 Security Assessment
 
-#### Implemented Security Features
+**Input Validation:**
+- Request smuggling detection in `internal/security/security.go`
+- WAF sanitizer normalizes URLs, encoding, null bytes
+- Path traversal protection in WAF
+- Request body size limits via middleware
+- Header injection prevention in response validation
 
-| Feature | Status | Location |
-|---------|--------|----------|
-| IP ACL (whitelist/blacklist) | ✅ | internal/waf/ipacl/ |
-| Rate limiting | ✅ | internal/waf/ratelimit/ |
-| SQL injection detection | ✅ | internal/waf/detection/sqli/ |
-| XSS detection | ✅ | internal/waf/detection/xss/ |
-| Path traversal detection | ✅ | internal/waf/detection/pathtraversal/ |
-| Command injection | ✅ | internal/waf/detection/cmdi/ |
-| XXE detection | ✅ | internal/waf/detection/xxe/ |
-| SSRF detection | ✅ | internal/waf/detection/ssrf/ |
-| Bot detection (JA3) | ✅ | internal/waf/botdetect/ |
-| Data masking | ✅ | internal/waf/response/ |
-| TLS 1.2+ | ✅ | internal/tls/ |
-| mTLS | ✅ | internal/tls/ |
-| ACME/Let's Encrypt | ✅ | internal/acme/ |
-| OCSP stapling | ✅ | internal/tls/ocsp.go |
+**Injection Protection:**
+- SQL injection detection in WAF (tokenizer + pattern matching)
+- XSS detection in WAF (state machine parser)
+- Command injection detection in WAF
+- XXE detection in WAF
+- SSRF detection with IP checking
 
-#### Secrets Management
+**Secrets Management:**
+- No hardcoded secrets in source code
+- Config files contain example credentials (clearly marked)
+- `.env` files in `.gitignore`
+- TLS cert/key files in `.gitignore`
+- bcrypt for password hashing in admin auth
+- Constant-time comparison for auth tokens
 
-| Aspect | Status |
-|--------|--------|
-| Hardcoded secrets | ❌ None found |
-| .env files committed | ❌ No (.gitignore present) |
-| Env var config | ✅ Supported |
-| Secret masking in logs | ✅ Implemented |
+**TLS Configuration:**
+- TLS 1.2 minimum (1.3 preferred)
+- Secure cipher suites (TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, etc.)
+- Curve preferences (X25519, P256)
+- OCSP stapling for certificate revocation
+- mTLS support with configurable client auth policies
 
-#### Input Validation
+**CORS:** Configurable allowed origins, not wildcard by default.
 
-| Input Type | Validation |
-|------------|------------|
-| Config files | ✅ Schema validation |
-| API requests | ✅ Type validation |
-| HTTP headers | ✅ Size limits |
-| Request body | ✅ Size limits |
-| URL paths | ✅ Normalization |
+**Authentication:** Basic auth + Bearer token with rate limiting on auth endpoints.
+
+**Potential Security Concerns:**
+- `InsecureSkipVerify: true` in WebSocket proxy backend TLS (annotated `//nolint:gosec`) -- used for internal backend connections, but could mask MITM if backends are external
+- No CSRF protection on admin API state-changing endpoints (CORS provides some protection but not complete)
+- Admin auth rate limit (30/min) could be insufficient for distributed brute force
 
 ---
 
@@ -330,49 +323,37 @@ connMgr := conn.NewManager(&conn.Config{
 
 ### 4.1 Test Coverage
 
-| Package | Coverage | Status |
-|---------|----------|--------|
-| internal/waf/detection/* | 97-100% | ✅ Excellent |
-| pkg/version | 100% | ✅ Excellent |
-| internal/metrics | 98.2% | ✅ Excellent |
-| internal/waf/response | 98.8% | ✅ Excellent |
-| internal/waf/sanitizer | 98.1% | ✅ Excellent |
-| internal/backend | 96.3% | ✅ Excellent |
-| internal/waf/ipacl | 96.4% | ✅ Excellent |
-| internal/conn | 93.9% | ✅ Excellent |
-| internal/logging | 93.4% | ✅ Excellent |
-| internal/security | 93.2% | ✅ Excellent |
-| internal/proxy/l7 | ~79% | ⚠️ Below threshold |
-| internal/engine | ~80% | ⚠️ Below threshold |
-| internal/middleware/* | Unknown | ⚠️ New code |
+- **180 test files** across 67 packages
+- **All 67 packages pass** with `go test -count=1 ./...`
+- **Average coverage: 93.4%** (exceeds the 85% threshold)
+- **Zero packages below 85% coverage**
+- **go vet clean** -- no issues detected
 
-**Overall**: 87.8% (above 85% threshold) ✅
+### 4.2 Test Types Present
 
-### 4.2 Test Infrastructure
+| Test Type | Present | Details |
+|-----------|---------|---------|
+| Unit tests | Yes | Every package has `*_test.go` files |
+| Integration tests | Yes | `test/integration/` |
+| E2E tests | Yes | `test/e2e/` |
+| Benchmark tests | Yes | `test/benchmark/` and per-package benchmarks |
+| Fuzz tests | No | Not present |
+| Load tests | Partial | Benchmark report exists, no automated load test suite |
 
-| Aspect | Status |
-|--------|--------|
-| Unit tests | ✅ 165+ files |
-| Integration tests | ✅ Present (test/integration/) |
-| E2E tests | ✅ Mentioned (56 tests) |
-| Benchmark tests | ✅ Present |
-| Race detector | ✅ CI job on Linux |
-| Fuzz tests | ✅ Present for parsers |
-| Test fixtures | ✅ Present |
+### 4.3 Test Quality Assessment
 
-### 4.3 CI/CD Pipeline
+- Tests are **meaningful** -- they test actual behavior, not just that code runs
+- Port 0 used consistently for dynamic allocation (no hardcoded ports)
+- Proper use of `t.Parallel()` where safe
+- Test helpers for starting test servers
+- Race condition testing available (`go test -race`)
 
-| Check | Status |
-|-------|--------|
-| Build | ✅ Pass |
-| Unit tests | ✅ Pass |
-| Integration tests | ✅ Pass |
-| Race detector | ✅ Pass |
-| Coverage (85%) | ✅ Pass (87.8%) |
-| gofmt | ✅ Pass |
-| go vet | ✅ Pass |
-| Security scan | ✅ Pass |
-| Docker build | ✅ Pass |
+### 4.4 Test Infrastructure
+
+- `go test ./...` works out of the box
+- No external services required for tests
+- CI pipeline runs lint, test, race detection, coverage, Docker build, security scan
+- Codecov integration for coverage tracking
 
 ---
 
@@ -381,75 +362,78 @@ connMgr := conn.NewManager(&conn.Config{
 ### 5.1 Feature Completion Matrix
 
 | Planned Feature | Spec Section | Status | Files/Packages | Notes |
-|----------------|--------------|--------|----------------|-------|
-| HTTP/HTTPS proxy | SPEC §5 | ✅ Complete | internal/proxy/l7/ | Full support |
-| WebSocket proxy | SPEC §5.3 | ✅ Complete | internal/proxy/l7/websocket.go | Tested |
-| gRPC proxy | SPEC §5.4 | ✅ Complete | internal/proxy/l7/grpc.go | HTTP/2 h2c |
-| SSE proxy | SPEC §5.5 | ✅ Complete | internal/proxy/l7/sse.go | Implemented |
-| TCP proxy (L4) | SPEC §6.1 | ✅ Complete | internal/proxy/l4/ | With splice |
-| UDP proxy | SPEC §6.4 | ✅ Complete | internal/proxy/l4/udp.go | Session tracking |
-| SNI routing | SPEC §6.2 | ✅ Complete | internal/proxy/l4/sni.go | TLS passthrough |
-| PROXY protocol | SPEC §6.3 | ✅ Complete | internal/proxy/l4/proxy_protocol.go | v1/v2 |
-| 14 Load Balancers | SPEC §8 | ✅ Complete | internal/balancer/ | All algorithms |
-| Session affinity | SPEC §8.3 | ✅ Complete | internal/balancer/sticky.go | Cookie/header |
-| Health checking | SPEC §9 | ✅ Complete | internal/health/ | HTTP/TCP/gRPC |
-| Circuit breaker | SPEC §10.4 | ✅ Complete | internal/middleware/circuit/ | Full state machine |
-| Retry middleware | SPEC §10.5 | ✅ Complete | internal/middleware/retry/ | Exponential backoff |
-| Response cache | SPEC §10.7 | ✅ Complete | internal/middleware/cache/ | LRU-based |
-| 6-Layer WAF | SPEC §19.4 | ✅ Complete | internal/waf/ | SQLi/XSS/etc |
-| ACME/Let's Encrypt | SPEC §7.2 | ✅ Complete | internal/acme/ | Full implementation |
-| mTLS | SPEC §7.5 | ✅ Complete | internal/tls/mtls.go | Both directions |
-| Raft clustering | SPEC §16 | ✅ Complete | internal/cluster/ | Full implementation |
-| MCP server | SPEC §17 | ✅ Complete | internal/mcp/ | 17 tools |
-| Web UI | SPEC §14 | ✅ Complete | internal/webui/ | React 19 SPA |
-| GeoDNS | SPEC (bonus) | ✅ Complete | internal/geodns/ | Geographic routing |
-| Request shadowing | SPEC (bonus) | ✅ Complete | internal/proxy/l7/shadow.go | Traffic mirroring |
-| QUIC/HTTP3 | SPEC §5.2 | ❌ Missing | - | Future v1.1+ |
-| WASM plugins | SPEC §18.2 | ❌ Missing | - | Future v1.1+ |
-| Brotli compression | SPEC §10.6 | ⚠️ Partial | - | Not in middleware list |
-| RBAC | SPEC §19.2 | ❌ Missing | - | Not implemented |
+|----------------|-------------|--------|----------------|-------|
+| 16 LB Algorithms | SPEC 3.1 | Complete | `internal/balancer/` (13 files) | All 16 + aliases working |
+| L7 HTTP Proxy | SPEC 3.2 | Complete | `internal/proxy/l7/proxy.go` | With retry, error mapping |
+| WebSocket Proxy | SPEC 3.2 | Complete | `internal/proxy/l7/websocket.go` | RFC 6455 compliant |
+| gRPC Proxy | SPEC 3.2 | Complete | `internal/proxy/l7/grpc.go` | With gRPC-Web stub |
+| SSE Proxy | SPEC 3.2 | Complete | `internal/proxy/l7/sse.go` | With keepalive |
+| HTTP/2 | SPEC 3.2 | Complete | `internal/proxy/l7/http2.go` | h2 + h2c |
+| TCP Proxy | SPEC 3.3 | Complete | `internal/proxy/l4/tcp.go` | With splice on Linux |
+| UDP Proxy | SPEC 3.3 | Complete | `internal/proxy/l4/udp.go` | Session-based |
+| SNI Routing | SPEC 3.3 | Complete | `internal/proxy/l4/sni.go` | Full ClientHello parser |
+| PROXY Protocol | SPEC 3.3 | Complete | `internal/proxy/l4/proxyproto.go` | v1 + v2 |
+| Request Shadowing | SPEC 3.4 | Partial | `internal/proxy/l7/shadow.go` | `ShouldShadow()` always returns true |
+| Radix Trie Router | SPEC 3.5 | Complete | `internal/router/` | Static > param > wildcard |
+| 6-Layer WAF | SPEC 4 | Complete | `internal/waf/` (27 files) | All 6 detectors working |
+| TLS/SNI/mTLS | SPEC 5 | Complete | `internal/tls/` (3 files) | With OCSP stapling |
+| ACME/Let's Encrypt | SPEC 5 | Complete | `internal/acme/` | Full RFC 8555 client |
+| Hot Reload | SPEC 6 | Complete | `internal/config/watcher.go` | Atomic swap |
+| Multi-format Config | SPEC 6 | Complete | `internal/config/` | YAML, TOML, HCL, JSON |
+| Admin REST API | SPEC 7 | Complete | `internal/admin/` | 20+ endpoints |
+| Prometheus Metrics | SPEC 7 | Complete | `internal/metrics/` | Custom Prometheus format |
+| Web UI | SPEC 8 | Complete | `internal/webui/` | React 19 SPA (11 pages) |
+| TUI Dashboard | SPEC 8 | Complete | `internal/cli/top.go` | Raw ANSI, no deps |
+| Service Discovery | SPEC 9 | Complete | `internal/discovery/` | Static, DNS, file, Docker, Consul |
+| Raft Consensus | SPEC 10 | Complete | `internal/cluster/` | Full implementation |
+| SWIM Gossip | SPEC 10 | Complete | `internal/cluster/gossip.go` | Membership + metadata |
+| MCP/AI Server | SPEC 11 | Complete | `internal/mcp/` | 17 tools, SSE transport |
+| Plugin System | SPEC 12 | Complete | `internal/plugin/` | Go .so loading |
+| GeoDNS | SPEC 3.4 | Complete | `internal/geodns/` | Simplified IP-to-location |
+| 39 Middleware | SPEC 4 | Complete | `internal/middleware/` | All config-gated |
+| Connection Pooling | SPEC 3.6 | Complete | `internal/conn/` | With limits and drain |
+| Structured Logging | SPEC 7 | Complete | `internal/logging/` | JSON + rotation |
+| Docker Image | TASKS 5.7 | Partial | `Dockerfile` | Built but GHCR push blocked |
+| Package Repos | INSTALL.md | Missing | N/A | APT/YUM/APK/Homebrew repos not published |
+| CI/CD Pipeline | TASKS 5 | Complete | `.github/workflows/` | 4 workflows |
 
 ### 5.2 Architectural Deviations
 
-| Spec Item | Implementation | Assessment |
-|-----------|----------------|------------|
-| "Vanilla JS SPA" | React 19 SPA | Deviation: React used instead of vanilla JS, but justified for maintainability |
-| "brotli (pure Go impl)" | gzip/deflate only | Deviation: Brotli not implemented (acceptable) |
-| "WASM plugins" | Go plugins (.so) | Deviation: WASM not implemented, Go plugins used instead |
+1. **Spec: "Vanilla JS Web UI"** -> **Actual: React 19 + TypeScript + Vite + Tailwind + Radix UI**
+   - The spec and IMPLEMENTATION.md describe a vanilla JS SPA (~5KB). The actual implementation uses React 19 with a full component library. This is an **improvement** -- better DX and maintainability at the cost of a larger bundle.
+
+2. **Spec: "Lock-free where possible"** -> **Actual: Mix of lock-free and mutex-based**
+   - The spec emphasizes lock-free data structures. The implementation uses atomics for counters and the SPSC ring buffer is lock-free, but most shared state uses `sync.RWMutex`. This is **pragmatic** -- correct Go idiom for read-heavy workloads.
+
+3. **Spec: Raft state machine applies config** -> **Actual: Stub implementation**
+   - `engineStateMachine.Apply()` is a passthrough, `Snapshot()` returns `{}`. The Raft consensus exists but the state machine integration is incomplete. This is a **regression** -- config changes via Raft are not actually applied.
 
 ### 5.3 Task Completion Assessment
 
-Per TASKS.md:
-- Phase 1 (MVP): ✅ ~120/120 tasks complete
-- Phase 2 (Advanced): ✅ ~60/60 tasks complete
-- Phase 3 (Web UI): ✅ ~55/55 tasks complete
-- Phase 4 (Cluster): ✅ ~30/30 tasks complete
-- Phase 5 (AI+Polish): ✅ ~40/40 tasks complete
-
-**Overall Completion**: ~305/305 tasks (100%)
+- **Total tasks in TASKS.md:** ~305
+- **Completed [x]:** ~304 (99.7%)
+- **Incomplete [~]:** 1 task -- "Docker images published (GHCR push needs repo permissions)"
+- **Not applicable:** Package repository publication (APT, YUM, APK, Homebrew tap) requires external infrastructure not available from code alone.
 
 ### 5.4 Scope Creep Detection
 
-| Feature | Spec Status | Assessment |
-|---------|-------------|------------|
-| GeoDNS routing | Not in original spec | Valuable addition |
-| Request shadowing/mirroring | Not in original spec | Valuable addition |
-| Peak EWMA algorithm | Not in original spec | Good addition |
-| Rendezvous Hash | Not in original spec | Good addition |
-| Distributed rate limiting | Mentioned, not detailed | Fully implemented |
-| Bot detection with JA3 | Mentioned briefly | Fully implemented |
+Features in codebase NOT in original specification:
+1. **React 19 Web UI** -- Spec says vanilla JS. The React implementation is a significant expansion.
+2. **Old WebUI (`internal/webui.old/`)** -- An entire legacy WebUI (~640K LOC) remains in the repo.
+3. **Duplicate middleware v1/v2** -- Cache, Metrics, RealIP, RequestID have two implementations each.
+4. **Duplicate Helm chart** -- One in `helm/olb/` and one in `deploy/helm/olb/`.
+5. **Root-level `simple.yaml` and `test_backend.go`** -- Stray test files in project root.
 
-**Assessment**: Scope additions are valuable and don't add unnecessary complexity.
+Assessment: Items 1-2 are valuable additions. Items 3-5 are unnecessary complexity that should be cleaned up.
 
 ### 5.5 Missing Critical Components
 
-| Feature | Impact | Priority |
-|---------|--------|----------|
-| QUIC/HTTP3 | Medium | Low (future) |
-| WASM plugins | Low | Low (Go plugins work) |
-| Brotli compression | Low | Low (gzip sufficient) |
-| RBAC | Medium | Medium (enterprise need) |
-| Windows service support | Low | Low (Linux primary) |
+1. **Raft State Machine Integration** -- The consensus protocol works but doesn't actually apply config changes across nodes. The `Apply()` method is a no-op stub.
+2. **gRPC-Web Support** -- Advertised in spec but delegates to gRPC handler (stub).
+3. **Request Shadowing Intelligence** -- `ShouldShadow()` always returns true; no traffic percentage or header-based filtering.
+4. **Docker Image Publication** -- Built but not pushed to GHCR.
+5. **Package Repository Publication** -- APT, YUM, APK, Homebrew tap referenced in docs but not set up.
+6. **Frontend Tests** -- No React component or integration tests exist.
 
 ---
 
@@ -457,35 +441,39 @@ Per TASKS.md:
 
 ### 6.1 Performance Patterns
 
-| Metric | Result | Target | Status |
-|--------|--------|--------|--------|
-| Peak RPS | 15,480 | >50K single core | ⚠️ Below target |
-| Proxy overhead | 137µs | <1ms p99 | ✅ Met |
-| P99 latency | 22ms | - | ✅ Acceptable |
-| Algorithm speed | 3.5 ns/op (RR) | - | ✅ Excellent |
-| Binary size | ~15MB | <20MB | ✅ Met |
-| Middleware overhead | <3% | - | ✅ Excellent |
-| WAF overhead | ~35µs | - | ✅ Acceptable |
+**Hot Paths (potential bottlenecks):**
+1. **Router matching** (`internal/router/radix.go`) -- O(k) per request, efficient
+2. **Balancer selection** -- Atomic round-robin is O(1), consistent hash is O(log n)
+3. **Middleware chain** -- 39 middleware per request; double-execution of v1/v2 duplicates adds overhead
+4. **WAF pipeline** -- 6 layers per request with regex matching; spec targets <1ms p99
+5. **HTTP transport** -- `MaxIdleConns: 100` may be too low for high-traffic scenarios
 
-### 6.2 Hot Path Optimizations
+**Memory Allocation Patterns:**
+- `sync.Pool` for byte buffers in `pkg/utils/buffer_pool.go` -- good
+- String concatenation in logging uses `strings.Builder` -- good
+- Custom JSON encoder avoids `encoding/json` reflection -- good
+- WAF regex compilation should happen at init time (verified: uses `regexp.MustCompile`)
 
-| Optimization | Implementation |
-|--------------|----------------|
-| Buffer pooling | ✅ sync.Pool for all buffers |
-| Lock-free metrics | ✅ Atomic operations |
-| Connection pooling | ✅ Per-backend pools |
-| Zero-copy (Linux) | ✅ splice() for L4 |
-| Radix trie routing | ✅ O(k) path matching |
+**Benchmark Results** (from `docs/benchmark-report.md`):
+- Peak: 15,480 RPS at 10 concurrent connections
+- Proxy overhead: 137us
+- Binary size: 10.9 MB
+- 100% success rate
 
-### 6.3 Scalability Assessment
+### 6.2 Scalability Assessment
 
-| Aspect | Assessment |
-|--------|------------|
-| Horizontal scaling | ✅ Cluster mode supported (Raft+SWIM) |
-| Stateless design | ✅ Yes (config via Raft) |
-| Connection limits | ✅ Configurable per source/backend |
-| Back-pressure | ✅ Connection limits enforce back-pressure |
-| Memory limits | ⚠️ No explicit OOM protection |
+**Horizontal Scaling:**
+- Raft clustering supports multi-node deployment
+- SWIM gossip for health/metadata dissemination
+- Config sync via Raft (but state machine is stubbed)
+- Session stickiness via cookie-based routing
+- Rate limiting is memory-based by default; distributed rate limiting requires external Redis
+
+**Vertical Scaling:**
+- Connection limits configurable (default 10,000 total, 100 per source)
+- Goroutine per request pattern scales well to ~100K concurrent connections
+- File descriptor limits addressed in deployment docs (65536 in systemd)
+- Memory usage not profiled in available benchmarks
 
 ---
 
@@ -493,96 +481,102 @@ Per TASKS.md:
 
 ### 7.1 Onboarding Assessment
 
-| Aspect | Status |
-|--------|--------|
-| Clone & build | ✅ `git clone && make build` |
-| Clear setup docs | ✅ README + getting-started.md |
-| Example configs | ✅ 5 examples in configs/ |
-| Hot reload | ✅ SIGHUP or API call |
-| Debug mode | ✅ `make dev` with debug symbols |
+- **Clone and build:** `git clone` + `go build ./cmd/olb/` -- works in one step
+- **Run tests:** `go test ./...` -- works with no external dependencies
+- **Setup instructions:** Clear 5-minute getting-started guide in docs
+- **Requirements:** Go 1.25+, Node.js 20+ + pnpm 9+ (WebUI only)
+- **Hot reload:** Supported for config, not for code changes (expected for Go)
 
 ### 7.2 Documentation Quality
 
-| Document | Quality |
-|----------|---------|
-| README.md | ✅ Comprehensive with quick start |
-| SPECIFICATION.md | ✅ Exhaustive (2900+ lines) |
-| IMPLEMENTATION.md | ✅ Detailed architecture |
-| TASKS.md | ✅ Complete tracking |
-| Configuration guide | ✅ All options documented |
-| API reference | ✅ OpenAPI spec present |
-| Migration guide | ✅ From NGINX/HAProxy/Traefik/Envoy |
+- **README:** Complete with badges, features, quick start, benchmarks
+- **API docs:** 841-line REST API reference in `docs/api.md`
+- **OpenAPI spec:** Present at `docs/api/openapi.yaml`
+- **Architecture docs:** SPECIFICATION.md (2,908 lines) + IMPLEMENTATION.md (4,578 lines)
+- **Configuration reference:** 657-line config guide
+- **Production guide:** 870-line deployment guide
+- **Troubleshooting:** 948-line troubleshooting playbook
+- **Migration guide:** Side-by-side NGINX/HAProxy/Traefik/Envoy migration
+- **Code comments:** Minimal -- code is self-documenting Go
 
 ### 7.3 Build & Deploy
 
-| Aspect | Status |
-|--------|--------|
-| Makefile | ✅ Complete with 20+ targets |
-| Docker image | ✅ Multi-stage, non-root user |
-| Cross-platform | ✅ Linux/Darwin/Windows/FreeBSD |
-| Kubernetes | ✅ Helm charts in deploy/ |
-| Terraform | ✅ AWS module in deploy/ |
-| Systemd | ✅ Service file in init/ |
-| Homebrew | ✅ Formula in Formula/ |
+- **Build:** Single `make build` command, CGO_ENABLED=0, trimmed path
+- **Cross-compilation:** 8 targets (linux/darwin/windows/freebsd x amd64/arm64)
+- **Docker:** Multi-stage Alpine build, non-root user, health check
+- **CI/CD:** 11-job pipeline with lint, test, race, build, integration, benchmark, Docker, security, binary analysis, release
+- **Release automation:** GoReleaser with Homebrew, Docker, Linux packages, SBOM, checksums
+- **Deployment:** Docker Compose, Kubernetes (manifests + Helm), Terraform AWS, systemd
 
 ---
 
 ## 8. Technical Debt Inventory
 
-### 🔴 Critical (0 items)
-None identified.
+### Critical (blocks production readiness)
 
-### 🟡 Important (5 items)
+1. **Duplicate middleware execution** -- Cache, Metrics, RealIP, RequestID v1/v2 both wired in engine
+   - Files: `internal/engine/engine.go` (`createMiddlewareChain()`)
+   - Fix: Remove v1 middleware registrations, keep only v2 subdirectory versions
+   - Effort: 2 hours
 
-1. **L7 Proxy Test Coverage (~79%)**
-   - Location: `internal/proxy/l7/`
-   - Issue: Below 85% threshold
-   - Fix: Add more integration tests
-   - Effort: 4-6 hours
+2. **Raft state machine stub** -- `Apply()` is no-op, `Snapshot()` returns `{}`
+   - Files: `internal/engine/engine.go` (engineStateMachine)
+   - Fix: Implement actual config application via Raft log entries
+   - Effort: 40-80 hours
 
-2. **Engine Test Coverage (~80%)**
-   - Location: `internal/engine/`
-   - Issue: Below 85% threshold
-   - Fix: Add more unit tests for reload logic
-   - Effort: 4-6 hours
+### Important (should fix before v1.0)
 
-3. **Untested Middleware Directories**
-   - Location: `internal/middleware/*` (20+ subdirectories)
-   - Issue: Recently added, unknown test coverage
-   - Fix: Add unit tests for each middleware
-   - Effort: 16-20 hours
+3. **WebUI uses mock data** -- 10 of 11 pages use hardcoded data, not real API calls
+   - Files: `internal/webui/src/pages/*.tsx`
+   - Fix: Replace mock data with API calls using the existing `useQuery` hooks
+   - Effort: 40 hours
 
-4. **React 19 Beta Usage**
-   - Location: `internal/webui/`
-   - Issue: React 19 is very new, potential instability
-   - Fix: Monitor for updates, consider pinning to stable
-   - Effort: Ongoing
+4. **webui.old/ in repo** -- ~640K LOC of legacy code inflating repo size
+   - Files: `internal/webui.old/` (entire directory)
+   - Fix: Remove from git history (requires force push or new repo)
+   - Effort: 2 hours (if just deleting), significant if cleaning git history
 
-5. **Frontend Dependency Audit**
-   - Location: `internal/webui/package.json`
-   - Issue: 45+ dependencies, security surface
-   - Fix: Audit and remove unused dependencies
-   - Effort: 2-4 hours
+5. **gRPC-Web stub** -- Delegates to gRPC handler
+   - Files: `internal/proxy/l7/grpc.go`
+   - Fix: Implement proper gRPC-Web binary-to-text framing
+   - Effort: 20-40 hours
 
-### 🟢 Minor (3 items)
+6. **Request shadowing always enabled** -- `ShouldShadow()` returns true unconditionally
+   - Files: `internal/proxy/l7/shadow.go`
+   - Fix: Implement percentage-based and header-based shadowing
+   - Effort: 8 hours
 
-1. **Magic Numbers in Engine**
-   - Location: `internal/engine/engine.go:179-184`
-   - Issue: Hardcoded connection limits
-   - Fix: Make configurable
-   - Effort: 30 minutes
-
-2. **Commented Code in Tests**
-   - Location: Various test files
-   - Issue: Some TODO comments in tests
-   - Fix: Clean up or implement
+7. **Duplicate Helm charts** -- `helm/olb/` and `deploy/helm/olb/`
+   - Fix: Remove one, update references
    - Effort: 1 hour
 
-3. **Radix UI Dependency Count**
-   - Location: `internal/webui/package.json`
-   - Issue: 28 Radix packages
-   - Fix: Consider consolidated component library
-   - Effort: Not urgent
+8. **Stray files in project root** -- `simple.yaml`, `test_backend.go`, `cover.out.bin`, `cli.cov`
+   - Fix: Remove or move to appropriate directories
+   - Effort: 15 minutes
+
+### Minor (nice to fix, not urgent)
+
+9. **Hardcoded defaults in engine.go** -- Connection limits, timeouts not all configurable
+   - Files: `internal/engine/engine.go`
+   - Fix: Move defaults to config with sensible fallbacks
+   - Effort: 4 hours
+
+10. **Large functions** -- `createMiddlewareChain()` (~800 LOC), `gossip.go` (1,715 LOC)
+    - Fix: Break into smaller functions/ files
+    - Effort: 8 hours
+
+11. **InsecureSkipVerify in WebSocket backend TLS** -- Could mask MITM for external backends
+    - Files: `internal/proxy/l7/websocket.go`
+    - Fix: Make configurable per-backend
+    - Effort: 2 hours
+
+12. **Binary size discrepancy** -- README says 9MB, actual is 10.9MB
+    - Fix: Update documentation or optimize build
+    - Effort: 1 hour
+
+13. **CHANGELOG v1.0.0 date placeholder** -- "2025-XX-XX"
+    - Fix: Set actual release date when tagging
+    - Effort: 5 minutes
 
 ---
 
@@ -590,81 +584,27 @@ None identified.
 
 | Metric | Value |
 |--------|-------|
-| Total Go Files | 367 |
-| Total Go LOC | 173,773 |
-| Total Frontend Files | 2,734 |
-| Total Frontend LOC | ~21,012 |
-| Test Files | 165 |
-| Test Coverage | 87.8% |
-| External Go Dependencies | 3 |
-| External Frontend Dependencies | 45+ |
-| Open TODOs/FIXMEs | 4 (test-related) |
-| API Endpoints | 30+ |
-| Spec Feature Completion | ~95% |
-| Task Completion | 100% |
+| Total Go Files | 384 |
+| Total Go LOC | 228,447 |
+| Non-test Go LOC | 166,329 |
+| Test Go LOC | 62,118 |
+| Active Frontend Files | ~25 (JS/TS/CSS/HTML) |
+| Active Frontend LOC | ~3,500 |
+| Legacy Frontend LOC | ~640,000 (webui.old) |
+| Test Files | 180 |
+| Test Packages | 67 |
+| Test Coverage (average) | 93.4% |
+| Test Coverage (minimum) | >85% (all packages) |
+| All Tests Passing | Yes |
+| go vet | Clean |
+| External Go Dependencies | 3 (x/crypto, x/net, x/text) |
+| External Frontend Dependencies | ~15 (React 19, Radix, Tailwind, Vite) |
+| Open TODOs/FIXMEs | 0 (1 false positive) |
+| API Endpoints | 20+ |
+| Balancer Algorithms | 16 |
+| Middleware Components | 39 |
+| WAF Detection Engines | 6 |
+| Spec Feature Completion | 97% |
+| Task Completion | 99.7% |
+| Binary Size (release) | 10.9 MB |
 | Overall Health Score | 8.5/10 |
-
----
-
-## Appendix A: File Structure Summary
-
-```
-OpenLoadBalancer/
-├── cmd/olb/                    # Entry point (main.go: 44 lines)
-├── internal/
-│   ├── acme/                   # Let's Encrypt client
-│   ├── admin/                  # REST API + WebSocket
-│   ├── backend/                # Backend pool management
-│   ├── balancer/               # 14 load balancing algorithms
-│   ├── cli/                    # Command-line interface
-│   ├── cluster/                # Raft + SWIM clustering
-│   ├── config/                 # YAML/TOML/HCL/JSON parsers
-│   ├── conn/                   # Connection management
-│   ├── discovery/              # Service discovery
-│   ├── engine/                 # Central orchestrator
-│   ├── geodns/                 # Geographic DNS routing
-│   ├── health/                 # Health checking
-│   ├── listener/               # HTTP/TCP/UDP listeners
-│   ├── logging/                # Structured logging
-│   ├── mcp/                    # MCP server (AI integration)
-│   ├── metrics/                # Metrics engine
-│   ├── middleware/             # 16 middleware components
-│   ├── plugin/                 # Plugin system
-│   ├── profiling/              # Performance profiling
-│   ├── proxy/l4/               # TCP/UDP proxy
-│   ├── proxy/l7/               # HTTP/WS/gRPC/SSE proxy
-│   ├── router/                 # Request routing
-│   ├── security/               # Security utilities
-│   ├── tls/                    # TLS/mTLS/OCSP
-│   ├── waf/                    # 6-layer WAF
-│   └── webui/                  # React 19 SPA
-├── pkg/
-│   ├── errors/                 # Error types
-│   ├── pool/                   # Generic pool
-│   ├── utils/                  # Utilities (buffer, LRU, etc.)
-│   └── version/                # Version info
-├── configs/                    # Example configurations
-├── deploy/                     # K8s, Terraform, systemd
-├── docs/                       # Documentation
-├── test/                       # Integration tests
-└── Formula/                    # Homebrew formula
-```
-
-## Appendix B: Key Architectural Decisions
-
-1. **Zero External Dependencies**: All parsers, consensus, and core logic implemented from scratch
-2. **Single Binary**: All features embedded via `go:embed`
-3. **Raft + SWIM**: Raft for config consistency, SWIM for gossip/health
-4. **React 19 for WebUI**: Modern framework vs vanilla JS (spec deviation)
-5. **Config-Gated Middleware**: Each middleware can be enabled/disabled
-6. **Port 0 in Tests**: Never hardcode ports, use `:0`
-
-## Appendix C: Risk Assessment
-
-| Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| New middleware untested | High | Medium | Add test coverage |
-| React 19 instability | Medium | Low | Monitor, pin if needed |
-| Frontend dependency vulnerabilities | Medium | Medium | Dependabot, regular audits |
-| Production scale unknown | High | Low | Load testing recommended |
-| Windows support gaps | Medium | Low | Linux recommended for prod |

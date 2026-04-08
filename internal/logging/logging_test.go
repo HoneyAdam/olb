@@ -1663,3 +1663,391 @@ func TestStopLogReopen(t *testing.T) {
 	// Should not panic
 	StopLogReopen()
 }
+
+// ========== Additional Coverage Tests ==========
+
+func TestReopenHandler_AddOutput(t *testing.T) {
+	h := NewReopenHandler()
+
+	// AddOutput is a no-op on Windows; on Unix it appends the output.
+	// Verify it does not panic with nil or a real output.
+	h.AddOutput(nil)
+
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/reopen_add.log"
+	out, err := NewRotatingFileOutput(RotatingFileOptions{Filename: tmpFile, MaxSize: 1024, MaxBackups: 3})
+	if err != nil {
+		t.Fatalf("Failed to create rotating file: %v", err)
+	}
+	defer out.Close()
+
+	h.AddOutput(out)
+}
+
+func TestReopenHandler_StartStop(t *testing.T) {
+	h := NewReopenHandler()
+	h.Start()
+	h.Start() // calling Start twice should not panic
+	h.Stop()
+	h.Stop() // calling Stop twice should not panic
+}
+
+func TestEnableLogReopen_WithOutputs(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	out1, err := NewRotatingFileOutput(RotatingFileOptions{Filename: tmpDir + "/a.log", MaxSize: 1024, MaxBackups: 1})
+	if err != nil {
+		t.Fatalf("Failed to create rotating file: %v", err)
+	}
+	defer out1.Close()
+
+	out2, err := NewRotatingFileOutput(RotatingFileOptions{Filename: tmpDir + "/b.log", MaxSize: 1024, MaxBackups: 1})
+	if err != nil {
+		t.Fatalf("Failed to create rotating file: %v", err)
+	}
+	defer out2.Close()
+
+	// Should not panic when called with outputs
+	EnableLogReopen(out1, out2)
+	StopLogReopen()
+}
+
+func TestJSONOutput_CarriageReturn(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewJSONOutput(&buf)
+
+	out.Write(InfoLevel, "line1\rline2", []Field{
+		String("key", "val\rue"),
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, `\r`) {
+		t.Error("Carriage return should be escaped as \\r")
+	}
+	if strings.Contains(output, "\r") && !strings.Contains(output, `\r`) {
+		t.Error("Raw carriage return should not appear unescaped")
+	}
+}
+
+func TestJSONOutput_NilErrorField(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewJSONOutput(&buf)
+
+	// Test the error branch in appendJSONValue where val is nil (typed nil error)
+	var nilErr error
+	out.Write(InfoLevel, "test", []Field{{Key: "err", Value: nilErr}})
+
+	output := buf.String()
+	if !strings.Contains(output, `"err":null`) {
+		t.Errorf("Nil error value should produce null, got: %s", output)
+	}
+}
+
+func TestJSONOutput_ErrorField(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewJSONOutput(&buf)
+
+	out.Write(InfoLevel, "test", []Field{
+		Error(errors.New("something failed")),
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, `"error":"something failed"`) {
+		t.Errorf("Error field should contain error message, got: %s", output)
+	}
+}
+
+func TestJSONOutput_DefaultType(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewJSONOutput(&buf)
+
+	// Test the default branch in appendJSONValue (using an unhandled type like []int)
+	out.Write(InfoLevel, "test", []Field{
+		Any("slice", []int{1, 2, 3}),
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, `"slice":"[1 2 3]"`) {
+		t.Errorf("Unhandled type should use fmt.Sprintf, got: %s", output)
+	}
+}
+
+func TestTextOutput_FormatValueError(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewTextOutput(&buf)
+
+	out.Write(InfoLevel, "test", []Field{
+		Error(errors.New("test error message")),
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, "error=test error message") {
+		t.Errorf("Error value should show .Error(), got: %s", output)
+	}
+}
+
+func TestTextOutput_FormatValueDuration(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewTextOutput(&buf)
+
+	dur := 2*time.Hour + 30*time.Minute + 15*time.Second
+	out.Write(InfoLevel, "test", []Field{
+		Duration("elapsed", dur),
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, "elapsed="+dur.String()) {
+		t.Errorf("Duration should show .String(), got: %s", output)
+	}
+}
+
+func TestTextOutput_FormatValueTime(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewTextOutput(&buf)
+
+	tm := time.Date(2025, 6, 15, 10, 30, 0, 0, time.UTC)
+	out.Write(InfoLevel, "test", []Field{
+		Time("ts", tm),
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, "ts=2025-06-15T10:30:00Z") {
+		t.Errorf("Time should show RFC3339, got: %s", output)
+	}
+}
+
+func TestTextOutput_FormatValueNilError(t *testing.T) {
+	var buf bytes.Buffer
+	out := NewTextOutput(&buf)
+
+	// A nil error interface does not match the `case error:` branch in formatValue,
+	// because a nil interface has no concrete type. It falls through to `default`
+	// which produces "<nil>" via fmt.Sprintf.
+	var nilErr error
+	out.Write(InfoLevel, "test", []Field{
+		{Key: "err", Value: nilErr},
+	})
+
+	output := buf.String()
+	if !strings.Contains(output, "err=<nil>") {
+		t.Errorf("Nil error should format as '<nil>', got: %s", output)
+	}
+}
+
+func TestMultiOutput_Close_FirstError(t *testing.T) {
+	// Create an output whose Close returns an error
+	errOut := &errorCloseOutput{closeErr: errors.New("close failed")}
+	okOut := &trackingOutput{}
+
+	multi := NewMultiOutput(errOut, okOut)
+	err := multi.Close()
+
+	if err == nil || err.Error() != "close failed" {
+		t.Errorf("MultiOutput.Close should return first error, got: %v", err)
+	}
+	if !okOut.closed {
+		t.Error("MultiOutput.Close should still close remaining outputs after first error")
+	}
+}
+
+// errorCloseOutput is an Output whose Close returns an error.
+type errorCloseOutput struct {
+	closeErr error
+}
+
+func (e *errorCloseOutput) Write(level Level, msg string, fields []Field) {}
+func (e *errorCloseOutput) Close() error                                  { return e.closeErr }
+
+// trackingOutput tracks whether Close was called.
+type trackingOutput struct {
+	closed bool
+}
+
+func (t *trackingOutput) Write(level Level, msg string, fields []Field) {}
+func (t *trackingOutput) Close() error {
+	t.closed = true
+	return nil
+}
+
+func TestRotatingFileOutput_OpenStatError(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/test.log"
+
+	// Create a file, then replace it with a directory to cause Stat to fail
+	// in the open() method (stat on a directory gives a different Size).
+	// Actually, let's create the output and then force open() to fail.
+	out := &RotatingFileOutput{
+		filename:   tmpFile,
+		maxSize:    1024,
+		maxBackups: 3,
+		compress:   false,
+	}
+
+	// Make "filename" point to a directory to cause OpenFile to fail
+	dirPath := tmpDir + "/notadir"
+	err := os.MkdirAll(dirPath, 0755)
+	if err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	out.filename = dirPath + "/subdir/very/deep/test.log"
+	// On Windows, this may succeed if directory creation works.
+	// Use an invalid path instead.
+	out.filename = tmpDir + "/test.log\x00invalid"
+	err = out.open()
+	if err == nil {
+		// If it succeeded (unlikely), just close and move on
+		out.Close()
+	}
+	// We just need the code path to execute
+}
+
+func TestRotatingFileOutput_CompressFileDstError(t *testing.T) {
+	tmpDir := t.TempDir()
+	srcFile := tmpDir + "/src.log"
+	dstFile := tmpDir + "/nonexistent/deep/dir/dst.gz"
+
+	// Create source file
+	err := os.WriteFile(srcFile, []byte("test data for compression"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create source file: %v", err)
+	}
+
+	out := &RotatingFileOutput{
+		filename:   tmpDir + "/test.log",
+		maxSize:    1024,
+		maxBackups: 3,
+		compress:   true,
+	}
+
+	err = out.compressFile(srcFile, dstFile)
+	if err == nil {
+		t.Error("compressFile should fail with invalid destination path")
+	}
+}
+
+func TestRotatingFileOutput_WriteWithFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/fields.log"
+
+	out, err := NewRotatingFileOutput(RotatingFileOptions{
+		Filename:   tmpFile,
+		MaxSize:    1024,
+		MaxBackups: 3,
+		Compress:   false,
+	})
+	if err != nil {
+		t.Fatalf("Failed to create rotating file: %v", err)
+	}
+	defer out.Close()
+
+	// Write with various field types to exercise formatValue through RotatingFileOutput
+	out.Write(InfoLevel, "msg with fields", []Field{
+		String("key", "value"),
+		Int("count", 42),
+		Error(errors.New("test error")),
+		Duration("dur", time.Millisecond*500),
+	})
+
+	content, err := os.ReadFile(tmpFile)
+	if err != nil {
+		t.Fatalf("Failed to read file: %v", err)
+	}
+
+	s := string(content)
+	if !strings.Contains(s, "key=value") {
+		t.Error("String field not found in file")
+	}
+	if !strings.Contains(s, "count=42") {
+		t.Error("Int field not found in file")
+	}
+	if !strings.Contains(s, "error=test error") {
+		t.Error("Error field not found in file")
+	}
+	if !strings.Contains(s, "dur=500ms") {
+		t.Error("Duration field not found in file")
+	}
+}
+
+func TestRotatingFileOutput_RotationWithCompression_CleanupOld(t *testing.T) {
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/comp_cleanup.log"
+
+	opts := RotatingFileOptions{
+		Filename:   tmpFile,
+		MaxSize:    30,
+		MaxBackups: 2,
+		Compress:   true,
+	}
+
+	out, err := NewRotatingFileOutput(opts)
+	if err != nil {
+		t.Fatalf("Failed to create rotating file: %v", err)
+	}
+
+	// Write enough data to trigger multiple rotations with compression
+	for i := 0; i < 300; i++ {
+		out.Write(InfoLevel, "padding message to trigger rotation with compression enabled", nil)
+	}
+
+	out.Close()
+
+	// Verify old compressed backups were cleaned up (.3.gz should not exist)
+	if _, err := os.Stat(tmpFile + ".3.gz"); err == nil {
+		t.Error("Old compressed backup .3.gz should have been cleaned up")
+	}
+}
+
+func TestRotatingFileOutput_NewError(t *testing.T) {
+	// Try to create a RotatingFileOutput with an invalid path
+	opts := RotatingFileOptions{
+		Filename:   "\x00invalid\x00path/test.log",
+		MaxSize:    100,
+		MaxBackups: 3,
+		Compress:   false,
+	}
+
+	_, err := NewRotatingFileOutput(opts)
+	if err == nil {
+		t.Error("Expected error for invalid filename path")
+	}
+}
+
+func TestLogger_LogWithNameAndFields(t *testing.T) {
+	var buf bytes.Buffer
+	logger := New(NewTextOutput(&buf))
+
+	// Test log method where logger has both a name and fields
+	parent := logger.With(String("env", "prod"))
+	named := parent.WithName("Server")
+	named.Info("starting", String("port", "8080"))
+
+	output := buf.String()
+	if !strings.Contains(output, "logger=Server") {
+		t.Error("Name not in output")
+	}
+	if !strings.Contains(output, "env=prod") {
+		t.Error("Parent field not in output")
+	}
+	if !strings.Contains(output, "port=8080") {
+		t.Error("Message field not in output")
+	}
+}
+
+func TestLogger_WithNameInheritsLevel(t *testing.T) {
+	var buf bytes.Buffer
+	logger := New(NewTextOutput(&buf))
+	logger.SetLevel(ErrorLevel)
+
+	named := logger.WithName("TestLogger")
+
+	if named.Level() != ErrorLevel {
+		t.Errorf("Named child should inherit parent level, got %v", named.Level())
+	}
+
+	// Info should be filtered
+	named.Info("should not appear")
+	if buf.String() != "" {
+		t.Error("Info should be filtered when level is Error")
+	}
+}

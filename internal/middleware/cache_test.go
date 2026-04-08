@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -957,4 +958,94 @@ func TestDiscardResponseWriter_WriteHeader_Direct(t *testing.T) {
 	dw := &discardResponseWriter{header: make(http.Header)}
 	dw.WriteHeader(200) // should not panic
 	dw.WriteHeader(404) // second call, should not panic
+}
+
+func TestCacheMiddleware_DefaultCacheConfig(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	if cfg.MaxSize != 104857600 {
+		t.Errorf("MaxSize = %d, want 104857600", cfg.MaxSize)
+	}
+	if cfg.MaxEntries != 10000 {
+		t.Errorf("MaxEntries = %d, want 10000", cfg.MaxEntries)
+	}
+	if cfg.DefaultTTL != 5*time.Minute {
+		t.Errorf("DefaultTTL = %v, want 5m", cfg.DefaultTTL)
+	}
+	if cfg.MaxResponseSize != 10485760 {
+		t.Errorf("MaxResponseSize = %d, want 10485760", cfg.MaxResponseSize)
+	}
+	if cfg.StaleWhileRevalidate != 30*time.Second {
+		t.Errorf("StaleWhileRevalidate = %v, want 30s", cfg.StaleWhileRevalidate)
+	}
+	if len(cfg.CacheableMethods) != 2 || cfg.CacheableMethods[0] != "GET" || cfg.CacheableMethods[1] != "HEAD" {
+		t.Errorf("CacheableMethods = %v, want [GET HEAD]", cfg.CacheableMethods)
+	}
+	if len(cfg.CacheableStatuses) != 3 {
+		t.Errorf("CacheableStatuses = %v, want [200 301 404]", cfg.CacheableStatuses)
+	}
+}
+
+func TestCacheMiddleware_ZeroValueConfig(t *testing.T) {
+	// Pass entirely zero-value config — defaults should be applied.
+	c := NewCacheMiddleware(CacheConfig{})
+	if c.config.MaxSize != 104857600 {
+		t.Errorf("MaxSize = %d, want default", c.config.MaxSize)
+	}
+	if c.config.MaxEntries != 10000 {
+		t.Errorf("MaxEntries = %d, want default", c.config.MaxEntries)
+	}
+	if c.config.DefaultTTL != 5*time.Minute {
+		t.Errorf("DefaultTTL = %v, want default", c.config.DefaultTTL)
+	}
+	if c.config.MaxResponseSize != 10485760 {
+		t.Errorf("MaxResponseSize = %d, want default", c.config.MaxResponseSize)
+	}
+	// RespectCacheControl defaults to false (zero value) when not explicitly set
+}
+
+func TestCacheMiddleware_NegativeStaleWhileRevalidate(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	cfg.StaleWhileRevalidate = -1 * time.Second
+	c := NewCacheMiddleware(cfg)
+	if c.config.StaleWhileRevalidate != 0 {
+		t.Errorf("StaleWhileRevalidate = %v, want 0 for negative", c.config.StaleWhileRevalidate)
+	}
+}
+
+func TestCacheMiddleware_RevalidateDuplicatePrevention(t *testing.T) {
+	cfg := DefaultCacheConfig()
+	cfg.DefaultTTL = 50 * time.Millisecond
+	cfg.StaleWhileRevalidate = 200 * time.Millisecond
+	cfg.RespectCacheControl = false
+	c := NewCacheMiddleware(cfg)
+
+	var calls atomic.Int32
+	handler := c.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("hello"))
+	}))
+
+	// First request populates cache.
+	req := httptest.NewRequest(http.MethodGet, "/dup", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// Wait for entry to go stale.
+	time.Sleep(80 * time.Millisecond)
+
+	// Serve stale and trigger background revalidation.
+	rec2 := httptest.NewRecorder()
+	handler.ServeHTTP(rec2, req)
+	if rec2.Header().Get("X-Cache") != "STALE" {
+		t.Fatalf("X-Cache = %q, want STALE", rec2.Header().Get("X-Cache"))
+	}
+
+	// Wait for background revalidation.
+	time.Sleep(100 * time.Millisecond)
+
+	total := calls.Load()
+	if total < 2 {
+		t.Errorf("expected at least 2 calls, got %d", total)
+	}
 }

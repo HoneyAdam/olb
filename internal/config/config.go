@@ -23,6 +23,25 @@ type Config struct {
 	Profiling  *ProfilingConfig  `yaml:"profiling" json:"profiling"`
 	GeoDNS     *GeoDNSConfig     `yaml:"geodns" json:"geodns"`
 	Shadow     *ShadowConfig     `yaml:"shadow" json:"shadow"`
+	Server     *ServerConfig     `yaml:"server" json:"server"`
+}
+
+// ServerConfig holds server-level tuning parameters.
+type ServerConfig struct {
+	// MaxConnections is the maximum total concurrent connections (default: 10000).
+	MaxConnections int `yaml:"max_connections" json:"max_connections"`
+	// MaxConnectionsPerSource is the maximum connections per client IP (default: 100).
+	MaxConnectionsPerSource int `yaml:"max_connections_per_source" json:"max_connections_per_source"`
+	// ProxyTimeout is the maximum duration for a proxied request (default: "60s").
+	ProxyTimeout string `yaml:"proxy_timeout" json:"proxy_timeout"`
+	// DialTimeout is the maximum duration for connecting to a backend (default: "10s").
+	DialTimeout string `yaml:"dial_timeout" json:"dial_timeout"`
+	// MaxRetries is the maximum number of retry attempts per request (default: 3).
+	MaxRetries int `yaml:"max_retries" json:"max_retries"`
+	// MaxIdleConns is the maximum idle connections in the HTTP transport pool (default: 100).
+	MaxIdleConns int `yaml:"max_idle_conns" json:"max_idle_conns"`
+	// MaxIdleConnsPerHost is the maximum idle connections per backend (default: 10).
+	MaxIdleConnsPerHost int `yaml:"max_idle_conns_per_host" json:"max_idle_conns_per_host"`
 }
 
 // ProfilingConfig represents profiling/debugging configuration.
@@ -228,12 +247,12 @@ type CSPConfig struct {
 
 // RequestIDConfig represents request ID configuration.
 type RequestIDConfig struct {
-	Enabled      bool     `yaml:"enabled" json:"enabled"`                 // Enable request ID generation
-	Header       string   `yaml:"header" json:"header"`                   // Header name (default: X-Request-ID)
-	Generate     bool     `yaml:"generate" json:"generate"`               // Generate ID if not present
-	Length       int      `yaml:"length" json:"length"`                   // ID length in bytes (default: 16)
-	Response     bool     `yaml:"response" json:"response"`               // Include ID in response headers
-	ExcludePaths []string `yaml:"exclude_paths" json:"exclude_paths"`     // Paths to exclude
+	Enabled      bool     `yaml:"enabled" json:"enabled"`             // Enable request ID generation
+	Header       string   `yaml:"header" json:"header"`               // Header name (default: X-Request-ID)
+	Generate     bool     `yaml:"generate" json:"generate"`           // Generate ID if not present
+	Length       int      `yaml:"length" json:"length"`               // ID length in bytes (default: 16)
+	Response     bool     `yaml:"response" json:"response"`           // Include ID in response headers
+	ExcludePaths []string `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude
 }
 
 // LoggingConfig represents HTTP request logging configuration.
@@ -251,14 +270,14 @@ type LoggingConfig struct {
 
 // MetricsConfig represents HTTP request metrics configuration.
 type MetricsConfig struct {
-	Enabled        bool     `yaml:"enabled" json:"enabled"`                 // Enable metrics collection
-	Namespace      string   `yaml:"namespace" json:"namespace"`             // Metrics namespace prefix
-	Subsystem      string   `yaml:"subsystem" json:"subsystem"`             // Metrics subsystem
-	ExcludePaths   []string `yaml:"exclude_paths" json:"exclude_paths"`     // Paths to exclude
-	ExcludeMethods []string `yaml:"exclude_methods" json:"exclude_methods"` // HTTP methods to exclude
-	EnableLatency  bool     `yaml:"enable_latency" json:"enable_latency"`   // Enable latency histograms
-	EnableSize     bool     `yaml:"enable_size" json:"enable_size"`         // Enable size metrics
-	EnableActive   bool     `yaml:"enable_active" json:"enable_active"`     // Enable active requests gauge
+	Enabled        bool      `yaml:"enabled" json:"enabled"`                 // Enable metrics collection
+	Namespace      string    `yaml:"namespace" json:"namespace"`             // Metrics namespace prefix
+	Subsystem      string    `yaml:"subsystem" json:"subsystem"`             // Metrics subsystem
+	ExcludePaths   []string  `yaml:"exclude_paths" json:"exclude_paths"`     // Paths to exclude
+	ExcludeMethods []string  `yaml:"exclude_methods" json:"exclude_methods"` // HTTP methods to exclude
+	EnableLatency  bool      `yaml:"enable_latency" json:"enable_latency"`   // Enable latency histograms
+	EnableSize     bool      `yaml:"enable_size" json:"enable_size"`         // Enable size metrics
+	EnableActive   bool      `yaml:"enable_active" json:"enable_active"`     // Enable active requests gauge
 	LatencyBuckets []float64 `yaml:"latency_buckets" json:"latency_buckets"` // Latency buckets in seconds
 }
 
@@ -289,67 +308,67 @@ type ForceSSLConfig struct {
 
 // CSRFConfig represents CSRF protection configuration.
 type CSRFConfig struct {
-	Enabled        bool     `yaml:"enabled" json:"enabled"`             // Enable CSRF protection
-	CookieName     string   `yaml:"cookie_name" json:"cookie_name"`     // CSRF cookie name
-	HeaderName     string   `yaml:"header_name" json:"header_name"`     // Header to check for token
-	FieldName      string   `yaml:"field_name" json:"field_name"`       // Form field name
-	ExcludePaths   []string `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude
+	Enabled        bool     `yaml:"enabled" json:"enabled"`                 // Enable CSRF protection
+	CookieName     string   `yaml:"cookie_name" json:"cookie_name"`         // CSRF cookie name
+	HeaderName     string   `yaml:"header_name" json:"header_name"`         // Header to check for token
+	FieldName      string   `yaml:"field_name" json:"field_name"`           // Form field name
+	ExcludePaths   []string `yaml:"exclude_paths" json:"exclude_paths"`     // Paths to exclude
 	ExcludeMethods []string `yaml:"exclude_methods" json:"exclude_methods"` // Methods that don't require CSRF
-	CookiePath     string   `yaml:"cookie_path" json:"cookie_path"`     // Cookie path
-	CookieDomain   string   `yaml:"cookie_domain" json:"cookie_domain"` // Cookie domain
-	CookieMaxAge   int      `yaml:"cookie_max_age" json:"cookie_max_age"` // Cookie max age in seconds
-	CookieSecure   bool     `yaml:"cookie_secure" json:"cookie_secure"` // Secure cookie flag
+	CookiePath     string   `yaml:"cookie_path" json:"cookie_path"`         // Cookie path
+	CookieDomain   string   `yaml:"cookie_domain" json:"cookie_domain"`     // Cookie domain
+	CookieMaxAge   int      `yaml:"cookie_max_age" json:"cookie_max_age"`   // Cookie max age in seconds
+	CookieSecure   bool     `yaml:"cookie_secure" json:"cookie_secure"`     // Secure cookie flag
 	CookieHTTPOnly bool     `yaml:"cookie_httponly" json:"cookie_httponly"` // HTTPOnly cookie flag
-	TokenLength    int      `yaml:"token_length" json:"token_length"`   // Token length in bytes
+	TokenLength    int      `yaml:"token_length" json:"token_length"`       // Token length in bytes
 }
 
 // SecureHeadersConfig represents security headers configuration.
 type SecureHeadersConfig struct {
-	Enabled                       bool     `yaml:"enabled" json:"enabled"`                                   // Enable security headers
-	XFrameOptions                 string   `yaml:"x_frame_options" json:"x_frame_options"`                   // X-Frame-Options
-	XContentTypeOptions           bool     `yaml:"x_content_type_options" json:"x_content_type_options"`     // X-Content-Type-Options
-	XXSSProtection                string   `yaml:"x_xss_protection" json:"x_xss_protection"`                 // X-XSS-Protection
-	ReferrerPolicy                string   `yaml:"referrer_policy" json:"referrer_policy"`                   // Referrer-Policy
-	ContentSecurityPolicy         string   `yaml:"content_security_policy" json:"content_security_policy"`   // Content-Security-Policy
+	Enabled                       bool        `yaml:"enabled" json:"enabled"`                                 // Enable security headers
+	XFrameOptions                 string      `yaml:"x_frame_options" json:"x_frame_options"`                 // X-Frame-Options
+	XContentTypeOptions           bool        `yaml:"x_content_type_options" json:"x_content_type_options"`   // X-Content-Type-Options
+	XXSSProtection                string      `yaml:"x_xss_protection" json:"x_xss_protection"`               // X-XSS-Protection
+	ReferrerPolicy                string      `yaml:"referrer_policy" json:"referrer_policy"`                 // Referrer-Policy
+	ContentSecurityPolicy         string      `yaml:"content_security_policy" json:"content_security_policy"` // Content-Security-Policy
 	StrictTransportPolicy         *HSTSConfig `yaml:"strict_transport_policy" json:"strict_transport_policy"` // HSTS config
-	XPermittedCrossDomainPolicies string   `yaml:"x_permitted_cross_domain_policies" json:"x_permitted_cross_domain_policies"`
-	XDownloadOptions              string   `yaml:"x_download_options" json:"x_download_options"`             // X-Download-Options
-	XDNSPrefetchControl           string   `yaml:"x_dns_prefetch_control" json:"x_dns_prefetch_control"`     // X-DNS-Prefetch-Control
-	PermissionsPolicy             string   `yaml:"permissions_policy" json:"permissions_policy"`             // Permissions-Policy
-	CrossOriginEmbedderPolicy     string   `yaml:"cross_origin_embedder_policy" json:"cross_origin_embedder_policy"` // COEP
-	CrossOriginOpenerPolicy       string   `yaml:"cross_origin_opener_policy" json:"cross_origin_opener_policy"`     // COOP
-	CrossOriginResourcePolicy     string   `yaml:"cross_origin_resource_policy" json:"cross_origin_resource_policy"` // CORP
-	CacheControl                  string   `yaml:"cache_control" json:"cache_control"`                       // Cache-Control
-	ExcludePaths                  []string `yaml:"exclude_paths" json:"exclude_paths"`                       // Paths to exclude
+	XPermittedCrossDomainPolicies string      `yaml:"x_permitted_cross_domain_policies" json:"x_permitted_cross_domain_policies"`
+	XDownloadOptions              string      `yaml:"x_download_options" json:"x_download_options"`                     // X-Download-Options
+	XDNSPrefetchControl           string      `yaml:"x_dns_prefetch_control" json:"x_dns_prefetch_control"`             // X-DNS-Prefetch-Control
+	PermissionsPolicy             string      `yaml:"permissions_policy" json:"permissions_policy"`                     // Permissions-Policy
+	CrossOriginEmbedderPolicy     string      `yaml:"cross_origin_embedder_policy" json:"cross_origin_embedder_policy"` // COEP
+	CrossOriginOpenerPolicy       string      `yaml:"cross_origin_opener_policy" json:"cross_origin_opener_policy"`     // COOP
+	CrossOriginResourcePolicy     string      `yaml:"cross_origin_resource_policy" json:"cross_origin_resource_policy"` // CORP
+	CacheControl                  string      `yaml:"cache_control" json:"cache_control"`                               // Cache-Control
+	ExcludePaths                  []string    `yaml:"exclude_paths" json:"exclude_paths"`                               // Paths to exclude
 }
 
 // HSTSConfig configures HTTP Strict Transport Security.
 type HSTSConfig struct {
-	MaxAge            int  `yaml:"max_age" json:"max_age"`                         // max-age in seconds
-	IncludeSubdomains bool `yaml:"include_subdomains" json:"include_subdomains"`     // includeSubDomains
-	Preload           bool `yaml:"preload" json:"preload"`                         // preload
+	MaxAge            int  `yaml:"max_age" json:"max_age"`                       // max-age in seconds
+	IncludeSubdomains bool `yaml:"include_subdomains" json:"include_subdomains"` // includeSubDomains
+	Preload           bool `yaml:"preload" json:"preload"`                       // preload
 }
 
 // CoalesceConfig represents request coalescing configuration.
 type CoalesceConfig struct {
-	Enabled      bool          `yaml:"enabled" json:"enabled"`             // Enable request coalescing
-	TTL          string        `yaml:"ttl" json:"ttl"`                     // Coalescing window duration
-	MaxRequests  int           `yaml:"max_requests" json:"max_requests"`   // Maximum requests to coalesce
-	ExcludePaths []string      `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude
+	Enabled      bool     `yaml:"enabled" json:"enabled"`             // Enable request coalescing
+	TTL          string   `yaml:"ttl" json:"ttl"`                     // Coalescing window duration
+	MaxRequests  int      `yaml:"max_requests" json:"max_requests"`   // Maximum requests to coalesce
+	ExcludePaths []string `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude
 }
 
 // BotDetectionConfig represents bot detection middleware configuration.
 type BotDetectionConfig struct {
-	Enabled              bool                  `yaml:"enabled" json:"enabled"`                           // Enable bot detection
-	Action               string                `yaml:"action" json:"action"`                             // Action: allow, block, challenge, throttle, log
-	BlockKnownBots       bool                  `yaml:"block_known_bots" json:"block_known_bots"`         // Block known bad bots
-	AllowVerified        bool                  `yaml:"allow_verified" json:"allow_verified"`             // Allow verified good bots (Googlebot, etc.)
-	RequestRateThreshold int                   `yaml:"request_rate_threshold" json:"request_rate_threshold"` // Requests per minute threshold
-	JA3Fingerprints      []string              `yaml:"ja3_fingerprints" json:"ja3_fingerprints"`         // Known bot JA3 fingerprints
-	ChallengePath        string                `yaml:"challenge_path" json:"challenge_path"`             // Path to redirect challenges to
-	ExcludePaths         []string              `yaml:"exclude_paths" json:"exclude_paths"`               // Paths to exclude from detection
-	UserAgentRules       []BotUserAgentRule    `yaml:"user_agent_rules" json:"user_agent_rules"`         // User-Agent based rules
-	CustomHeaders        []BotHeaderRule       `yaml:"custom_headers" json:"custom_headers"`             // Header-based detection rules
+	Enabled              bool               `yaml:"enabled" json:"enabled"`                               // Enable bot detection
+	Action               string             `yaml:"action" json:"action"`                                 // Action: allow, block, challenge, throttle, log
+	BlockKnownBots       bool               `yaml:"block_known_bots" json:"block_known_bots"`             // Block known bad bots
+	AllowVerified        bool               `yaml:"allow_verified" json:"allow_verified"`                 // Allow verified good bots (Googlebot, etc.)
+	RequestRateThreshold int                `yaml:"request_rate_threshold" json:"request_rate_threshold"` // Requests per minute threshold
+	JA3Fingerprints      []string           `yaml:"ja3_fingerprints" json:"ja3_fingerprints"`             // Known bot JA3 fingerprints
+	ChallengePath        string             `yaml:"challenge_path" json:"challenge_path"`                 // Path to redirect challenges to
+	ExcludePaths         []string           `yaml:"exclude_paths" json:"exclude_paths"`                   // Paths to exclude from detection
+	UserAgentRules       []BotUserAgentRule `yaml:"user_agent_rules" json:"user_agent_rules"`             // User-Agent based rules
+	CustomHeaders        []BotHeaderRule    `yaml:"custom_headers" json:"custom_headers"`                 // Header-based detection rules
 }
 
 // BotUserAgentRule defines a rule based on User-Agent string.
@@ -377,13 +396,13 @@ type RealIPConfig struct {
 
 // TraceConfig represents distributed tracing configuration.
 type TraceConfig struct {
-	Enabled         bool     `yaml:"enabled" json:"enabled"`                   // Enable tracing
-	ServiceName     string   `yaml:"service_name" json:"service_name"`         // Service name for spans
-	ServiceVersion  string   `yaml:"service_version" json:"service_version"`   // Service version
-	Propagators     []string `yaml:"propagators" json:"propagators"`           // Propagation formats: w3c, b3, b3multi, jaeger
-	SampleRate      float64  `yaml:"sample_rate" json:"sample_rate"`           // Sampling rate (0.0 to 1.0)
-	BaggageHeaders  []string `yaml:"baggage_headers" json:"baggage_headers"`   // Headers to propagate as baggage
-	ExcludePaths    []string `yaml:"exclude_paths" json:"exclude_paths"`       // Paths to exclude from tracing
+	Enabled         bool     `yaml:"enabled" json:"enabled"`                     // Enable tracing
+	ServiceName     string   `yaml:"service_name" json:"service_name"`           // Service name for spans
+	ServiceVersion  string   `yaml:"service_version" json:"service_version"`     // Service version
+	Propagators     []string `yaml:"propagators" json:"propagators"`             // Propagation formats: w3c, b3, b3multi, jaeger
+	SampleRate      float64  `yaml:"sample_rate" json:"sample_rate"`             // Sampling rate (0.0 to 1.0)
+	BaggageHeaders  []string `yaml:"baggage_headers" json:"baggage_headers"`     // Headers to propagate as baggage
+	ExcludePaths    []string `yaml:"exclude_paths" json:"exclude_paths"`         // Paths to exclude from tracing
 	MaxBaggageItems int      `yaml:"max_baggage_items" json:"max_baggage_items"` // Max baggage items per request
 	MaxBaggageSize  int      `yaml:"max_baggage_size" json:"max_baggage_size"`   // Max total baggage size in bytes
 }
@@ -408,16 +427,16 @@ type RetryConfig struct {
 }
 
 type CacheConfig struct {
-	Enabled        bool              `yaml:"enabled" json:"enabled"`                   // Enable caching
-	MaxEntries     int               `yaml:"max_entries" json:"max_entries"`           // Max number of cached entries
-	DefaultTTL     string            `yaml:"default_ttl" json:"default_ttl"`           // Default cache TTL (e.g., "5m")
-	MaxSize        int64             `yaml:"max_size" json:"max_size"`                 // Max cache size in bytes
-	Methods        []string          `yaml:"methods" json:"methods"`                     // HTTP methods to cache
-	StatusCodes    []int             `yaml:"status_codes" json:"status_codes"`         // Status codes to cache
-	VaryHeaders    []string          `yaml:"vary_headers" json:"vary_headers"`         // Headers to vary cache on
-	ExcludePaths   []string          `yaml:"exclude_paths" json:"exclude_paths"`       // Paths to exclude from caching
-	CachePrivate   bool              `yaml:"cache_private" json:"cache_private"`       // Cache private responses
-	CacheCookies   bool              `yaml:"cache_cookies" json:"cache_cookies"`       // Cache responses with cookies
+	Enabled      bool     `yaml:"enabled" json:"enabled"`             // Enable caching
+	MaxEntries   int      `yaml:"max_entries" json:"max_entries"`     // Max number of cached entries
+	DefaultTTL   string   `yaml:"default_ttl" json:"default_ttl"`     // Default cache TTL (e.g., "5m")
+	MaxSize      int64    `yaml:"max_size" json:"max_size"`           // Max cache size in bytes
+	Methods      []string `yaml:"methods" json:"methods"`             // HTTP methods to cache
+	StatusCodes  []int    `yaml:"status_codes" json:"status_codes"`   // Status codes to cache
+	VaryHeaders  []string `yaml:"vary_headers" json:"vary_headers"`   // Headers to vary cache on
+	ExcludePaths []string `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude from caching
+	CachePrivate bool     `yaml:"cache_private" json:"cache_private"` // Cache private responses
+	CacheCookies bool     `yaml:"cache_cookies" json:"cache_cookies"` // Cache responses with cookies
 }
 
 type IPFilterConfig struct {

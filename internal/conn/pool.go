@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -162,6 +163,15 @@ func (p *Pool) Get(ctx context.Context) (net.Conn, error) {
 		return nil, err
 	}
 
+	// Pool may have been closed while we were dialing
+	if p.closed {
+		p.mu.Unlock()
+		rawConn.Close()
+		p.mu.Lock()
+		p.misses++
+		return nil, errors.New("pool is closed")
+	}
+
 	p.misses++
 	p.active++
 	now := time.Now()
@@ -268,6 +278,7 @@ type PooledConn struct {
 	pool      *Pool
 	createdAt time.Time
 	lastUsed  time.Time
+	closeOnce atomic.Bool
 }
 
 // isExpired returns true if the connection has exceeded max lifetime or idle timeout.
@@ -282,7 +293,11 @@ func (c *PooledConn) isExpired(maxLifetime, idleTimeout time.Duration) bool {
 }
 
 // Close returns the connection to the pool or closes it.
+// Safe for concurrent use — only the first call takes effect.
 func (c *PooledConn) Close() error {
+	if !c.closeOnce.CompareAndSwap(false, true) {
+		return nil
+	}
 	if c.pool != nil {
 		c.pool.Put(c)
 		return nil

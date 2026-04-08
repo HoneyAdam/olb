@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/openloadbalancer/olb/internal/backend"
 	"github.com/openloadbalancer/olb/internal/balancer"
+	"github.com/openloadbalancer/olb/internal/cluster"
 	"github.com/openloadbalancer/olb/internal/config"
 	olbListener "github.com/openloadbalancer/olb/internal/listener"
 	"github.com/openloadbalancer/olb/internal/logging"
@@ -2618,28 +2620,42 @@ func TestInitClusterInvalidConfig(t *testing.T) {
 	}
 }
 
-// TestEngineStateMachine tests the Apply, Snapshot, and Restore methods.
+// TestEngineStateMachine tests the Apply, Snapshot, and Restore methods
+// using the ConfigStateMachine from the cluster package.
 func TestEngineStateMachine(t *testing.T) {
-	sm := &engineStateMachine{}
+	sm := cluster.NewConfigStateMachine(nil)
 
-	t.Run("Apply", func(t *testing.T) {
-		input := []byte("test-command")
-		result, err := sm.Apply(input)
+	t.Run("Apply set_config", func(t *testing.T) {
+		cmd, err := cluster.NewSetConfigCommand(&config.Config{Version: "test"})
+		if err != nil {
+			t.Fatalf("NewSetConfigCommand() error = %v", err)
+		}
+		data, err := json.Marshal(cmd)
+		if err != nil {
+			t.Fatalf("Marshal() error = %v", err)
+		}
+		result, err := sm.Apply(data)
 		if err != nil {
 			t.Fatalf("Apply() error = %v", err)
 		}
-		if string(result) != string(input) {
-			t.Errorf("Apply() = %q, want %q", string(result), string(input))
+		if len(result) == 0 {
+			t.Error("Apply() returned empty result")
 		}
 	})
 
-	t.Run("Apply empty", func(t *testing.T) {
-		result, err := sm.Apply([]byte{})
-		if err != nil {
-			t.Fatalf("Apply() error = %v", err)
+	t.Run("Apply invalid command", func(t *testing.T) {
+		_, err := sm.Apply([]byte("not-json"))
+		if err == nil {
+			t.Error("Apply() expected error for invalid JSON")
 		}
-		if len(result) != 0 {
-			t.Errorf("Apply() = %q, want empty", string(result))
+	})
+
+	t.Run("Apply unknown command type", func(t *testing.T) {
+		cmd := cluster.ConfigCommand{Type: "unknown_type", Payload: json.RawMessage(`{}`)}
+		data, _ := json.Marshal(cmd)
+		_, err := sm.Apply(data)
+		if err == nil {
+			t.Error("Apply() expected error for unknown command type")
 		}
 	})
 
@@ -2648,22 +2664,26 @@ func TestEngineStateMachine(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Snapshot() error = %v", err)
 		}
-		if string(result) != "{}" {
-			t.Errorf("Snapshot() = %q, want %q", string(result), "{}")
+		if len(result) == 0 {
+			t.Error("Snapshot() returned empty result")
 		}
 	})
 
 	t.Run("Restore", func(t *testing.T) {
-		err := sm.Restore([]byte(`{"key":"value"}`))
+		err := sm.Restore([]byte(`{"version":"restored"}`))
 		if err != nil {
 			t.Fatalf("Restore() error = %v", err)
 		}
+		cfg := sm.GetCurrentConfig()
+		if cfg.Version != "restored" {
+			t.Errorf("Restore() version = %q, want %q", cfg.Version, "restored")
+		}
 	})
 
-	t.Run("Restore empty", func(t *testing.T) {
-		err := sm.Restore(nil)
-		if err != nil {
-			t.Fatalf("Restore(nil) error = %v", err)
+	t.Run("Restore invalid", func(t *testing.T) {
+		err := sm.Restore([]byte("not-json"))
+		if err == nil {
+			t.Error("Restore() expected error for invalid JSON")
 		}
 	})
 }

@@ -637,3 +637,103 @@ func TestAttackVector_DuplicateCLSmuggling(t *testing.T) {
 		t.Error("duplicate CL with different values should be detected")
 	}
 }
+
+func TestValidateHostHeader_EdgeCases(t *testing.T) {
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{"", false},
+		{"valid.com", true},
+		{"valid.com:443", true},
+		{"192.168.1.1", true},
+		{"192.168.1.1:8080", true},
+		{"[::1]", true},
+		{"[::1]:8080", false}, // brackets stripped by SplitHostPort, ::1 has colons
+		{"host with space", false},
+		{"host\r\nInjection", false},
+		{"user@host.com", false},
+		{`host\evil.com`, false},
+		{"host:0", false},
+		{"host:99999", false},
+		{"host:abc", false},
+		{".dot-start.com", false},
+		{"-hyphen-start.com", false},
+		{"trailing-dot.", false},
+		{"trailing-hyphen-", false},
+		{"under_score.com", false},
+		{"valid-host.example.com", true},
+		{"a.b.c.d.e", true},
+		{"[invalid:ip", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			got := ValidateHostHeader(tt.host)
+			if got != tt.want {
+				t.Errorf("ValidateHostHeader(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizePath_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input  string
+		output string
+	}{
+		{"", "/"},
+		{"/", "/"},
+		{"/valid/path", "/valid/path"},
+		{"/../etc/passwd", "/etc/passwd"},
+		{"/..%2f..%2fetc/passwd", "/etc/passwd"},
+		{"/path/..%5C..%5Csecret", "/secret"},
+		{"/normal/../file", "/file"},
+		{"no-leading-slash", "/no-leading-slash"},
+		{"/a/b/../../../c", "/c"},
+		{"/%2e%2e/%2e%2e/secret", "/secret"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := SanitizePath(tt.input)
+			if got != tt.output {
+				t.Errorf("SanitizePath(%q) = %q, want %q", tt.input, got, tt.output)
+			}
+		})
+	}
+}
+
+func TestValidateContentLength_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    int64
+		wantErr bool
+	}{
+		{"", 0, true},
+		{"0", 0, false},
+		{"100", 100, false},
+		{"01", 0, true},
+		{"-1", 0, true},
+		{"abc", 0, true},
+		{"99999999999999999999999999", 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := ValidateContentLength(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Error("expected error")
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if got != tt.want {
+					t.Errorf("got %d, want %d", got, tt.want)
+				}
+			}
+		})
+	}
+}

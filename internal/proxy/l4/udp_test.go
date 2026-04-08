@@ -128,7 +128,7 @@ func TestUDPProxy_DoubleStart(t *testing.T) {
 	}
 }
 
-func TestUDPProxy_StopNotRunning(t *testing.T) {
+func TestUDPProxy_StopNotRunning_Original(t *testing.T) {
 	pool := backend.NewPool("test-pool", "round_robin")
 	bal := NewSimpleBalancer()
 

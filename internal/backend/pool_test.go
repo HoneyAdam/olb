@@ -153,6 +153,28 @@ func TestPoolEnableBackend(t *testing.T) {
 	}
 }
 
+func TestPoolEnableBackend_NotFound(t *testing.T) {
+	p := NewPool("test-pool", "roundrobin")
+	if err := p.EnableBackend("nonexistent"); err == nil {
+		t.Error("Expected error for nonexistent backend")
+	}
+}
+
+func TestPoolEnableBackend_WithBalancer(t *testing.T) {
+	p := NewPool("test-pool", "round_robin")
+	p.SetBalancer(&mockBalancer{})
+	b := NewBackend("b1", "127.0.0.1:8080")
+	b.SetState(StateDown)
+	p.AddBackend(b)
+
+	if err := p.EnableBackend("b1"); err != nil {
+		t.Errorf("EnableBackend() error = %v", err)
+	}
+	if b.State() != StateUp {
+		t.Errorf("State = %v, want %v", b.State(), StateUp)
+	}
+}
+
 func TestPoolDisableBackend(t *testing.T) {
 	p := NewPool("test-pool", "roundrobin")
 	b := NewBackend("b1", "127.0.0.1:8080")
@@ -166,6 +188,28 @@ func TestPoolDisableBackend(t *testing.T) {
 
 	if b.State() != StateMaintenance {
 		t.Errorf("State after disable = %v, want %v", b.State(), StateMaintenance)
+	}
+}
+
+func TestPoolDisableBackend_NotFound(t *testing.T) {
+	p := NewPool("test-pool", "roundrobin")
+	if err := p.DisableBackend("nonexistent"); err == nil {
+		t.Error("Expected error for nonexistent backend")
+	}
+}
+
+func TestPoolDisableBackend_WithBalancer(t *testing.T) {
+	p := NewPool("test-pool", "round_robin")
+	p.SetBalancer(&mockBalancer{})
+	b := NewBackend("b1", "127.0.0.1:8080")
+	b.SetState(StateUp)
+	p.AddBackend(b)
+
+	if err := p.DisableBackend("b1"); err != nil {
+		t.Errorf("DisableBackend() error = %v", err)
+	}
+	if b.State() != StateMaintenance {
+		t.Errorf("State = %v, want %v", b.State(), StateMaintenance)
 	}
 }
 

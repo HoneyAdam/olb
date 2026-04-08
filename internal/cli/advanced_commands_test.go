@@ -2391,3 +2391,40 @@ func TestCertInfoCommand_JSONSuccess(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 }
+
+// TestConfigValidateCommand_ValidJSONWithAllFields tests validate with JSON file containing all config fields.
+func TestConfigValidateCommand_ValidJSONWithAllFields(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test.json")
+	configContent := `{
+		"version": "1",
+		"listeners": [{"name": "http", "address": ":8080"}],
+		"pools": [{"name": "default", "algorithm": "round_robin"}]
+	}`
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config: %v", err)
+	}
+
+	cmd := &ConfigValidateCommand{}
+	err := cmd.Run([]string{"--config", configPath})
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+}
+
+// TestConfigDiffCommand_DefaultFilePath tests diff when --file is not specified (defaults to olb.yaml).
+func TestConfigDiffCommand_DefaultFilePath(t *testing.T) {
+	server := newAdvancedTestServer()
+	defer server.Close()
+
+	cmd := &ConfigDiffCommand{}
+	err := cmd.Run([]string{"--api-addr", strings.TrimPrefix(server.URL, "http://")})
+	if err == nil {
+		t.Error("Expected error when default olb.yaml doesn't exist")
+	}
+	if err != nil && !strings.Contains(err.Error(), "failed to read config file") && !strings.Contains(err.Error(), "no such file") {
+		t.Logf("Got error (expected): %v", err)
+	}
+}
+
+// TestConfigDiffCommand_DefaultFilePath tests that default file path (olb.yaml) is used when --file is not specified.

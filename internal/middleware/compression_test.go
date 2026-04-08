@@ -624,3 +624,61 @@ func TestCompressionMiddleware_NoContentLengthHeader(t *testing.T) {
 		t.Errorf("Content-Length = %v, should be removed", rr.Header().Get("Content-Length"))
 	}
 }
+
+func TestCompressWriter_IsContentTypeCompressible(t *testing.T) {
+	cfg := CompressionConfig{
+		ContentTypes: []string{"text/html", "text/", "application/json"},
+	}
+	cw := &compressWriter{
+		config: &cfg,
+	}
+
+	tests := []struct {
+		name     string
+		ct       string
+		expected bool
+	}{
+		{"empty", "", false},
+		{"exact match", "text/html", true},
+		{"prefix match", "text/plain", true},
+		{"json", "application/json", true},
+		{"no match", "image/png", false},
+		{"case insensitive", "Text/HTML", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cw.isContentTypeCompressible(tt.ct)
+			if got != tt.expected {
+				t.Errorf("isContentTypeCompressible(%q) = %v, want %v", tt.ct, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestCompressWriter_Flush_NoWriter(t *testing.T) {
+	rec := httptest.NewRecorder()
+	cw := &compressWriter{
+		ResponseWriter: rec,
+		buffer:         &bytes.Buffer{},
+	}
+	// Flush with no active compression writer should not panic.
+	cw.Flush()
+}
+
+func TestCompressWriter_Flush_WithGzipWriter(t *testing.T) {
+	rec := httptest.NewRecorder()
+	buf := &bytes.Buffer{}
+	cw := &compressWriter{
+		ResponseWriter: rec,
+		encoding:       "gzip",
+		buffer:         buf,
+		status:         200,
+		wroteHeader:    true,
+	}
+	// Start compression so cw.writer is set.
+	gw, _ := cw.getGzipWriter()
+	cw.writer = gw
+	cw.Flush()
+	gw.Close()
+}

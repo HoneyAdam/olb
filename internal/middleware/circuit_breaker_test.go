@@ -981,3 +981,48 @@ func TestCircuitBreaker_FullLifecycle(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusRecorder_DoubleWriteHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sr := &statusRecorder{
+		ResponseWriter: rec,
+		statusCode:     0,
+		wroteHeader:    false,
+	}
+
+	// First WriteHeader sets status.
+	sr.WriteHeader(404)
+	if sr.statusCode != 404 {
+		t.Errorf("statusCode = %d, want 404", sr.statusCode)
+	}
+	if !sr.wroteHeader {
+		t.Error("wroteHeader should be true")
+	}
+
+	// Second WriteHeader should be ignored (early return).
+	sr.WriteHeader(500)
+	if sr.statusCode != 404 {
+		t.Errorf("statusCode = %d, want 404 (should not change)", sr.statusCode)
+	}
+}
+
+func TestStatusRecorder_WriteAutoHeader(t *testing.T) {
+	rec := httptest.NewRecorder()
+	sr := &statusRecorder{
+		ResponseWriter: rec,
+		statusCode:     0,
+		wroteHeader:    false,
+	}
+
+	// Write without calling WriteHeader first should auto-set 200.
+	n, err := sr.Write([]byte("hello"))
+	if err != nil {
+		t.Fatalf("Write error = %v", err)
+	}
+	if n != 5 {
+		t.Errorf("Write returned %d, want 5", n)
+	}
+	if sr.statusCode != 200 {
+		t.Errorf("statusCode = %d, want 200 (auto-set by Write)", sr.statusCode)
+	}
+}

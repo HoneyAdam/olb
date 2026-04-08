@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -351,5 +352,28 @@ func TestRequestContextWithBackend(t *testing.T) {
 	ctx.Backend = b
 	if ctx.Backend.ID != "test-backend" {
 		t.Error("Backend not set correctly")
+	}
+}
+
+func TestClientIPFromContext_Nil(t *testing.T) {
+	ip := ClientIPFromContext(nil)
+	if ip != "" {
+		t.Errorf("ClientIPFromContext(nil) = %q, want empty", ip)
+	}
+}
+
+func TestClientIPFromContext_WrongType(t *testing.T) {
+	ctx := context.WithValue(context.Background(), contextKey(0), 12345)
+	ip := ClientIPFromContext(ctx)
+	if ip != "" {
+		t.Errorf("ClientIPFromContext(wrong type) = %q, want empty", ip)
+	}
+}
+
+func TestClientIPFromContext_SetAndRetrieve(t *testing.T) {
+	ctx := WithClientIP(context.Background(), "192.168.1.1")
+	ip := ClientIPFromContext(ctx)
+	if ip != "192.168.1.1" {
+		t.Errorf("ClientIPFromContext = %q, want 192.168.1.1", ip)
 	}
 }

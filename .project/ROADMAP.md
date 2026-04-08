@@ -1,26 +1,25 @@
 # Project Roadmap
 
-> Based on comprehensive codebase analysis performed on 2025-04-05
+> Based on comprehensive codebase analysis performed on 2026-04-08
 > This roadmap prioritizes work needed to bring the project to production quality.
 
 ## Current State Assessment
 
-OpenLoadBalancer is a **near-production-ready** load balancer with comprehensive features including 14 load balancing algorithms, 6-layer WAF, Raft clustering, MCP AI integration, and a modern React 19 Web UI. The project has excellent test coverage (87.8%) and minimal external dependencies.
+OpenLoadBalancer is a remarkably complete load balancer implementation with 97% spec feature completion, 93.4% test coverage, and genuine zero-dependency Go code. The project self-reports as "Production Ready" and most core features are fully functional. However, several issues prevent true production readiness:
 
-### Key Blockers for Production Readiness
+**Key blockers:**
+1. Duplicate middleware v1/v2 wired in engine -- causes double processing of Cache, Metrics, RealIP, RequestID on every request
+2. Raft state machine is a stub -- clustering cannot actually replicate config changes
+3. WebUI pages use mock data -- dashboard cannot manage a real deployment
 
-1. **Untested Middleware Code**: 20+ middleware directories recently added with unknown test coverage
-2. **Suboptimal Proxy/Engine Coverage**: L7 proxy (~79%) and engine (~80%) below 85% threshold
-3. **Production Scale Unknown**: Benchmarks show 15K RPS vs 50K target
-4. **Frontend Dependency Surface**: 45+ dependencies need regular security audits
-
-### What's Working Well
-
-- Core load balancing algorithms fully tested and optimized
-- WAF detection engines at 97-100% coverage
-- Raft consensus implementation stable
-- MCP server with 17 tools operational
-- Docker packaging and deployment configs complete
+**What's working well:**
+- L4/L7 proxying with all protocol handlers (HTTP, WebSocket, gRPC, SSE, HTTP/2, TCP, UDP, SNI)
+- 16 balancer algorithms, all tested and functional
+- 6-layer WAF with real detection engines
+- Admin REST API with 20+ endpoints
+- 93.4% test coverage with all 67 packages passing
+- Comprehensive CI/CD pipeline
+- Excellent documentation (7,000+ lines across 25+ docs)
 
 ---
 
@@ -28,358 +27,158 @@ OpenLoadBalancer is a **near-production-ready** load balancer with comprehensive
 
 ### Must-fix items blocking basic functionality
 
-- [ ] **Test Coverage: L7 Proxy (internal/proxy/l7/)**
-  - Current: ~79%
-  - Target: 85%
-  - Actions: Add unit tests for edge cases, error paths, WebSocket handling
-  - Effort: 6-8 hours
-  - Owner: TBD
+- [ ] **Remove duplicate middleware registration** -- `internal/engine/engine.go` `createMiddlewareChain()` wires both v1 (root middleware/) and v2 (subdirectory middleware/cache/, middleware/metrics/, etc.) versions of Cache, Metrics, RealIP, RequestID. Remove v1 registrations. ~2h
+- [ ] **Implement Raft state machine Apply/Snapshot** -- `internal/engine/engine.go` engineStateMachine has no-op `Apply()` and empty `Snapshot()`. Implement config application from Raft log entries and state serialization for snapshots. ~40-80h
+- [ ] **Connect WebUI to real API** -- Replace mock data in 10/11 React pages (`internal/webui/src/pages/`) with actual API calls using existing `useQuery`/`useMutation` hooks. ~40h
+- [ ] **Remove webui.old/ directory** -- Delete `internal/webui.old/` from the repo. ~1h
+- [ ] **Clean up stray root files** -- Remove `simple.yaml`, `test_backend.go`, `cover.out.bin`, `cli.cov` from project root. ~15min
+- [ ] **Remove duplicate Helm chart** -- Keep `helm/olb/`, remove `deploy/helm/olb/`, update any references. ~1h
 
-- [ ] **Test Coverage: Engine (internal/engine/)**
-  - Current: ~80%
-  - Target: 85%
-  - Actions: Add tests for reload logic, shutdown paths, component initialization
-  - Effort: 6-8 hours
-  - Owner: TBD
+**Estimated effort:** 85-125 hours
 
-- [ ] **Middleware Test Audit**
-  - Locations: internal/middleware/* (20+ directories)
-  - Actions: Run coverage report, identify gaps, add tests for untested middleware
-  - Effort: 16-20 hours
-  - Owner: TBD
-  - Dependencies: None
-
-- [ ] **Dependency Security Audit**
-  - Frontend: Run `npm audit` in internal/webui/
-  - Go: Run `govulncheck` or similar
-  - Actions: Fix critical/high vulnerabilities, update dependencies
-  - Effort: 4-6 hours
-  - Owner: TBD
+---
 
 ## Phase 2: Core Completion (Week 3-6)
 
 ### Complete missing core features from specification
 
-- [ ] **RBAC Implementation**
-  - Spec: SPEC §19.2
-  - Current gap: No role-based access control
-  - Implementation: Add roles (admin, readonly) to internal/admin/auth.go
-  - Effort: 16-20 hours
-  - Owner: TBD
+- [ ] **Implement gRPC-Web support** -- `internal/proxy/l7/grpc.go` currently delegates gRPC-Web to the standard gRPC handler. Implement proper application/grpc-web protocol with base64 framing. ~20-40h
+- [ ] **Implement intelligent request shadowing** -- `internal/proxy/l7/shadow.go` `ShouldShadow()` always returns true. Add percentage-based shadowing, header-based matching, and time-window controls. ~8h
+- [ ] **Make hardcoded defaults configurable** -- Move `MaxConnections: 10000`, `MaxPerSource: 100`, `ProxyTimeout: 60s`, `DialTimeout: 10s`, `MaxIdleConns: 100`, `MaxIdleConnsPerHost: 10` from engine.go/proxy.go to config with sensible defaults. ~4h
+- [ ] **Add CSRF protection to admin API** -- State-changing endpoints (POST/PATCH/DELETE) lack CSRF tokens. Add CSRF middleware to admin server for browser-based access. ~4h
+- [ ] **Make WebSocket InsecureSkipVerify configurable** -- `internal/proxy/l7/websocket.go` hardcodes `InsecureSkipVerify: true` for backend TLS. Make it configurable per-backend. ~2h
+- [ ] **Add distributed rate limiting support** -- The spec mentions Redis-backed distributed rate limiting. The current implementation is memory-based only. Add optional Redis backend. ~20-30h
+- [ ] **Implement GeoIP database loading** -- `internal/geodns/geodns.go` uses simplified IP-to-location. Add MaxMind GeoLite2 database loading support. ~16h
 
-- [ ] **Brotli Compression**
-  - Spec: SPEC §10.6
-  - Current gap: Only gzip/deflate implemented
-  - Implementation: Add pure-Go brotli encoder or cgo wrapper
-  - Effort: 8-12 hours
-  - Owner: TBD
-  - Note: Lower priority (gzip is sufficient for most use cases)
+**Estimated effort:** 74-104 hours
 
-- [ ] **Complete WebSocket Compression**
-  - Spec: Mentioned in PROJECT_STATUS.md as future work
-  - Current gap: Basic WebSocket support, no per-message compression
-  - Implementation: Add WebSocket per-message deflate extension
-  - Effort: 8-10 hours
-  - Owner: TBD
-
-- [ ] **Redis Backend for Distributed Rate Limiting**
-  - Spec: Mentioned as limitation in PROJECT_STATUS.md
-  - Current: Memory-based only
-  - Implementation: Add Redis store option in internal/waf/ratelimit/
-  - Effort: 12-16 hours
-  - Owner: TBD
+---
 
 ## Phase 3: Hardening (Week 7-8)
 
 ### Security, error handling, edge cases
 
-- [ ] **Security Audit Fixes**
-  - Run automated security scanners (gosec, semgrep)
-  - Review WAF rule effectiveness
-  - Test edge cases in request parsing
-  - Effort: 8-12 hours
-  - Owner: TBD
+- [ ] **Admin auth rate limit hardening** -- Increase from 30/min to configurable limit, add progressive backoff, add account lockout after N failures. ~4h
+- [ ] **Add request body logging opt-in** -- SECURITY.md notes "request body logging may capture sensitive data". Make body logging explicitly opt-in with per-route control. ~4h
+- [ ] **Refactor engine.go** -- Break `createMiddlewareChain()` (~800 LOC) into per-middleware registration functions. Break `gossip.go` (1,715 LOC) into logical files. ~8h
+- [ ] **Add pprof memory profiling to benchmarks** -- Include heap and CPU profiles in benchmark runs to identify allocation hotspots. ~4h
+- [ ] **Validate config on startup comprehensively** -- Add validation for all middleware config types, catch conflicting settings early. ~8h
+- [ ] **Add circuit breaker to admin API backend calls** -- Admin API currently has no protection against cascading failures when calling engine internals. ~4h
+- [ ] **WebSocket connection limit enforcement** -- Add configurable max concurrent WebSocket connections per listener. ~2h
+- [ ] **Add HTTP/2 strict mode** -- Enforce HTTP/2 connection preface limits, HPACK decoder size limits, and settings frame flood protection. ~8h
 
-- [ ] **Error Handling Improvements**
-  - Add structured error codes for all API responses
-  - Ensure all errors are logged with context
-  - Add error rate alerting thresholds
-  - Effort: 6-8 hours
-  - Owner: TBD
+**Estimated effort:** 42 hours
 
-- [ ] **Input Validation Gaps**
-  - Audit all user-facing inputs (config, API, headers)
-  - Add stricter validation where needed
-  - Add fuzz tests for critical parsers
-  - Effort: 8-12 hours
-  - Owner: TBD
-
-- [ ] **Rate Limiting Hardening**
-  - Add distributed rate limit synchronization
-  - Test edge cases (clock skew, node failures)
-  - Add rate limit metrics and alerting
-  - Effort: 6-8 hours
-  - Owner: TBD
+---
 
 ## Phase 4: Testing (Week 9-10)
 
 ### Comprehensive test coverage
 
-- [ ] **Unit Tests for Packages with <85% Coverage**
-  - Identify all packages below threshold
-  - Add targeted tests to reach 85%
-  - Focus on error paths and edge cases
-  - Effort: 20-24 hours
-  - Owner: TBD
+- [ ] **Add React component tests** -- Set up Vitest + React Testing Library for WebUI. Write tests for all 11 pages and shared components. ~20h
+- [ ] **Add load test suite** -- Create automated load tests using vegeta or custom Go HTTP clients. Test at 10K, 50K, 100K concurrent connections. ~16h
+- [ ] **Add chaos testing** -- Test behavior under: backend failures during request, config reload during traffic, cluster leader election during traffic, OOM conditions. ~16h
+- [ ] **Add fuzzing tests** -- Add Go native fuzz tests (`func FuzzXxx`) for: HTTP request parsing, SNI ClientHello parsing, WAF detection engines, config parsing. ~16h
+- [ ] **Add end-to-end cluster tests** -- Test 3-node Raft cluster: leader failover, config replication, join/leave, split-brain recovery. ~16h
+- [ ] **Add TLS integration tests** -- Test mTLS handshake, certificate rotation, OCSP stapling, SNI routing with real TLS. ~8h
+- [ ] **Test coverage enforcement per-package** -- Add CI check for minimum 85% per-package (not just average). ~2h
 
-- [ ] **Integration Tests for API Endpoints**
-  - Expand test/integration/ suite
-  - Test all admin API CRUD operations
-  - Test hot reload scenarios
-  - Effort: 12-16 hours
-  - Owner: TBD
+**Estimated effort:** 94 hours
 
-- [ ] **Frontend Component Tests**
-  - Add Jest/Vitest test framework to webui
-  - Write tests for critical components
-  - Add E2E tests with Playwright/Cypress
-  - Effort: 16-20 hours
-  - Owner: TBD
-
-- [ ] **E2E Test Setup**
-  - Create comprehensive E2E test suite
-  - Test full request flows
-  - Test clustering scenarios
-  - Effort: 12-16 hours
-  - Owner: TBD
-
-- [ ] **Load Testing Infrastructure**
-  - Set up k6 or Locust for load testing
-  - Define RPS benchmarks
-  - Test at scale (target: 50K RPS)
-  - Effort: 8-12 hours
-  - Owner: TBD
+---
 
 ## Phase 5: Performance & Optimization (Week 11-12)
 
 ### Performance tuning and optimization
 
-- [ ] **Memory Pool Optimization**
-  - Profile buffer pool usage
-  - Optimize for workload patterns
-  - Add pool metrics
-  - Effort: 6-8 hours
-  - Owner: TBD
+- [ ] **Profile and optimize WAF pipeline** -- Benchmark the 6-layer WAF pipeline end-to-end. Target <1ms p99 as specified. Optimize regex compilation and matching. ~16h
+- [ ] **Optimize HTTP transport pool settings** -- Tune `MaxIdleConns`, `MaxIdleConnsPerHost`, idle timeout for production workloads. Make all configurable. ~4h
+- [ ] **Add connection pooling metrics** -- Expose pool utilization, wait time, eviction rate to Prometheus. ~4h
+- [ ] **Benchmark memory allocation hotspots** -- Use pprof to identify and reduce allocations in hot paths (proxy request, balancer selection, middleware chain). ~8h
+- [ ] **Optimize gRPC frame parsing** -- Reduce allocations in `internal/proxy/l7/grpc.go` frame read/write. ~4h
+- [ ] **Add write-combining for metrics** -- Batch metric increments to reduce atomic operation contention under high load. ~4h
+- [ ] **Optimize WebUI bundle** -- Audit React chunk splitting, lazy-load pages, reduce initial bundle size. ~4h
 
-- [ ] **L7 Proxy Hot Path Optimization**
-  - Profile under load
-  - Identify allocation hotspots
-  - Reduce GC pressure
-  - Effort: 12-16 hours
-  - Owner: TBD
+**Estimated effort:** 44 hours
 
-- [ ] **Connection Pool Tuning**
-  - Add pool metrics
-  - Tune default pool sizes
-  - Add dynamic pool sizing
-  - Effort: 8-12 hours
-  - Owner: TBD
-
-- [ ] **Frontend Bundle Optimization**
-  - Analyze bundle with rollup-plugin-visualizer
-  - Implement code splitting
-  - Lazy load heavy components
-  - Effort: 6-8 hours
-  - Owner: TBD
-
-- [ ] **Algorithm Micro-optimizations**
-  - Profile all 14 algorithms
-  - Optimize hot paths
-  - Consider SIMD for hash calculations
-  - Effort: 8-12 hours
-  - Owner: TBD
+---
 
 ## Phase 6: Documentation & DX (Week 13-14)
 
 ### Documentation and developer experience
 
-- [ ] **API Documentation (OpenAPI)**
-  - Complete OpenAPI specification
-  - Add request/response examples
-  - Publish to docs site
-  - Effort: 8-12 hours
-  - Owner: TBD
+- [ ] **Update README metrics** -- Fix binary size (9MB -> 10.9MB), algorithm count (14 vs 12 vs 16), dependency count (zero vs 2 vs 3). ~1h
+- [ ] **Update CHANGELOG** -- Set v1.0.0 release date, move unreleased items to proper version. ~2h
+- [ ] **Add CONTRIBUTING.md code examples** -- Add examples for adding a new middleware, adding a new balancer algorithm, extending the WAF. ~4h
+- [ ] **Add architecture decision records** -- Document key decisions: why zero-dep, why Raft+SWIM, why radix trie, why React for WebUI. ~4h
+- [ ] **Create Grafana dashboard import guide** -- Document how to import the provided dashboard.json. ~1h
+- [ ] **Add API rate limiting documentation** -- Document the admin auth rate limit behavior and how to configure it. ~2h
+- [ ] **Create performance tuning guide** -- Document how to tune for different workload types (high RPS, high concurrency, high bandwidth). ~4h
 
-- [ ] **Updated README with Accurate Setup Instructions**
-  - Test all install methods
-  - Update version references
-  - Add troubleshooting section
-  - Effort: 4-6 hours
-  - Owner: TBD
+**Estimated effort:** 18 hours
 
-- [ ] **Architecture Documentation**
-  - Add sequence diagrams for request flow
-  - Document clustering architecture
-  - Add decision records (ADRs)
-  - Effort: 8-12 hours
-  - Owner: TBD
-
-- [ ] **Contributing Guide Improvements**
-  - Add development environment setup
-  - Add testing guidelines
-  - Add code review checklist
-  - Effort: 4-6 hours
-  - Owner: TBD
-
-- [ ] **Operational Runbooks**
-  - Create incident response guide
-  - Add scaling procedures
-  - Document backup/restore
-  - Effort: 6-8 hours
-  - Owner: TBD
+---
 
 ## Phase 7: Release Preparation (Week 15-16)
 
 ### Final production preparation
 
-- [ ] **CI/CD Pipeline Completion**
-  - Add automated release workflow
-  - Add multi-arch Docker builds
-  - Add security scanning to CI
-  - Effort: 8-12 hours
-  - Owner: TBD
+- [ ] **Set up GHCR Docker image publishing** -- Configure GitHub Actions to push multi-platform Docker images to ghcr.io/openloadbalancer/olb. ~4h
+- [ ] **Set up Homebrew tap** -- Create openloadbalancer/homebrew-tap repository, configure GoReleaser to push formulae. ~4h
+- [ ] **Set up package repositories** -- Configure APT, YUM, APK repositories (or document manual installation as the primary method). ~8-40h
+- [ ] **Create release signing key** -- Set up GPG key for binary signing and verification. ~2h
+- [ ] **Final security audit** -- Run gosec, nancy, govulncheck against final codebase. Address any findings. ~4h
+- [ ] **Tag v1.0.0 release** -- Update CHANGELOG, tag release, trigger GoReleaser. ~1h
+- [ ] **Write v1.0.0 release blog post** -- Update docs/blog-v1.0.0.md with accurate metrics and release date. ~4h
+- [ ] **Set up monitoring for production** -- Deploy Prometheus alerting rules, Grafana dashboard, verify alerting pipeline. ~4h
 
-- [ ] **Docker Production Image Optimization**
-  - Optimize layer caching
-  - Consider distroless base image
-  - Add health checks
-  - Effort: 4-6 hours
-  - Owner: TBD
+**Estimated effort:** 31-63 hours
 
-- [ ] **Release Automation (.goreleaser)**
-  - Set up GoReleaser configuration
-  - Add changelog generation
-  - Add SBOM generation
-  - Effort: 6-8 hours
-  - Owner: TBD
-
-- [ ] **Monitoring and Observability**
-  - Add structured logging format for Loki
-  - Add Prometheus metrics validation
-  - Create example Grafana dashboards
-  - Add alerting rules
-  - Effort: 8-12 hours
-  - Owner: TBD
-
-- [ ] **Production Readiness Review**
-  - Security review
-  - Performance validation
-  - Documentation review
-  - Effort: 8-12 hours
-  - Owner: TBD
+---
 
 ## Beyond v1.0: Future Enhancements
 
 ### Features and improvements for future versions
 
-- [ ] **HTTP/3 (QUIC) Support**
-  - Spec reference: SPEC §5.2
-  - Implementation: Add quic-go or native QUIC
-  - Priority: Medium
-  - Target: v1.1
-
-- [ ] **WASM Plugin Support**
-  - Spec reference: SPEC §18.2
-  - Implementation: Add wazero or similar runtime
-  - Priority: Low
-  - Target: v1.2
-
-- [ ] **Additional Cloud Providers for Terraform**
-  - GCP and Azure modules
-  - Priority: Medium
-  - Target: v1.1
-
-- [ ] **Service Mesh Integration**
-  - Istio/Linkerd compatibility
-  - Sidecar proxy mode
-  - Priority: Low
-  - Target: v1.2
-
-- [ ] **Additional WAF Detectors**
-  - LFI/RFI detection
-  - Bot behavior analysis
-  - ML-based anomaly detection
-  - Priority: Medium
-  - Target: v1.1
-
-- [ ] **WebAssembly Edge Deployment**
-  - Compile to WASM for edge runtimes
-  - Cloudflare Workers / Fastly Compute compatibility
-  - Priority: Low
-  - Target: v1.2+
+- [ ] HTTP/3 (QUIC) support
+- [ ] WebSocket compression (permessage-deflate)
+- [ ] Service mesh integration (Envoy xDS API compatibility)
+- [ ] Additional cloud provider Terraform modules (GCP, Azure)
+- [ ] Enhanced GeoIP with automatic database updates
+- [ ] WebUI internationalization (i18n)
+- [ ] Configuration dry-run mode (validate without applying)
+- [ ] Rolling backend updates (canary deployments)
+- [ ] Request/response body transformation (protocol translation)
+- [ ] Additional WAF detectors (RFI, LFI, CRLF injection)
+- [ ] Plugin marketplace / registry
+- [ ] OpenTelemetry native tracing support
+- [ ] Kubernetes Gateway API implementation
+- [ ] macOS and Windows service management
+- [ ] Configuration import/export in WebUI (backup page exists but uses mock data)
 
 ---
 
 ## Effort Summary
 
 | Phase | Estimated Hours | Priority | Dependencies |
-|-------|-----------------|----------|--------------|
-| Phase 1: Critical Fixes | 32-42h | CRITICAL | None |
-| Phase 2: Core Completion | 44-58h | HIGH | Phase 1 |
-| Phase 3: Hardening | 28-40h | HIGH | Phase 1 |
-| Phase 4: Testing | 72-92h | HIGH | Phase 1-2 |
-| Phase 5: Performance | 40-56h | MEDIUM | Phase 4 |
-| Phase 6: Documentation | 30-44h | MEDIUM | Phase 1-3 |
-| Phase 7: Release Prep | 34-50h | HIGH | Phase 4-6 |
-| **Total** | **280-382h** | | |
-| **(~7-10 weeks @ 40h/week)** | | | |
-
----
+|-------|----------------|----------|--------------|
+| Phase 1: Critical Fixes | 85-125h | CRITICAL | None |
+| Phase 2: Core Completion | 74-104h | HIGH | Phase 1 |
+| Phase 3: Hardening | 42h | HIGH | Phase 1 |
+| Phase 4: Testing | 94h | MEDIUM | Phases 1-2 |
+| Phase 5: Performance | 44h | MEDIUM | Phase 2 |
+| Phase 6: Documentation | 18h | LOW | Phases 1-2 |
+| Phase 7: Release Prep | 31-63h | HIGH | Phases 1-3 |
+| **Total** | **388-490h** | | |
 
 ## Risk Assessment
 
 | Risk | Probability | Impact | Mitigation |
-|------|-------------|--------|------------|
-| Middleware test coverage reveals major gaps | High | Medium | Allocate more time in Phase 1 |
-| Performance targets not achievable | Medium | High | Profile early in Phase 5 |
-| React 19 stability issues | Medium | Low | Pin to stable version if needed |
-| Security audit finds critical issues | Low | High | Start Phase 3 early |
-| Scope creep from v1.1 features | Medium | Low | Strictly defer to post-v1.0 |
-| Production deployment issues | Medium | Medium | Beta program with early adopters |
-
----
-
-## Success Criteria
-
-### v1.0 Release Criteria
-
-- [ ] All packages at 85%+ test coverage
-- [ ] Security audit passed
-- [ ] Load test at 50K RPS sustained
-- [ ] Documentation complete
-- [ ] No critical or high vulnerabilities
-- [ ] Beta testing completed with 3+ users
-- [ ] CI/CD pipeline operational
-- [ ] Docker images published
-- [ ] Homebrew formula working
-
-### v1.1 Release Criteria
-
-- [ ] HTTP/3 support (beta)
-- [ ] Additional Terraform modules
-- [ ] Enhanced WAF detectors
-- [ ] Redis rate limiting
-- [ ] Performance optimizations (10% improvement)
-
----
-
-## Appendix: Quick Wins (Can be done in parallel)
-
-These tasks can be completed without blocking the main roadmap:
-
-1. **README badges** - Add build status, coverage badge (30 min)
-2. **Code of Conduct** - Already present, verify completeness (30 min)
-3. **License headers** - Add to all Go files if not present (1-2 hours)
-4. **Issue templates** - Already present, test they work (30 min)
-5. **Dependabot** - Configure for frontend and Go (30 min)
-6. **Stale bot** - Configure for issue/PR management (30 min)
+|------|------------|--------|------------|
+| Raft state machine implementation reveals design flaws | Medium | High | Prototype with simple config types first; extensive cluster testing |
+| WebUI mock-to-real migration reveals API gaps | Medium | Medium | Verify all API endpoints return expected data before starting migration |
+| Removing duplicate middleware breaks existing tests | Low | Medium | Run full test suite after each middleware removal; fix tests before proceeding |
+| gRPC-Web implementation complexity exceeds estimate | Medium | Low | Can ship without gRPC-Web initially; document as known limitation |
+| Performance regression from middleware fix | Low | Medium | Benchmark before/after; middleware double-execution was actually adding overhead, so removal should improve performance |
+| Package repository setup requires infrastructure | High | Low | Start with manual binary downloads and Docker; add package repos incrementally |
+| Binary size increases with WebUI changes | Low | Low | Monitor bundle size in CI; existing 20MB limit check in CI workflow |

@@ -1222,3 +1222,102 @@ func TestConfig_Validate_ListenerReferencesNonExistentPool(t *testing.T) {
 		t.Fatal("Validate() should fail when listener references non-existent pool")
 	}
 }
+
+// ============================================================================
+// Coverage gap tests
+// ============================================================================
+
+// TestExpandEnv_DefaultWithSetVar covers the branch in ExpandEnv where a
+// variable with ${VAR:-default} syntax has the env var SET to a non-empty
+// value, so the actual value is returned instead of the default.
+func TestExpandEnv_DefaultWithSetVar(t *testing.T) {
+	os.Setenv("OLB_EXPAND_SET", "actual")
+	defer os.Unsetenv("OLB_EXPAND_SET")
+
+	got := ExpandEnv("${OLB_EXPAND_SET:-fallback}")
+	if got != "actual" {
+		t.Errorf("ExpandEnv(${OLB_EXPAND_SET:-fallback}) = %q, want %q", got, "actual")
+	}
+}
+
+// TestExpandEnv_PlainMissingVar covers the plain os.Getenv branch when the
+// variable is not set at all.
+func TestExpandEnv_PlainMissingVar(t *testing.T) {
+	got := ExpandEnv("${OLB_TOTALLY_MISSING_VAR_12345}")
+	if got != "" {
+		t.Errorf("ExpandEnv for missing var = %q, want empty string", got)
+	}
+}
+
+// TestLoader_LoadYAMLParseError covers the YAML parse error branch for .yaml/.yml files.
+func TestLoader_LoadYAMLParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "bad.yaml")
+
+	if err := os.WriteFile(configFile, []byte("listeners: [invalid yaml {{{"), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	loader := NewLoader()
+	_, err := loader.Load(configFile)
+	if err == nil {
+		t.Error("Expected error for invalid YAML content")
+	}
+}
+
+// TestLoader_LoadUnknownExtParseError covers the default-extension parse error branch.
+func TestLoader_LoadUnknownExtParseError(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "bad.conf")
+
+	if err := os.WriteFile(configFile, []byte("listeners: [invalid {{{"), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	loader := NewLoader()
+	_, err := loader.Load(configFile)
+	if err == nil {
+		t.Error("Expected error for invalid config with unknown extension")
+	}
+}
+
+// TestLoader_LoadReadFileError covers the os.ReadFile error branch via Loader.Load directly.
+func TestLoader_LoadReadFileError(t *testing.T) {
+	loader := NewLoader()
+	_, err := loader.Load("/nonexistent/path/to/config.yaml")
+	if err == nil {
+		t.Error("Expected error when file does not exist")
+	}
+}
+
+// TestLoader_DefaultsVersionAlreadySet covers the branch where cfg.Version
+// is already set before applyDefaults runs.
+func TestLoader_DefaultsVersionAlreadySet(t *testing.T) {
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "test.yaml")
+
+	configContent := `
+version: "2"
+listeners:
+  - name: http
+    address: ":80"
+
+pools:
+  - name: backend
+    backends:
+      - address: "10.0.1.10:8080"
+`
+	if err := os.WriteFile(configFile, []byte(configContent), 0644); err != nil {
+		t.Fatalf("Failed to write config file: %v", err)
+	}
+
+	loader := NewLoader()
+	cfg, err := loader.Load(configFile)
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+
+	if cfg.Version != "2" {
+		t.Errorf("Version = %q, want %q (should not be overwritten by default)", cfg.Version, "2")
+	}
+}

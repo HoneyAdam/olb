@@ -1524,3 +1524,338 @@ func TestConcurrentAddRouteAndMatch(t *testing.T) {
 		t.Logf("Route count: %d (expected %d)", r.RouteCount(), expectedCount)
 	}
 }
+
+// --------------------------------------------------------------------------
+// Additional coverage tests for matchInHostTrie and Swap edge cases
+// --------------------------------------------------------------------------
+
+func TestMatchInHostTrie_PrefixFallback(t *testing.T) {
+	// Test the prefix-walk fallback in matchInHostTrie where an exact match
+	// fails but a parent route exists.
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "api_root",
+		Host:        "api.example.com",
+		Path:        "/api",
+		BackendPool: "api_pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// /api/users should fall back to /api via the prefix walk
+	req, _ := http.NewRequest("GET", "http://api.example.com/api/users", nil)
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected prefix fallback match to /api")
+	} else if match.Route.Name != "api_root" {
+		t.Errorf("expected api_root, got %s", match.Route.Name)
+	}
+}
+
+func TestMatchInHostTrie_DeepPrefixFallback(t *testing.T) {
+	// Test prefix fallback with deeply nested path
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "root",
+		Host:        "api.example.com",
+		Path:        "/",
+		BackendPool: "root_pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// Any path should fall back to /
+	req, _ := http.NewRequest("GET", "http://api.example.com/deep/nested/path", nil)
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected prefix fallback to /")
+	} else if match.Route.Name != "root" {
+		t.Errorf("expected root, got %s", match.Route.Name)
+	}
+}
+
+func TestMatchInHostTrie_NoMatchAtAll(t *testing.T) {
+	// Test that when no prefix matches exist, nil is returned
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "api_route",
+		Host:        "api.example.com",
+		Path:        "/api/v2",
+		BackendPool: "pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// /other does not share prefix with /api/v2
+	req, _ := http.NewRequest("GET", "http://api.example.com/other", nil)
+	_, ok := r.Match(req)
+	if ok {
+		t.Error("expected no match for /other")
+	}
+}
+
+func TestMatchInHostTrie_DefaultTrieFallback(t *testing.T) {
+	// Test that default trie is used when no host matches
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "default_route",
+		Path:        "/default",
+		BackendPool: "pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	req, _ := http.NewRequest("GET", "http://unknown.example.com/default", nil)
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected match via default trie fallback")
+	} else if match.Route.Name != "default_route" {
+		t.Errorf("expected default_route, got %s", match.Route.Name)
+	}
+}
+
+func TestMatchInHostTrie_WildcardHostWithPrefixFallback(t *testing.T) {
+	// Test prefix fallback within a wildcard host trie
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "wildcard_api",
+		Host:        "*.example.com",
+		Path:        "/api",
+		BackendPool: "pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	// Should match via wildcard host + prefix fallback
+	req, _ := http.NewRequest("GET", "http://sub.example.com/api/users", nil)
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected wildcard host + prefix fallback match")
+	} else if match.Route.Name != "wildcard_api" {
+		t.Errorf("expected wildcard_api, got %s", match.Route.Name)
+	}
+}
+
+func TestMatch_URLOnlyHost(t *testing.T) {
+	// Test when req.Host is empty but req.URL.Host is set
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "api_route",
+		Host:        "api.example.com",
+		Path:        "/test",
+		BackendPool: "pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	req, _ := http.NewRequest("GET", "/test", nil)
+	req.URL.Host = "api.example.com"
+	req.Host = ""
+
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected match using URL.Host")
+	} else if match.Route.Name != "api_route" {
+		t.Errorf("expected api_route, got %s", match.Route.Name)
+	}
+}
+
+func TestSwap_WithWildcardHosts(t *testing.T) {
+	r := NewRouter()
+
+	newRoutes := []*Route{
+		{
+			Name:        "wildcard_route",
+			Host:        "*.example.com",
+			Path:        "/api",
+			BackendPool: "pool",
+		},
+	}
+
+	if err := r.Swap(newRoutes); err != nil {
+		t.Fatalf("Swap failed: %v", err)
+	}
+
+	req, _ := http.NewRequest("GET", "http://sub.example.com/api", nil)
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected wildcard match after swap")
+	} else if match.Route.Name != "wildcard_route" {
+		t.Errorf("expected wildcard_route, got %s", match.Route.Name)
+	}
+}
+
+func TestSwap_WithPathPrefixFix(t *testing.T) {
+	r := NewRouter()
+
+	// Route with path not starting with / - Swap should fix it
+	newRoutes := []*Route{
+		{
+			Name:        "fixed_path",
+			Path:        "users", // no leading slash
+			BackendPool: "pool",
+		},
+	}
+
+	if err := r.Swap(newRoutes); err != nil {
+		t.Fatalf("Swap failed: %v", err)
+	}
+
+	req, _ := http.NewRequest("GET", "http://example.com/users", nil)
+	match, ok := r.Match(req)
+	if !ok {
+		t.Error("expected match for path-fixed route after swap")
+	} else if match.Route.Name != "fixed_path" {
+		t.Errorf("expected fixed_path, got %s", match.Route.Name)
+	}
+}
+
+func TestSwap_MixedHostTypes(t *testing.T) {
+	r := NewRouter()
+
+	newRoutes := []*Route{
+		{
+			Name:        "exact_route",
+			Host:        "api.example.com",
+			Path:        "/exact",
+			BackendPool: "pool1",
+		},
+		{
+			Name:        "wildcard_route",
+			Host:        "*.example.com",
+			Path:        "/wild",
+			BackendPool: "pool2",
+		},
+		{
+			Name:        "default_route",
+			Path:        "/default",
+			BackendPool: "pool3",
+		},
+	}
+
+	if err := r.Swap(newRoutes); err != nil {
+		t.Fatalf("Swap failed: %v", err)
+	}
+
+	// Exact host match
+	req1, _ := http.NewRequest("GET", "http://api.example.com/exact", nil)
+	match1, ok := r.Match(req1)
+	if !ok || match1.Route.Name != "exact_route" {
+		t.Errorf("expected exact_route, got %v, ok=%v", match1, ok)
+	}
+
+	// Wildcard host match
+	req2, _ := http.NewRequest("GET", "http://sub.example.com/wild", nil)
+	match2, ok := r.Match(req2)
+	if !ok || match2.Route.Name != "wildcard_route" {
+		t.Errorf("expected wildcard_route, got %v, ok=%v", match2, ok)
+	}
+
+	// Default fallback
+	req3, _ := http.NewRequest("GET", "http://other.com/default", nil)
+	match3, ok := r.Match(req3)
+	if !ok || match3.Route.Name != "default_route" {
+		t.Errorf("expected default_route, got %v, ok=%v", match3, ok)
+	}
+
+	if r.RouteCount() != 3 {
+		t.Errorf("expected 3 routes, got %d", r.RouteCount())
+	}
+}
+
+func TestSwap_ThenRemoveRoute(t *testing.T) {
+	r := NewRouter()
+
+	newRoutes := []*Route{
+		{
+			Name:        "route_a",
+			Path:        "/a",
+			BackendPool: "pool",
+		},
+		{
+			Name:        "route_b",
+			Path:        "/b",
+			BackendPool: "pool",
+		},
+	}
+
+	if err := r.Swap(newRoutes); err != nil {
+		t.Fatalf("Swap failed: %v", err)
+	}
+
+	// Remove one route after swap
+	r.RemoveRoute("route_a")
+
+	if r.RouteCount() != 1 {
+		t.Errorf("expected 1 route after removal, got %d", r.RouteCount())
+	}
+
+	req, _ := http.NewRequest("GET", "http://example.com/a", nil)
+	_, ok := r.Match(req)
+	if ok {
+		t.Error("route_a should be gone after removal")
+	}
+
+	req2, _ := http.NewRequest("GET", "http://example.com/b", nil)
+	match2, ok := r.Match(req2)
+	if !ok || match2.Route.Name != "route_b" {
+		t.Error("route_b should still exist")
+	}
+}
+
+func TestRemoveRoute_WildcardHost(t *testing.T) {
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "wildcard_route",
+		Host:        "*.example.com",
+		Path:        "/api",
+		BackendPool: "pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	r.RemoveRoute("wildcard_route")
+
+	if r.RouteCount() != 0 {
+		t.Errorf("expected 0 routes, got %d", r.RouteCount())
+	}
+}
+
+func TestRemoveRoute_DefaultHost(t *testing.T) {
+	r := NewRouter()
+
+	route := &Route{
+		Name:        "default_route",
+		Path:        "/default",
+		BackendPool: "pool",
+	}
+	if err := r.AddRoute(route); err != nil {
+		t.Fatalf("failed to add route: %v", err)
+	}
+
+	r.RemoveRoute("default_route")
+
+	if r.RouteCount() != 0 {
+		t.Errorf("expected 0 routes, got %d", r.RouteCount())
+	}
+
+	req, _ := http.NewRequest("GET", "http://example.com/default", nil)
+	_, ok := r.Match(req)
+	if ok {
+		t.Error("route should be gone after removal")
+	}
+}

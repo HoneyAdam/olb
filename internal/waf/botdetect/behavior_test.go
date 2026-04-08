@@ -1,6 +1,7 @@
 package botdetect
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -172,6 +173,187 @@ func TestTimingStdDev_VariableTiming(t *testing.T) {
 	// Variable timing should produce non-trivial stddev
 	if result == 0 {
 		t.Error("expected non-zero stddev for variable timing")
+	}
+}
+
+func TestBehaviorTracker_Cleanup(t *testing.T) {
+	bt := NewBehaviorTracker(BehaviorConfig{
+		Window: 100 * time.Millisecond,
+	})
+	defer bt.Stop()
+
+	// Record a request for an IP
+	bt.Record("9.9.9.9", "/page", 200)
+
+	// Verify it exists
+	bt.mu.RLock()
+	_, ok := bt.windows["9.9.9.9"]
+	bt.mu.RUnlock()
+	if !ok {
+		t.Fatal("expected IP to be tracked before cleanup")
+	}
+
+	// Call cleanup directly after the window has expired
+	// The window*2 cutoff is used for cleanup, so we need to wait beyond that
+	time.Sleep(250 * time.Millisecond)
+
+	bt.cleanup()
+
+	// After cleanup, the old entry should be removed
+	bt.mu.RLock()
+	_, ok = bt.windows["9.9.9.9"]
+	bt.mu.RUnlock()
+	if ok {
+		t.Error("expected IP to be cleaned up after window*2 expiry")
+	}
+}
+
+func TestBehaviorTracker_MachineTiming(t *testing.T) {
+	bt := NewBehaviorTracker(BehaviorConfig{
+		Window:             5 * time.Minute,
+		RPSThreshold:       10,
+		ErrorRateThreshold: 90, // high so error rate doesn't trigger
+	})
+	defer bt.Stop()
+
+	ip := "7.7.7.7"
+	// Record requests with machine-like timing (very precise intervals with tiny jitter)
+	// Need >5 requests with stddev < 10ms and stddev > 0
+	// Perfectly uniform intervals have stddev=0, which the code skips (requires stddev > 0)
+	// So we add 1ms jitter to keep stddev very small but nonzero
+	base := time.Now()
+	jitter := []time.Duration{0, 1 * time.Millisecond, 0, 1 * time.Millisecond, 0, 1 * time.Millisecond, 0, 1 * time.Millisecond}
+	for i := 0; i < 8; i++ {
+		rec := requestRecord{
+			timestamp: base.Add(time.Duration(i)*5*time.Millisecond + jitter[i]),
+			path:      fmt.Sprintf("/page%d", i),
+			status:    200,
+		}
+		bt.mu.Lock()
+		w, ok := bt.windows[ip]
+		if !ok {
+			w = &ipWindow{uniquePaths: make(map[string]bool)}
+			bt.windows[ip] = w
+		}
+		w.requests = append(w.requests, rec)
+		w.uniquePaths[rec.path] = true
+		w.lastSeen = rec.timestamp
+		bt.mu.Unlock()
+	}
+
+	result := bt.Analyze(ip)
+	if result.Rule != "machine_timing" {
+		t.Errorf("expected rule 'machine_timing', got %q (score=%d, details=%q)", result.Rule, result.Score, result.Details)
+	}
+	if result.Score != 60 {
+		t.Errorf("expected score 60 for machine timing, got %d", result.Score)
+	}
+}
+
+func TestBehaviorTracker_AnalyzeTrimmedWindow(t *testing.T) {
+	bt := NewBehaviorTracker(BehaviorConfig{
+		Window:             50 * time.Millisecond,
+		RPSThreshold:       10,
+		ErrorRateThreshold: 90,
+	})
+	defer bt.Stop()
+
+	ip := "8.8.8.8"
+	// Record old requests that will be outside the window
+	now := time.Now()
+	bt.mu.Lock()
+	w := &ipWindow{uniquePaths: make(map[string]bool)}
+	// Old requests (outside window)
+	for i := 0; i < 5; i++ {
+		w.requests = append(w.requests, requestRecord{
+			timestamp: now.Add(-200 * time.Millisecond),
+			path:      "/old",
+			status:    200,
+		})
+	}
+	w.uniquePaths["/old"] = true
+	w.lastSeen = now
+	bt.windows[ip] = w
+	bt.mu.Unlock()
+
+	// Should return empty because all requests are outside the window
+	result := bt.Analyze(ip)
+	if result.Score != 0 {
+		t.Errorf("expected score 0 for all-out-of-window requests, got %d", result.Score)
+	}
+}
+
+func TestBehaviorTracker_RecordSamePathTwice(t *testing.T) {
+	bt := NewBehaviorTracker(BehaviorConfig{
+		Window: 5 * time.Minute,
+	})
+	defer bt.Stop()
+
+	ip := "6.6.6.6"
+	bt.Record(ip, "/same", 200)
+	bt.Record(ip, "/same", 200)
+	bt.Record(ip, "/same", 200)
+
+	bt.mu.RLock()
+	w := bt.windows[ip]
+	totalReqs := len(w.requests)
+	uniquePaths := len(w.uniquePaths)
+	bt.mu.RUnlock()
+
+	if totalReqs != 3 {
+		t.Errorf("expected 3 requests, got %d", totalReqs)
+	}
+	if uniquePaths != 1 {
+		t.Errorf("expected 1 unique path, got %d", uniquePaths)
+	}
+}
+
+func TestBehaviorTracker_RecordErrorStatus(t *testing.T) {
+	bt := NewBehaviorTracker(BehaviorConfig{
+		Window: 5 * time.Minute,
+	})
+	defer bt.Stop()
+
+	ip := "4.4.4.4"
+	bt.Record(ip, "/ok", 200)
+	bt.Record(ip, "/notfound", 404)
+	bt.Record(ip, "/servererror", 500)
+	bt.Record(ip, "/badreq", 400)
+
+	bt.mu.RLock()
+	w := bt.windows[ip]
+	errorCount := w.errorCount
+	bt.mu.RUnlock()
+
+	if errorCount != 3 {
+		t.Errorf("expected 3 error statuses (404, 500, 400), got %d", errorCount)
+	}
+}
+
+func TestTimingStdDev_AllZeroIntervals(t *testing.T) {
+	now := time.Now()
+	requests := []requestRecord{
+		{timestamp: now},
+		{timestamp: now},
+		{timestamp: now},
+	}
+	result := timingStdDev(requests)
+	if result != 0 {
+		t.Errorf("expected 0 for identical timestamps (all zero intervals), got %v", result)
+	}
+}
+
+func TestTimingStdDev_TwoIdenticalIntervals(t *testing.T) {
+	now := time.Now()
+	requests := []requestRecord{
+		{timestamp: now},
+		{timestamp: now.Add(100 * time.Millisecond)},
+		{timestamp: now.Add(200 * time.Millisecond)},
+	}
+	result := timingStdDev(requests)
+	// Perfectly uniform intervals, stddev should be 0
+	if result != 0 {
+		t.Errorf("expected 0 for perfectly uniform intervals, got %v", result)
 	}
 }
 

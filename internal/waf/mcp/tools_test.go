@@ -1,8 +1,10 @@
 package wafmcp
 
 import (
+	"reflect"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/openloadbalancer/olb/internal/config"
 	"github.com/openloadbalancer/olb/internal/mcp"
@@ -394,9 +396,83 @@ func TestWAFGetAttackTimeline_WithMinutes(t *testing.T) {
 	}
 }
 
+// setNilAnalytics uses unsafe+reflect to set the unexported analytics field to nil for testing.
+func setNilAnalytics(t *testing.T, mw *waf.WAFMiddleware) {
+	t.Helper()
+	v := reflect.ValueOf(mw).Elem()
+	f := v.FieldByName("analytics")
+	if !f.IsValid() {
+		t.Fatal("analytics field not found on WAFMiddleware")
+	}
+	fPtr := unsafe.Pointer(f.UnsafeAddr())
+	*(*unsafe.Pointer)(fPtr) = nil
+}
+
+func TestWAFGetStats_NilAnalytics(t *testing.T) {
+	server := newTestServer()
+	mw := newTestWAFMiddleware(t)
+	defer mw.Stop()
+	setNilAnalytics(t, mw)
+	RegisterTools(server, mw)
+
+	resp := callTool(t, server, "waf_get_stats", `{}`)
+	if !containsStr(resp, "analytics not available") {
+		t.Errorf("expected 'analytics not available' error, got: %s", resp)
+	}
+}
+
+func TestWAFGetTopBlockedIPs_NilAnalytics(t *testing.T) {
+	server := newTestServer()
+	mw := newTestWAFMiddleware(t)
+	defer mw.Stop()
+	setNilAnalytics(t, mw)
+	RegisterTools(server, mw)
+
+	resp := callTool(t, server, "waf_get_top_blocked_ips", `{}`)
+	if !containsStr(resp, "analytics not available") {
+		t.Errorf("expected 'analytics not available' error, got: %s", resp)
+	}
+}
+
+func TestWAFGetAttackTimeline_NilAnalytics(t *testing.T) {
+	server := newTestServer()
+	mw := newTestWAFMiddleware(t)
+	defer mw.Stop()
+	setNilAnalytics(t, mw)
+	RegisterTools(server, mw)
+
+	resp := callTool(t, server, "waf_get_attack_timeline", `{}`)
+	if !containsStr(resp, "analytics not available") {
+		t.Errorf("expected 'analytics not available' error, got: %s", resp)
+	}
+}
+
+func TestWAFAddWhitelist_InvalidCIDR(t *testing.T) {
+	server := newTestServer()
+	mw := newTestWAFMiddleware(t)
+	defer mw.Stop()
+	RegisterTools(server, mw)
+
+	resp := callTool(t, server, "waf_add_whitelist", `{"cidr":"not-a-valid-cidr","reason":"test"}`)
+	if !containsStr(resp, "isError") {
+		t.Errorf("expected error for invalid CIDR, got: %s", resp)
+	}
+}
+
+func TestWAFAddBlacklist_InvalidCIDR(t *testing.T) {
+	server := newTestServer()
+	mw := newTestWAFMiddleware(t)
+	defer mw.Stop()
+	RegisterTools(server, mw)
+
+	resp := callTool(t, server, "waf_add_blacklist", `{"cidr":"not-a-valid-cidr","reason":"test"}`)
+	if !containsStr(resp, "isError") {
+		t.Errorf("expected error for invalid CIDR, got: %s", resp)
+	}
+}
+
 func TestWAFGetStats_NoAnalytics(t *testing.T) {
-	// WAFMiddleware always has analytics, but test the nil guard with a direct handler call
-	// by creating a middleware without analytics wouldn't be possible, so we test the normal path
+	// Test normal path (analytics present) - already covered but kept for completeness
 	server := newTestServer()
 	mw := newTestWAFMiddleware(t)
 	defer mw.Stop()

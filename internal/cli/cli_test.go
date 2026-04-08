@@ -1104,3 +1104,104 @@ func TestCLI_Run_GlobalFlagParseError(t *testing.T) {
 		t.Error("expected error for invalid global flag")
 	}
 }
+
+// TestParseArgs_GlobalFlagsBeforeCommand tests ParseArgs skipping global flags
+func TestParseArgs_GlobalFlagsBeforeCommand(t *testing.T) {
+	args, err := ParseArgs([]string{"--format", "json", "start", "--port", "8080"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if args.Command != "start" {
+		t.Errorf("expected command 'start', got %q", args.Command)
+	}
+}
+
+// TestParseArgs_ShortFlagsBeforeCommand tests ParseArgs skipping short global flags
+func TestParseArgs_ShortFlagsBeforeCommand(t *testing.T) {
+	args, err := ParseArgs([]string{"-f=json", "run", "sub1", "--verbose"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if args.Command != "run" {
+		t.Errorf("expected command 'run', got %q", args.Command)
+	}
+	if args.Subcommand != "sub1" {
+		t.Errorf("expected subcommand 'sub1', got %q", args.Subcommand)
+	}
+}
+
+// TestParseArgs_FlagWithValueBeforeCommand tests ParseArgs skipping --flag value before command
+func TestParseArgs_FlagWithValueBeforeCommand(t *testing.T) {
+	// --output=dir starts with --, has =, so i++ only; then "deploy" is the command
+	args, err := ParseArgs([]string{"--output=dir", "deploy", "web", "--verbose"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if args.Command != "deploy" {
+		t.Errorf("expected command 'deploy', got %q", args.Command)
+	}
+	if args.Subcommand != "web" {
+		t.Errorf("expected subcommand 'web', got %q", args.Subcommand)
+	}
+	if args.Flags["verbose"] != "true" {
+		t.Errorf("expected verbose=true, got %q", args.Flags["verbose"])
+	}
+}
+
+// TestParseArgs_ShortFlagWithValueBeforeCommand tests ParseArgs skipping -f=val before command
+func TestParseArgs_ShortFlagWithValueBeforeCommand(t *testing.T) {
+	args, err := ParseArgs([]string{"-n=3", "run"})
+	if err != nil {
+		t.Fatalf("ParseArgs failed: %v", err)
+	}
+	if args.Command != "run" {
+		t.Errorf("expected command 'run', got %q", args.Command)
+	}
+}
+
+// TestParseGlobalFlags_FormatShortEqual tests -f=json format
+func TestParseGlobalFlags_FormatShortEqual(t *testing.T) {
+	globals, remaining, err := ParseGlobalFlags([]string{"-f=json"})
+	if err != nil {
+		t.Fatalf("ParseGlobalFlags failed: %v", err)
+	}
+	if globals.Format != "json" {
+		t.Errorf("expected format 'json', got %q", globals.Format)
+	}
+	if len(remaining) != 0 {
+		t.Errorf("expected no remaining args, got %v", remaining)
+	}
+}
+
+// TestParseGlobalFlags_FormatShortInvalid tests -f with invalid format value
+func TestParseGlobalFlags_FormatShortInvalid(t *testing.T) {
+	_, _, err := ParseGlobalFlags([]string{"-f", "xml"})
+	if err == nil {
+		t.Error("expected error for invalid format with -f")
+	}
+	if !strings.Contains(err.Error(), "invalid format") {
+		t.Errorf("expected 'invalid format' error, got %v", err)
+	}
+}
+
+// TestParseGlobalFlags_FormatShortMissingValue tests -f without value
+func TestParseGlobalFlags_FormatShortMissingValue(t *testing.T) {
+	_, _, err := ParseGlobalFlags([]string{"-f"})
+	if err == nil {
+		t.Error("expected error for -f without value")
+	}
+	if !strings.Contains(err.Error(), "-f requires a value") {
+		t.Errorf("expected '-f requires a value' error, got %v", err)
+	}
+}
+
+// TestParseGlobalFlags_FormatLongInvalid tests --format with invalid value
+func TestParseGlobalFlags_FormatLongInvalid(t *testing.T) {
+	_, _, err := ParseGlobalFlags([]string{"--format", "xml"})
+	if err == nil {
+		t.Error("expected error for invalid format with --format")
+	}
+	if !strings.Contains(err.Error(), "invalid format") {
+		t.Errorf("expected 'invalid format' error, got %v", err)
+	}
+}

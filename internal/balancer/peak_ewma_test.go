@@ -255,6 +255,66 @@ func BenchmarkPeakEWMA_Concurrent(b *testing.B) {
 	})
 }
 
+func TestPeakEWMA_AllDown(t *testing.T) {
+	p := NewPeakEWMA()
+
+	be1 := backend.NewBackend("be1", "10.0.0.1:8080")
+	be2 := backend.NewBackend("be2", "10.0.0.2:8080")
+	be1.SetState(backend.StateDown)
+	be2.SetState(backend.StateDown)
+
+	backends := []*backend.Backend{be1, be2}
+
+	// All down: should fall back to first backend
+	result := p.Next(backends)
+	if result == nil {
+		t.Fatal("Next() with all down should fall back to first backend")
+	}
+	if result.ID != "be1" {
+		t.Errorf("Next() with all down = %v, want be1 (fallback)", result.ID)
+	}
+}
+
+func TestPeakEWMA_Record_NewBackend(t *testing.T) {
+	p := NewPeakEWMA()
+
+	// Record for a backend that wasn't added first
+	p.Record("new-be", 50*time.Millisecond, true)
+
+	stats := p.Stats()
+	if _, ok := stats["new-be"]; !ok {
+		t.Error("Record() should create sample for new backend")
+	}
+}
+
+func TestPeakEWMA_Record_HigherLatency(t *testing.T) {
+	p := NewPeakEWMA()
+
+	// Record a low latency first
+	p.Record("be1", 10*time.Millisecond, true)
+
+	// Record a higher latency - should become the new peak
+	p.Record("be1", 100*time.Millisecond, true)
+
+	stats := p.Stats()
+	be1Stats := stats["be1"]
+	peakMs := be1Stats["peak_latency_ms"].(float64)
+	// Peak should be close to 100ms (with decay)
+	if peakMs < 50 {
+		t.Errorf("Peak latency too low: %.2fms, expected ~100ms", peakMs)
+	}
+}
+
+func TestPeakEWMA_Score_NewBackend(t *testing.T) {
+	p := NewPeakEWMA()
+	now := time.Now()
+	score := p.score("unknown-be", now)
+	// New backend gets initial score of 1e6
+	if score != 1e6 {
+		t.Errorf("score for unknown backend = %v, want 1e6", score)
+	}
+}
+
 func TestPeakEWMA_Stats(t *testing.T) {
 	p := NewPeakEWMA()
 

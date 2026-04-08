@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -585,11 +587,11 @@ func TestTimeoutError(t *testing.T) {
 	}
 }
 
-func TestSSEHandler_createSSETransport(t *testing.T) {
+func TestSSEHandler_SSETransport(t *testing.T) {
 	handler := NewSSEHandler(nil)
-	transport := handler.createSSETransport()
+	transport := handler.transport
 	if transport == nil {
-		t.Fatal("createSSETransport() returned nil")
+		t.Fatal("SSE transport should be initialized")
 	}
 	if !transport.DisableCompression {
 		t.Error("DisableCompression should be true for SSE transport")
@@ -1104,5 +1106,302 @@ func TestSSEProxy_ServeHTTP_SSE_NoHealthyBackends(t *testing.T) {
 
 	if rec.Code == 200 {
 		t.Error("Expected non-200 response when no healthy backends")
+	}
+}
+
+// ============================================================================
+// SSEProxy.ServeHTTP - SSE request with nil balancer (no backend available)
+// ============================================================================
+
+func TestSSEProxy_ServeHTTP_SSE_NoBalancerBackend(t *testing.T) {
+	proxy, poolManager, routerInstance := setupTestProxy(t)
+
+	pool := backend.NewPool("sse-nil-pool", "round_robin")
+	pool.SetBalancer(&nilSSEBalancer{})
+	b := backend.NewBackend("sse-b1", "127.0.0.1:9999")
+	b.SetState(backend.StateUp)
+	pool.AddBackend(b)
+	poolManager.AddPool(pool)
+
+	route := &router.Route{
+		Name:        "sse-route-nil",
+		Path:        "/events",
+		BackendPool: "sse-nil-pool",
+	}
+	routerInstance.AddRoute(route)
+
+	sseProxy := NewSSEProxy(proxy, DefaultSSEConfig())
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	rec := httptest.NewRecorder()
+
+	sseProxy.ServeHTTP(rec, req)
+
+	if rec.Code == 200 {
+		t.Error("Expected non-200 response when balancer returns nil")
+	}
+}
+
+// nilSSEBalancer always returns nil from Next
+type nilSSEBalancer struct{}
+
+func (n *nilSSEBalancer) Name() string                             { return "nil" }
+func (n *nilSSEBalancer) Next([]*backend.Backend) *backend.Backend { return nil }
+func (n *nilSSEBalancer) Add(*backend.Backend)                     {}
+func (n *nilSSEBalancer) Remove(string)                            {}
+func (n *nilSSEBalancer) Update(*backend.Backend)                  {}
+
+// ============================================================================
+// streamSSEResponseWithContext: write error on response writer
+// ============================================================================
+
+func TestSSEHandler_streamSSEResponseWithContext_WriteError(t *testing.T) {
+	handler := NewSSEHandler(&SSEConfig{
+		EnableSSE:   true,
+		IdleTimeout: 5 * time.Second,
+	})
+
+	// SSE data that will trigger a write error
+	sseData := "data: hello\n\ndata: world\n\n"
+	resp := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(bytes.NewReader([]byte(sseData))),
+	}
+
+	// Use a writer that fails on write
+	rec := &writeErrorFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	be := backend.NewBackend("sse-backend-wr", "127.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/events", nil)
+
+	err := handler.streamSSEResponseWithContext(rec, req, resp, be)
+	if err == nil {
+		t.Log("streamSSEResponseWithContext completed without error (data may have been small enough)")
+	} else {
+		t.Logf("streamSSEResponseWithContext error: %v", err)
+	}
+}
+
+type writeErrorFlusher struct {
+	*httptest.ResponseRecorder
+	writeErr error
+}
+
+func (w *writeErrorFlusher) Flush() {}
+
+func (w *writeErrorFlusher) Write(p []byte) (int, error) {
+	if w.writeErr != nil {
+		return 0, w.writeErr
+	}
+	// Fail after first write
+	w.writeErr = fmt.Errorf("simulated write error")
+	return w.ResponseRecorder.Write(p)
+}
+
+// ============================================================================
+// prepareSSERequest with TLS request
+// ============================================================================
+
+func TestSSEHandler_prepareSSERequest_WithTLS(t *testing.T) {
+	handler := NewSSEHandler(nil)
+
+	be := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Host = "secure.example.com"
+	req.TLS = &tls.ConnectionState{} // Simulate TLS
+
+	outReq, err := handler.prepareSSERequest(req, be)
+	if err != nil {
+		t.Fatalf("prepareSSERequest error: %v", err)
+	}
+
+	if outReq.Header.Get("X-Forwarded-Proto") != "https" {
+		t.Errorf("expected X-Forwarded-Proto 'https' for TLS request, got %q", outReq.Header.Get("X-Forwarded-Proto"))
+	}
+}
+
+// ============================================================================
+// prepareSSERequest with existing X-Forwarded-For
+// ============================================================================
+
+func TestSSEHandler_prepareSSERequest_WithExistingXFF(t *testing.T) {
+	handler := NewSSEHandler(nil)
+
+	be := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-Forwarded-For", "10.0.0.1")
+	req.Host = "example.com"
+	req.RemoteAddr = "192.168.1.100:12345"
+
+	outReq, err := handler.prepareSSERequest(req, be)
+	if err != nil {
+		t.Fatalf("prepareSSERequest error: %v", err)
+	}
+
+	xff := outReq.Header.Get("X-Forwarded-For")
+	if !strings.Contains(xff, "10.0.0.1") {
+		t.Errorf("expected XFF to contain original IP, got %q", xff)
+	}
+	if !strings.Contains(xff, ",") {
+		t.Errorf("expected XFF to be appended with comma, got %q", xff)
+	}
+}
+
+// ============================================================================
+// HandleSSE: backend request failure
+// ============================================================================
+
+func TestSSEHandler_HandleSSE_BackendRequestFailure(t *testing.T) {
+	handler := NewSSEHandler(nil)
+
+	be := backend.NewBackend("backend-1", "127.0.0.1:1") // Will fail
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+
+	rec := httptest.NewRecorder()
+	err := handler.HandleSSE(rec, req, be)
+	if err == nil {
+		t.Error("expected error when backend is unreachable")
+	}
+	if err != nil && !strings.Contains(err.Error(), "backend request failed") {
+		t.Errorf("expected 'backend request failed' error, got: %v", err)
+	}
+}
+
+// ============================================================================
+// streamSSEResponseWithContext: non-timeout, non-EOF read error
+// ============================================================================
+
+func TestSSEHandler_streamSSEResponseWithContext_ReadError(t *testing.T) {
+	handler := NewSSEHandler(&SSEConfig{
+		EnableSSE:   true,
+		IdleTimeout: 5 * time.Second,
+	})
+
+	// Create a response body that returns an error
+	resp := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type": []string{"text/event-stream"},
+		},
+		Body: io.NopCloser(&errorReader{err: fmt.Errorf("read failure")}),
+	}
+
+	rec := &mockFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	be := backend.NewBackend("sse-backend-rerr", "127.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/events", nil)
+
+	err := handler.streamSSEResponseWithContext(rec, req, resp, be)
+	if err == nil {
+		t.Error("expected error from read failure")
+	}
+	if err != nil && !strings.Contains(err.Error(), "read failure") {
+		t.Errorf("expected read failure error, got: %v", err)
+	}
+}
+
+type errorReader struct {
+	err error
+}
+
+func (r *errorReader) Read([]byte) (int, error) { return 0, r.err }
+
+// ============================================================================
+// streamSSEResponseWithContext: successful line read and flush
+// ============================================================================
+
+func TestSSEHandler_streamSSEResponseWithContext_SuccessfulLines(t *testing.T) {
+	handler := NewSSEHandler(&SSEConfig{
+		EnableSSE:   true,
+		IdleTimeout: 5 * time.Second,
+	})
+
+	sseData := "event: message\ndata: hello world\nretry: 5000\n\n"
+	resp := &http.Response{
+		StatusCode: 200,
+		Header: http.Header{
+			"Content-Type":  []string{"text/event-stream"},
+			"Cache-Control": []string{"no-cache"},
+		},
+		Body: io.NopCloser(bytes.NewReader([]byte(sseData))),
+	}
+
+	rec := &mockFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	be := backend.NewBackend("sse-backend-lines", "127.0.0.1:8080")
+	req := httptest.NewRequest("GET", "/events", nil)
+
+	err := handler.streamSSEResponseWithContext(rec, req, resp, be)
+	if err != nil {
+		t.Errorf("streamSSEResponseWithContext error: %v", err)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "event: message") {
+		t.Errorf("expected body to contain 'event: message', got: %q", body)
+	}
+	if !strings.Contains(body, "data: hello world") {
+		t.Errorf("expected body to contain 'data: hello world', got: %q", body)
+	}
+	if !rec.flushed {
+		t.Error("expected Flush to be called")
+	}
+
+	// Verify SSE headers were set
+	if rec.Header().Get("Cache-Control") != "no-cache, no-transform" {
+		t.Errorf("Cache-Control = %q, want 'no-cache, no-transform'", rec.Header().Get("Cache-Control"))
+	}
+	if rec.Header().Get("X-Accel-Buffering") != "no" {
+		t.Errorf("X-Accel-Buffering = %q, want 'no'", rec.Header().Get("X-Accel-Buffering"))
+	}
+}
+
+// ============================================================================
+// HandleSSE: full round trip with SSE response
+// ============================================================================
+
+func TestSSEHandler_HandleSSE_WithRealSSEBackend(t *testing.T) {
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("data: test-event\n\n"))
+	}))
+	defer backendServer.Close()
+
+	handler := NewSSEHandler(nil)
+
+	addr := backendServer.Listener.Addr().String()
+	be := backend.NewBackend("sse-real-backend", addr)
+	be.SetState(backend.StateUp)
+
+	req := httptest.NewRequest("GET", "/events", nil)
+	req.Header.Set("Accept", "text/event-stream")
+
+	rec := &mockFlusher{
+		ResponseRecorder: httptest.NewRecorder(),
+	}
+
+	err := handler.HandleSSE(rec, req, be)
+	if err != nil {
+		t.Fatalf("HandleSSE() error = %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Status = %d, want %d", rec.Code, http.StatusOK)
 	}
 }

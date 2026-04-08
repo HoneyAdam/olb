@@ -2663,3 +2663,810 @@ a.b = 1
 
 // Ensure reflect is used (compiler sometimes complains if not referenced)
 var _ = reflect.TypeOf(nil)
+
+// ---------------------------------------------------------------------------
+// Coverage: Lexer.peek edge cases
+// ---------------------------------------------------------------------------
+
+func TestLexer_Peek_OutOfBounds(t *testing.T) {
+	l := &Lexer{input: []rune("hi"), pos: 0}
+	if l.peek(0) != 'h' {
+		t.Errorf("peek(0) = %c, want 'h'", l.peek(0))
+	}
+	if l.peek(-1) != 0 {
+		t.Errorf("peek(-1) = %c, want 0", l.peek(-1))
+	}
+	if l.peek(10) != 0 {
+		t.Errorf("peek(10) = %c, want 0", l.peek(10))
+	}
+}
+
+func TestLexer_Peek_EmptyInput(t *testing.T) {
+	l := &Lexer{input: []rune(""), pos: 0}
+	if l.peek(0) != 0 {
+		t.Errorf("peek(0) on empty = %c, want 0", l.peek(0))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parser.current at EOF
+// ---------------------------------------------------------------------------
+
+func TestParser_Current_EOF(t *testing.T) {
+	p := &parser{tokens: []Token{}, pos: 0}
+	tok := p.current()
+	if tok.Type != tokenEOF {
+		t.Errorf("current() on empty = %v, want tokenEOF", tok.Type)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: isInteger edge cases
+// ---------------------------------------------------------------------------
+
+func TestIsInteger_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"", false},      // empty
+		{"_", false},     // just underscore -> clean="" -> false
+		{"+", false},     // sign only -> clean="" -> false
+		{"-", false},     // sign only -> clean="" -> false
+		{"0x", false},    // hex prefix only -> hex="" -> false
+		{"0o", false},    // octal prefix only -> oct="" -> false
+		{"0b", false},    // binary prefix only -> bin="" -> false
+		{"0xGG", false},  // invalid hex
+		{"0o89", false},  // invalid octal
+		{"0b123", false}, // invalid binary
+		{"42", true},     // valid decimal
+		{"0xFF", true},   // valid hex
+		{"0o77", true},   // valid octal
+		{"0b1010", true}, // valid binary
+		{"+42", true},    // signed decimal
+		{"-17", true},    // negative decimal
+		{"1_000", true},  // underscore decimal
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := isInteger(tt.input)
+			if got != tt.want {
+				t.Errorf("isInteger(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: isNumberStart edge cases
+// ---------------------------------------------------------------------------
+
+func TestIsNumberStart_EdgeCases(t *testing.T) {
+	if isNumberStart("") {
+		t.Error("isNumberStart('') should be false")
+	}
+	if !isNumberStart("+42") {
+		t.Error("isNumberStart('+42') should be true")
+	}
+	if !isNumberStart("-1") {
+		t.Error("isNumberStart('-1') should be true")
+	}
+	if !isNumberStart("0") {
+		t.Error("isNumberStart('0') should be true")
+	}
+	if isNumberStart("abc") {
+		t.Error("isNumberStart('abc') should be false")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: isFloat edge cases
+// ---------------------------------------------------------------------------
+
+func TestIsFloat_EdgeCases(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"", false},
+		{"inf", true},
+		{"+inf", true},
+		{"-inf", true},
+		{"nan", true},
+		{"+nan", true},
+		{"-nan", true},
+		{"3.14", true},
+		{"1e5", true},
+		{"1E5", true},
+		{"42", false}, // no dot or e/E
+		{"abc", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := isFloat(tt.input)
+			if got != tt.want {
+				t.Errorf("isFloat(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: isValidBareKey edge cases
+// ---------------------------------------------------------------------------
+
+func TestIsValidBareKey_EdgeCases(t *testing.T) {
+	if isValidBareKey("") {
+		t.Error("empty string should not be valid bare key")
+	}
+	if isValidBareKey("a b") {
+		t.Error("key with space should not be valid")
+	}
+	if !isValidBareKey("a-b") {
+		t.Error("'a-b' should be valid (hyphen is allowed)")
+	}
+	if !isValidBareKey("key_123") {
+		t.Error("'key_123' should be valid")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeScalar - TextUnmarshaler
+// ---------------------------------------------------------------------------
+
+type textUnmarshalerType struct {
+	Value string
+}
+
+func (t *textUnmarshalerType) UnmarshalText(data []byte) error {
+	t.Value = string(data)
+	return nil
+}
+
+func TestDecodeScalar_TextUnmarshaler(t *testing.T) {
+	input := `val = "hello"`
+	type Cfg struct {
+		Val textUnmarshalerType `toml:"val"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Val.Value != "hello" {
+		t.Errorf("Val.Value = %q, want %q", cfg.Val.Value, "hello")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeScalar - pointer TextUnmarshaler
+// ---------------------------------------------------------------------------
+
+func TestDecodeScalar_PointerTextUnmarshaler(t *testing.T) {
+	input := `val = "world"`
+	type Cfg struct {
+		Val *textUnmarshalerType `toml:"val"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Val == nil {
+		t.Fatal("Val should not be nil")
+	}
+	if cfg.Val.Value != "world" {
+		t.Errorf("Val.Value = %q, want %q", cfg.Val.Value, "world")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeScalar - unsupported type from string
+// ---------------------------------------------------------------------------
+
+func TestDecodeScalar_UnsupportedStringTarget(t *testing.T) {
+	input := `val = "test"`
+	type Cfg struct {
+		Val []int `toml:"val"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding string into []int")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: ensureTable - through array of tables intermediate
+// ---------------------------------------------------------------------------
+
+func TestEnsureTable_ArrayIntermediate(t *testing.T) {
+	// Parse a TOML where a table header follows an array of tables,
+	// testing the ensureTable path where an intermediate is an []any.
+	input := `
+[[items]]
+name = "a"
+
+[items.sub]
+key = "val"
+`
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := result["items"].([]any)
+	item := items[0].(map[string]any)
+	sub := item["sub"].(map[string]any)
+	if sub["key"] != "val" {
+		t.Errorf("key = %v, want val", sub["key"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseSingleKey - quoted keys and numeric keys
+// ---------------------------------------------------------------------------
+
+func TestParseSingleKey_QuotedAndNumeric(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		key   string
+		val   any
+	}{
+		{"basic string key", `"my key" = 1`, "my key", int64(1)},
+		{"literal string key", `'my-key' = 2`, "my-key", int64(2)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := mustParse(t, tt.input)
+			if m[tt.key] != tt.val {
+				t.Errorf("%s = %v, want %v", tt.key, m[tt.key], tt.val)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInlineTable - various value types
+// ---------------------------------------------------------------------------
+
+func TestParseInlineTable_VariousTypes(t *testing.T) {
+	input := `tbl = {s = "hello", n = 42, b = true, f = 3.14}`
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tbl := result["tbl"].(map[string]any)
+	if tbl["s"] != "hello" {
+		t.Errorf("s = %v", tbl["s"])
+	}
+	if tbl["n"] != int64(42) {
+		t.Errorf("n = %v", tbl["n"])
+	}
+	if tbl["b"] != true {
+		t.Errorf("b = %v", tbl["b"])
+	}
+	if tbl["f"] != 3.14 {
+		t.Errorf("f = %v", tbl["f"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInlineTable - trailing comma is allowed
+// ---------------------------------------------------------------------------
+
+func TestParseInlineTable_TrailingComma(t *testing.T) {
+	input := `tbl = {a = 1,}`
+	result, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatalf("trailing comma should be allowed: %v", err)
+	}
+	tbl := result["tbl"].(map[string]any)
+	if tbl["a"] != int64(1) {
+		t.Errorf("a = %v, want 1", tbl["a"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeGoMap - error for non-string key in map
+// ---------------------------------------------------------------------------
+
+func TestDecodeGoMap_IntKeyError(t *testing.T) {
+	// This tests decodeGoMap with non-stringable values indirectly.
+	// TOML always has string keys, so this is a happy path test.
+	input := `
+[meta]
+x = "y"
+`
+	type Cfg struct {
+		Meta map[string]string `toml:"meta"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Meta["x"] != "y" {
+		t.Errorf("x = %q, want y", cfg.Meta["x"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: readBareValue - unexpected character at end of input (raw == "")
+// ---------------------------------------------------------------------------
+
+func TestReadBareValue_UnexpectedChar(t *testing.T) {
+	// A bare '=' at the start of a line (no key before it) triggers the
+	// "unexpected character" path in readBareValue because there is no
+	// preceding bare-key token. We trigger this via parser error.
+	input := `= 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unexpected character")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: isInteger - non-digit in decimal check
+// ---------------------------------------------------------------------------
+
+func TestIsInteger_DecimalWithNonDigit(t *testing.T) {
+	tests := []struct {
+		input string
+		want  bool
+	}{
+		{"12a3", false}, // letter in decimal
+		{"+1z", false},  // letter after sign
+		{"-1!", false},  // non-alnum after sign
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := isInteger(tt.input)
+			if got != tt.want {
+				t.Errorf("isInteger(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parse - array table parse key error, missing ]] and ]
+// ---------------------------------------------------------------------------
+
+func TestParse_ArrayTableParseKeyError(t *testing.T) {
+	// [[ followed by something that cannot be a key (e.g. =)
+	input := `[[=]]` + "\n" + `x = 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid array table key")
+	}
+}
+
+func TestParse_ArrayTableMissingFirstBracket(t *testing.T) {
+	// [[key] (only one closing bracket)
+	input := `[[key]` + "\n"
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for missing second ] in array table")
+	}
+}
+
+func TestParse_ArrayTableMissingSecondBracket(t *testing.T) {
+	// [key (no closing bracket at all)
+	input := `[key` + "\n" + `x = 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for missing ] in table header")
+	}
+}
+
+func TestParse_TableParseKeyError(t *testing.T) {
+	// [ followed by = which is not a valid key
+	input := `[=]` + "\n"
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid table key")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseKey - error on first key and on dotted continuation
+// ---------------------------------------------------------------------------
+
+func TestParseKey_ErrorOnFirstKey(t *testing.T) {
+	// Dotted key starting with a non-key token after .
+	// We use: key. = 1  (dot followed by equals)
+	input := `key. = 1`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for dotted key with no second part")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseKeyValue - parseKey error propagation
+// ---------------------------------------------------------------------------
+
+func TestParseKeyValue_ParseKeyError(t *testing.T) {
+	// '=' as the very first token on a line triggers parseKey error
+	// inside parseKeyValue because it hits the default branch.
+	input := `= "val"`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for key-value without key")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseValue - unexpected token type (tokenDot as value)
+// ---------------------------------------------------------------------------
+
+func TestParseValue_UnexpectedToken(t *testing.T) {
+	// Construct a scenario where parseValue is called with a non-value token.
+	// A bare dot after = in a key-value pair triggers this.
+	input := `key = .`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for unexpected token as value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseArray - parseValue error inside array
+// ---------------------------------------------------------------------------
+
+func TestParseArray_ParseValueError(t *testing.T) {
+	// Array with a dot as element
+	input := `arr = [.]`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid value in array")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInlineTable - missing comma between entries
+// ---------------------------------------------------------------------------
+
+func TestParseInlineTable_MissingComma(t *testing.T) {
+	// Two entries without comma separator
+	input := `tbl = {a = 1 b = 2}`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for missing comma in inline table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInlineTable - parseKey error
+// ---------------------------------------------------------------------------
+
+func TestParseInlineTable_ParseKeyError(t *testing.T) {
+	// Inline table where key position has = (not a valid key token)
+	input := `tbl = {= 1}`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid key in inline table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInlineTable - missing equals sign
+// ---------------------------------------------------------------------------
+
+func TestParseInlineTable_MissingEquals(t *testing.T) {
+	// Inline table with key but no = before value
+	input := `tbl = {a 1}`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for missing = in inline table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInlineTable - parseValue error
+// ---------------------------------------------------------------------------
+
+func TestParseInlineTable_ParseValueError(t *testing.T) {
+	// Inline table where value is a dot (invalid)
+	input := `tbl = {a = .}`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for invalid value in inline table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: insertIntoMap - non-table intermediate value
+// ---------------------------------------------------------------------------
+
+func TestInsertIntoMap_NonTableIntermediate(t *testing.T) {
+	// First set a scalar, then try to use it as parent via dotted key
+	input := `
+tbl = {a = "scalar", a.b = 1}
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when dotted key overwrites scalar in inline table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: insertValue - empty array and non-map last element
+// ---------------------------------------------------------------------------
+
+func TestInsertValue_EmptyArray(t *testing.T) {
+	// This is tricky to trigger through the public API. We create a scenario
+	// where insertValue navigates through an array whose last element is not a map.
+	// Since arrays of tables always add map entries, we test via direct parser.
+	// We verify the error path by inserting a dotted key under an existing scalar.
+	input := `
+a.b = "scalar"
+a.b.c = 1
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error for dotted key under scalar value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: ensureTable - array with non-map last element
+// ---------------------------------------------------------------------------
+
+func TestEnsureTable_ArrayWithNonMapLastElement(t *testing.T) {
+	// Trigger ensureTable where intermediate is an array whose last element
+	// is not a map. This is hard to trigger via normal TOML, but we can test
+	// by using the parser internals indirectly.
+	// Since the parser always creates maps for array entries, we instead
+	// verify the error path for ensureTable where key has non-table value.
+	input := `
+val = 42
+
+[val.sub]
+x = 1
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when defining sub-table under scalar")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: ensureArrayTable - non-table intermediate
+// ---------------------------------------------------------------------------
+
+func TestEnsureArrayTable_NonTableIntermediate(t *testing.T) {
+	// Define a scalar first, then try to use it as parent for [[scalar.x]]
+	input := `
+a = "str"
+
+[[a.items]]
+x = 1
+`
+	_, err := Parse([]byte(input))
+	if err == nil {
+		t.Error("expected error when array table parent is non-table")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInteger - invalid integer error wrapping
+// ---------------------------------------------------------------------------
+
+func TestParseInteger_InvalidValue(t *testing.T) {
+	_, err := parseInteger("0x") // hex prefix with no digits after underscore removal
+	if err == nil {
+		t.Error("expected error for invalid hex integer")
+	}
+	if !strings.Contains(err.Error(), "invalid integer") {
+		t.Errorf("error should mention 'invalid integer', got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: Decode - Parse error propagation
+// ---------------------------------------------------------------------------
+
+func TestDecode_ParseError(t *testing.T) {
+	type Cfg struct {
+		Name string `toml:"name"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(`name = "unterminated`), &cfg)
+	if err == nil {
+		t.Error("expected error for parse failure in Decode")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeValue - nil source
+// ---------------------------------------------------------------------------
+
+func TestDecodeValue_NilSource(t *testing.T) {
+	// decodeValue with nil src should return nil error
+	var s string
+	err := decodeValue(nil, reflect.ValueOf(&s).Elem())
+	if err != nil {
+		t.Errorf("expected nil error for nil source, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeValue - default case (fallback to string)
+// ---------------------------------------------------------------------------
+
+func TestDecodeValue_DefaultFallback(t *testing.T) {
+	// Create a TOML with a value that decodes to a type not in the switch.
+	// Datetime values are stored as strings, so they hit the string case.
+	// To hit the default case, we need a non-standard type in the map.
+	// We can construct this indirectly: use Parse and then manually inject.
+	// Actually, the default case is hit when src is not one of the known types.
+	// All TOML values parse to string/int64/float64/bool/map/slice, so
+	// the default case is only reachable if someone manually constructs a map
+	// with unusual types. Let's test that.
+
+	// We use reflect to set up a map with a non-standard Go type as value.
+	m := map[string]any{
+		"val": complex(1, 2), // complex128 is not in the decodeValue switch
+	}
+	var result struct {
+		Val string `toml:"val"`
+	}
+	err := decodeValue(m, reflect.ValueOf(&result).Elem())
+	if err != nil {
+		// The fallback converts complex128 to string via Sprintf and then
+		// sets it on the string field. This should succeed.
+		t.Logf("decodeValue with complex value: %v", err)
+	}
+	// It should have been converted to its string representation
+	if result.Val != "(1+2i)" {
+		t.Errorf("Val = %q, want (1+2i)", result.Val)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeStruct - unexported fields
+// ---------------------------------------------------------------------------
+
+func TestDecodeStruct_UnexportedField(t *testing.T) {
+	input := `
+name = "test"
+`
+	type Cfg struct {
+		name string // unexported - lowercase
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The unexported field should be skipped, so it remains zero-valued
+	if cfg.name != "" {
+		t.Errorf("unexported field should be skipped, got %q", cfg.name)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeGoMap - error for map key decode and map value decode
+// ---------------------------------------------------------------------------
+
+func TestDecodeGoMap_KeyDecodeError(t *testing.T) {
+	// Map with non-stringable key type: map[int]string
+	// TOML always has string keys, so decodeScalar will try to convert
+	// the string key to int. If the key is not a valid int, it errors.
+	// We construct this scenario by feeding a TOML map into a struct
+	// with a map[int]string field.
+	input := `
+[meta]
+hello = "world"
+`
+	type Cfg struct {
+		Meta map[int]string `toml:"meta"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding string key into int map key")
+	}
+}
+
+func TestDecodeGoMap_ValueDecodeError(t *testing.T) {
+	// Map with values that cannot decode into the target type
+	input := `
+[meta]
+count = "not-a-number"
+`
+	type Cfg struct {
+		Meta map[string]int `toml:"meta"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding string value into int map value")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeSlice - decodeValue error in slice element
+// ---------------------------------------------------------------------------
+
+func TestDecodeSlice_DecodeError(t *testing.T) {
+	// Array of strings being decoded into []int
+	input := `val = ["a", "b"]`
+	type Cfg struct {
+		Val []int `toml:"val"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding string array into int slice")
+	}
+}
+
+func TestDecodeFixedArray_DecodeError(t *testing.T) {
+	// Fixed-size array with wrong element types
+	input := `coords = ["a", "b", "c"]`
+	type Cfg struct {
+		Coords [3]int `toml:"coords"`
+	}
+	var cfg Cfg
+	err := Decode([]byte(input), &cfg)
+	if err == nil {
+		t.Error("expected error decoding string array into int array")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeScalar - pointer TextUnmarshaler (nil pointer case)
+// ---------------------------------------------------------------------------
+
+func TestDecodeScalar_PointerTextUnmarshaler_Nil(t *testing.T) {
+	// This tests the ptr-nil branch in decodeScalar where the pointer
+	// is already nil and needs to be allocated. Covered by the existing
+	// PointerTextUnmarshaler test, but we also test the CanAddr path.
+	input := `val = "addr-test"`
+	type Cfg struct {
+		Val textUnmarshalerType `toml:"val"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Val.Value != "addr-test" {
+		t.Errorf("Val.Value = %q, want %q", cfg.Val.Value, "addr-test")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeInt - string target
+// ---------------------------------------------------------------------------
+
+func TestDecodeInt_ToStringType(t *testing.T) {
+	input := `val = 42`
+	type Cfg struct {
+		Val string `toml:"val"`
+	}
+	var cfg Cfg
+	if err := Decode([]byte(input), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Val != "42" {
+		t.Errorf("Val = %q, want %q", cfg.Val, "42")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: parseInteger - invalid integer (overflow)
+// ---------------------------------------------------------------------------
+
+func TestParseInteger_Overflow(t *testing.T) {
+	// Very large number that overflows int64
+	_, err := parseInteger("99999999999999999999")
+	if err == nil {
+		t.Error("expected error for integer overflow")
+	}
+	if !strings.Contains(err.Error(), "invalid integer") {
+		t.Errorf("error should mention 'invalid integer', got: %v", err)
+	}
+}

@@ -2137,3 +2137,205 @@ func TestHTTPSListenerIsRunning(t *testing.T) {
 		t.Error("expected IsRunning to be false after stop")
 	}
 }
+
+// TestHTTPListener_StopWhenNotRunning tests Stop on a listener that hasnt been started.
+func TestHTTPListener_StopWhenNotRunning(t *testing.T) {
+	opts := &Options{
+		Name:    "test-stop-not-running",
+		Address: "127.0.0.1:0",
+		Handler: http.NewServeMux(),
+	}
+	l, err := NewHTTPListener(opts)
+	if err != nil {
+		t.Fatalf("NewHTTPListener failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Stop without start should return "not running" error but not panic
+	err = l.Stop(ctx)
+	if err == nil {
+		t.Error("Expected error when stopping non-running listener")
+	}
+}
+
+// TestHTTPListener_AddressBeforeStart tests Address() returns configured address before Start.
+func TestHTTPListener_AddressBeforeStart(t *testing.T) {
+	opts := &Options{
+		Name:    "test-addr-before",
+		Address: "127.0.0.1:0",
+		Handler: http.NewServeMux(),
+	}
+	l, err := NewHTTPListener(opts)
+	if err != nil {
+		t.Fatalf("NewHTTPListener failed: %v", err)
+	}
+
+	addr := l.Address()
+	if addr != "127.0.0.1:0" {
+		t.Errorf("Address() = %q, want 127.0.0.1:0", addr)
+	}
+}
+
+// TestHTTPListener_StartTwice tests that starting an already running listener returns error.
+func TestHTTPListener_StartTwice(t *testing.T) {
+	opts := &Options{
+		Name:    "test-start-twice",
+		Address: "127.0.0.1:0",
+		Handler: http.NewServeMux(),
+	}
+	l, err := NewHTTPListener(opts)
+	if err != nil {
+		t.Fatalf("NewHTTPListener failed: %v", err)
+	}
+
+	if err := l.Start(); err != nil {
+		t.Fatalf("First Start failed: %v", err)
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		l.Stop(ctx)
+	}()
+
+	waitForListener(t, l, 2*time.Second)
+
+	// Second start should return an error
+	err = l.Start()
+	if err == nil {
+		t.Error("Expected error when starting already running listener")
+	}
+}
+
+// TestHTTPListener_NewMissingName tests NewHTTPListener with empty name.
+func TestHTTPListener_NewMissingName(t *testing.T) {
+	opts := &Options{
+		Address: "127.0.0.1:0",
+		Handler: http.NewServeMux(),
+	}
+	_, err := NewHTTPListener(opts)
+	if err == nil {
+		t.Error("Expected error for missing name")
+	}
+}
+
+// TestHTTPListener_NewMissingAddress tests NewHTTPListener with empty address.
+func TestHTTPListener_NewMissingAddress(t *testing.T) {
+	opts := &Options{
+		Name:    "test",
+		Address: "",
+		Handler: http.NewServeMux(),
+	}
+	_, err := NewHTTPListener(opts)
+	if err == nil {
+		t.Error("Expected error for missing address")
+	}
+}
+
+// TestHTTPListener_NewMissingHandler tests NewHTTPListener with nil handler.
+func TestHTTPListener_NewMissingHandler(t *testing.T) {
+	opts := &Options{
+		Name:    "test",
+		Address: "127.0.0.1:0",
+		Handler: nil,
+	}
+	_, err := NewHTTPListener(opts)
+	if err == nil {
+		t.Error("Expected error for nil handler")
+	}
+}
+
+// TestHTTPSListener_NewWithInvalidOpts tests NewHTTPSListener with options that fail NewHTTPListener.
+func TestHTTPSListener_NewWithInvalidOpts(t *testing.T) {
+	certPEM, keyPEM, err := generateTestCert([]string{"localhost"})
+	if err != nil {
+		t.Fatalf("Failed to generate test certificate: %v", err)
+	}
+
+	tlsManager := olbTLS.NewManager()
+	cert, err := tlsManager.LoadCertificateFromPEM(certPEM, keyPEM)
+	if err != nil {
+		t.Fatalf("Failed to load test certificate: %v", err)
+	}
+	tlsManager.AddCertificate(cert)
+	tlsManager.SetDefaultCertificate(cert)
+
+	// Empty name should fail
+	opts := &Options{
+		Name:    "",
+		Address: "127.0.0.1:0",
+		Handler: http.NewServeMux(),
+	}
+	_, err = NewHTTPSListener(opts, tlsManager)
+	if err == nil {
+		t.Error("Expected error for missing name in HTTPSListener")
+	}
+}
+
+// TestMergeOptions_PartialOverrides tests mergeOptions with some fields set and some zero
+func TestMergeOptions_PartialOverrides(t *testing.T) {
+	opts := &Options{
+		Name:           "test-partial",
+		Address:        "127.0.0.1:0",
+		Handler:        testHandler(),
+		ReadTimeout:    45 * time.Second, // Custom value
+		WriteTimeout:   0,                // Should get default
+		IdleTimeout:    0,                // Should get default
+		MaxHeaderBytes: 2 << 20,          // Custom value
+	}
+
+	result := mergeOptions(opts)
+
+	// Custom values should be preserved
+	if result.ReadTimeout != 45*time.Second {
+		t.Errorf("expected ReadTimeout 45s, got %v", result.ReadTimeout)
+	}
+	if result.MaxHeaderBytes != 2<<20 {
+		t.Errorf("expected MaxHeaderBytes 2MB, got %d", result.MaxHeaderBytes)
+	}
+
+	// Zero values should get defaults
+	if result.WriteTimeout != 30*time.Second {
+		t.Errorf("expected WriteTimeout default 30s, got %v", result.WriteTimeout)
+	}
+	if result.IdleTimeout != 120*time.Second {
+		t.Errorf("expected IdleTimeout default 120s, got %v", result.IdleTimeout)
+	}
+	if result.HeaderTimeout != 10*time.Second {
+		t.Errorf("expected HeaderTimeout default 10s, got %v", result.HeaderTimeout)
+	}
+}
+
+// TestManagedListener_SuccessfulAccept tests managedListener when ConnManager accepts successfully
+func TestManagedListener_SuccessfulAccept(t *testing.T) {
+	// Create a pipe to simulate a connection
+	server, _ := net.Pipe()
+	defer server.Close()
+
+	mockListener := &mockOneShotListener{conn: server}
+
+	acceptCalled := false
+	mockManager := &mockConnManager{
+		acceptFunc: func(conn net.Conn) (net.Conn, error) {
+			acceptCalled = true
+			return conn, nil
+		},
+	}
+
+	managed := &managedListener{
+		Listener:    mockListener,
+		connManager: mockManager,
+	}
+
+	conn, err := managed.Accept()
+	if err != nil {
+		t.Fatalf("Accept failed: %v", err)
+	}
+	if conn == nil {
+		t.Fatal("Expected non-nil connection")
+	}
+	if !acceptCalled {
+		t.Error("Expected ConnManager.Accept to be called")
+	}
+}

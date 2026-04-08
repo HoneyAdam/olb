@@ -279,6 +279,128 @@ func TestRingHash_CustomHashFunc(t *testing.T) {
 	}
 }
 
+func TestRingHash_NewRingHashWithConfig_ZeroVnodes(t *testing.T) {
+	rh := NewRingHashWithConfig(0, nil)
+	if rh.vnodes != DefaultRingVirtualNodes {
+		t.Errorf("vnodes = %d, want %d", rh.vnodes, DefaultRingVirtualNodes)
+	}
+	if rh.hashFunc == nil {
+		t.Error("hashFunc should not be nil (uses default)")
+	}
+}
+
+func TestRingHash_NewRingHashWithConfig_NilHashFunc(t *testing.T) {
+	rh := NewRingHashWithConfig(50, nil)
+	if rh.hashFunc == nil {
+		t.Error("hashFunc should be set to default when nil is passed")
+	}
+}
+
+func TestRingHash_Update_Nonexistent(t *testing.T) {
+	rh := NewRingHash()
+
+	b := backend.NewBackend("nonexistent", "10.0.0.1:8080")
+	b.Weight = 5
+
+	// Should not panic when updating a backend not in the ring
+	rh.Update(b)
+
+	if len(rh.backends) != 0 {
+		t.Errorf("Expected 0 backends, got %d", len(rh.backends))
+	}
+}
+
+func TestRingHash_Add_Duplicate(t *testing.T) {
+	rh := NewRingHash()
+
+	be := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	rh.Add(be)
+
+	originalRingSize := len(rh.ring)
+	rh.Add(be) // duplicate
+
+	if len(rh.backends) != 1 {
+		t.Errorf("Expected 1 backend after duplicate add, got %d", len(rh.backends))
+	}
+	if len(rh.ring) != originalRingSize {
+		t.Error("Ring should not change on duplicate add")
+	}
+}
+
+func TestRingHash_Remove_Nonexistent(t *testing.T) {
+	rh := NewRingHash()
+
+	be := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	rh.Add(be)
+
+	originalRingSize := len(rh.ring)
+	rh.Remove("nonexistent")
+
+	if len(rh.backends) != 1 {
+		t.Errorf("Expected 1 backend, got %d", len(rh.backends))
+	}
+	if len(rh.ring) != originalRingSize {
+		t.Error("Ring should not change when removing nonexistent")
+	}
+}
+
+func TestRingHash_FindNextAvailable_EmptyRing(t *testing.T) {
+	rh := NewRingHash()
+
+	be := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	backends := []*backend.Backend{be}
+
+	// Empty ring should return nil
+	result := rh.findNextAvailable(0, backends)
+	if result != nil {
+		t.Errorf("findNextAvailable on empty ring = %v, want nil", result.ID)
+	}
+}
+
+func TestRingHash_FindNextAvailable_AllUnavailable(t *testing.T) {
+	rh := NewRingHash()
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateDown)
+	rh.Add(be1)
+
+	// All provided backends are down
+	backends := []*backend.Backend{be1}
+	result := rh.findNextAvailable(0, backends)
+	if result != nil {
+		t.Errorf("findNextAvailable with all unavailable = %v, want nil", result.ID)
+	}
+}
+
+func TestIntToStr_Negative(t *testing.T) {
+	got := intToStr(-42)
+	if got != "-42" {
+		t.Errorf("intToStr(-42) = %q, want %q", got, "-42")
+	}
+}
+
+func TestIntToStr_Zero(t *testing.T) {
+	got := intToStr(0)
+	if got != "0" {
+		t.Errorf("intToStr(0) = %q, want %q", got, "0")
+	}
+}
+
+func TestRingHash_WeightedBackends(t *testing.T) {
+	rh := NewRingHashWithConfig(10, nil)
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.Weight = 3
+	be1.SetState(backend.StateUp)
+
+	rh.Add(be1)
+
+	// With weight=3 and 10 vnodes, should have 30 ring nodes
+	if len(rh.ring) != 30 {
+		t.Errorf("Expected 30 ring nodes (10*3), got %d", len(rh.ring))
+	}
+}
+
 func TestRingHash_FindNextAvailable(t *testing.T) {
 	rh := NewRingHash()
 

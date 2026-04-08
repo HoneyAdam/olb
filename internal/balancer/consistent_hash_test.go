@@ -651,6 +651,70 @@ func TestNextWithKey_UnavailableSelected(t *testing.T) {
 	}
 }
 
+// TestIntToString_Negative tests negative number conversion.
+func TestIntToString_Negative(t *testing.T) {
+	got := intToString(-42)
+	if got != "-42" {
+		t.Errorf("intToString(-42) = %q, want %q", got, "-42")
+	}
+}
+
+// TestIntToString_Zero tests zero conversion.
+func TestIntToString_Zero(t *testing.T) {
+	got := intToString(0)
+	if got != "0" {
+		t.Errorf("intToString(0) = %q, want %q", got, "0")
+	}
+}
+
+// TestIntToString_Large tests a large positive number.
+func TestIntToString_Large(t *testing.T) {
+	got := intToString(123456)
+	if got != "123456" {
+		t.Errorf("intToString(123456) = %q, want %q", got, "123456")
+	}
+}
+
+// TestSearch_EmptyRing tests search with no nodes.
+func TestSearch_EmptyRing(t *testing.T) {
+	ch := NewConsistentHash(150)
+	// Empty ring should return 0
+	idx := ch.search(0)
+	if idx != 0 {
+		t.Errorf("search on empty ring = %d, want 0", idx)
+	}
+}
+
+// TestUpdate_Nonexistent tests Update with a backend not in the ring.
+func TestConsistentHash_Update_Nonexistent(t *testing.T) {
+	ch := NewConsistentHash(150)
+	b := backend.NewBackend("nonexistent", "10.0.0.1:8080")
+	// Should not panic and ring size should be 0
+	ch.Update(b)
+	if ch.RingSize() != 0 {
+		t.Errorf("RingSize() = %d after updating nonexistent backend, want 0", ch.RingSize())
+	}
+}
+
+// TestNextWithKey_AllUnavailable tests NextWithKey when all backends are down.
+func TestNextWithKey_AllUnavailable(t *testing.T) {
+	ch := NewConsistentHash(150)
+
+	b1 := backend.NewBackend("backend1", "10.0.0.1:8080")
+	b2 := backend.NewBackend("backend2", "10.0.0.2:8080")
+	b1.SetState(backend.StateDown)
+	b2.SetState(backend.StateDown)
+
+	ch.Add(b1)
+	ch.Add(b2)
+
+	backends := []*backend.Backend{b1, b2}
+	result := ch.NextWithKey(backends, "test-key")
+	if result != nil {
+		t.Errorf("NextWithKey with all down = %v, want nil", result.ID)
+	}
+}
+
 // TestSetVirtualNodes_Zero tests SetVirtualNodes with zero uses default.
 func TestSetVirtualNodes_Zero(t *testing.T) {
 	ch := NewConsistentHash(50)

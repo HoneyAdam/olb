@@ -581,3 +581,97 @@ func TestDistributedRateLimiter_AutoBan_ZeroThreshold(t *testing.T) {
 		t.Error("should not auto-ban when AutoBanAfter is 0")
 	}
 }
+
+// --- Coverage improvement tests ---
+
+// TestCov_Distributed_RemoveRule_WithLocalFallback exercises the branch in
+// DistributedRateLimiter.RemoveRule where rl.local != nil.
+func TestCov_Distributed_RemoveRule_WithLocalFallback(t *testing.T) {
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{ID: "fb-rule1", Scope: "ip", Limit: 10, Window: time.Minute},
+		},
+		UseLocalFallback: true,
+	}
+
+	rl := NewDistributed(cfg)
+	defer rl.Stop()
+
+	// Remove the existing rule — should also remove from local
+	if !rl.RemoveRule("fb-rule1") {
+		t.Error("expected RemoveRule to return true for existing rule with fallback")
+	}
+
+	if len(rl.rules) != 0 {
+		t.Errorf("expected 0 rules after removal, got %d", len(rl.rules))
+	}
+
+	// Remove non-existent rule — should return false
+	if rl.RemoveRule("nonexistent") {
+		t.Error("expected RemoveRule to return false for nonexistent rule")
+	}
+}
+
+// TestCov_Distributed_RemoveRule_WithLocalFallback_MultipleRules tests
+// removing one of several rules when local fallback is enabled.
+func TestCov_Distributed_RemoveRule_WithLocalFallback_MultipleRules(t *testing.T) {
+	cfg := DistributedConfig{
+		// Use a fresh slice to avoid shared backing array issues
+		Rules: []Rule{
+			{ID: "multi-a", Scope: "ip", Limit: 10, Window: time.Minute},
+			{ID: "multi-b", Scope: "global", Limit: 100, Window: time.Minute},
+		},
+		UseLocalFallback: true,
+	}
+
+	rl := NewDistributed(cfg)
+	defer rl.Stop()
+
+	// Remove the last rule to avoid shared-array overwrite issue
+	if !rl.RemoveRule("multi-b") {
+		t.Error("expected RemoveRule to return true for multi-b")
+	}
+
+	if len(rl.rules) != 1 {
+		t.Errorf("expected 1 rule after removing multi-b, got %d", len(rl.rules))
+	}
+
+	// The remaining rule should be multi-a
+	if rl.rules[0].ID != "multi-a" {
+		t.Errorf("expected remaining rule to be multi-a, got %s", rl.rules[0].ID)
+	}
+}
+
+// TestCov_Distributed_Allow_ShortWindowRetryAfter exercises the retry < 1
+// branch in DistributedRateLimiter.Allow.
+func TestCov_Distributed_Allow_ShortWindowRetryAfter(t *testing.T) {
+	mockStore := NewMockStore()
+	cfg := DistributedConfig{
+		Rules: []Rule{
+			{ID: "short-win", Scope: "ip", Limit: 1, Window: 100 * time.Millisecond},
+		},
+		Store:            mockStore,
+		UseLocalFallback: false,
+	}
+
+	rl := NewDistributed(cfg)
+	defer rl.Stop()
+
+	req := &http.Request{RemoteAddr: "10.0.0.1:12345"}
+	req.URL = &url.URL{Path: "/"}
+
+	// First request allowed
+	allowed, _ := rl.Allow(req)
+	if !allowed {
+		t.Error("first request should be allowed")
+	}
+
+	// Second request should be rate limited with retryAfter clamped to 1
+	allowed, retryAfter := rl.Allow(req)
+	if allowed {
+		t.Error("second request should be rate limited")
+	}
+	if retryAfter != 1 {
+		t.Errorf("expected retryAfter=1 for sub-second window, got %d", retryAfter)
+	}
+}

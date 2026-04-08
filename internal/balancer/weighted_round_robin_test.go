@@ -308,6 +308,113 @@ func BenchmarkWeightedRoundRobin_Next(b *testing.B) {
 	}
 }
 
+func TestWeightedRoundRobin_Next_DynamicBackend(t *testing.T) {
+	wrr := NewWeightedRoundRobin()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	b1.Weight = 1
+
+	b2 := backend.NewBackend("b2", "127.0.0.1:8081")
+	b2.Weight = 2
+
+	// Do NOT call wrr.Add - backends will be added dynamically in Next
+	backends := []*backend.Backend{b1, b2}
+
+	counts := map[string]int{"b1": 0, "b2": 0}
+	for i := 0; i < 90; i++ {
+		result := wrr.Next(backends)
+		if result != nil {
+			counts[result.ID]++
+		}
+	}
+
+	// b2 should get roughly 2x the traffic of b1
+	if counts["b2"] < counts["b1"] {
+		t.Errorf("b2 (weight=2) should get more traffic than b1 (weight=1), got b1=%d b2=%d", counts["b1"], counts["b2"])
+	}
+	t.Logf("Dynamic backend distribution: b1=%d, b2=%d", counts["b1"], counts["b2"])
+}
+
+func TestWeightedRoundRobin_Next_ZeroWeight(t *testing.T) {
+	wrr := NewWeightedRoundRobin()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	b1.Weight = 0
+
+	backends := []*backend.Backend{b1}
+
+	// Zero weight should still work (uses 0 weight from backend)
+	result := wrr.Next(backends)
+	if result == nil {
+		t.Error("Next() with zero weight should return a backend")
+	}
+}
+
+func TestWeightedRoundRobin_Update_Nonexistent(t *testing.T) {
+	wrr := NewWeightedRoundRobin()
+
+	b := backend.NewBackend("nonexistent", "127.0.0.1:8080")
+	b.Weight = 5
+
+	// Update on nonexistent backend should not panic
+	wrr.Update(b)
+}
+
+func TestWeightedRoundRobin_Remove_Nonexistent(t *testing.T) {
+	wrr := NewWeightedRoundRobin()
+	// Remove on empty should not panic
+	wrr.Remove("nonexistent")
+}
+
+func TestWeightedRoundRobin_Add_Duplicate(t *testing.T) {
+	wrr := NewWeightedRoundRobin()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	b1.Weight = 5
+
+	wrr.Add(b1)
+	wrr.Add(b1) // duplicate
+
+	wrr.mu.RLock()
+	count := len(wrr.backends)
+	wrr.mu.RUnlock()
+	if count != 1 {
+		t.Errorf("Expected 1 backend after duplicate add, got %d", count)
+	}
+}
+
+func TestWeightedRoundRobin_Next_NormalizesWeights(t *testing.T) {
+	wrr := NewWeightedRoundRobin()
+
+	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
+	b1.Weight = 1
+	wrr.Add(b1)
+
+	backends := []*backend.Backend{b1}
+
+	// Force the call count close to 1M to trigger normalization
+	wrr.mu.Lock()
+	wrr.callCount = 999_999
+	wrr.mu.Unlock()
+
+	// This call should trigger normalization
+	result := wrr.Next(backends)
+	if result == nil {
+		t.Fatal("Next() returned nil")
+	}
+	if result.ID != "b1" {
+		t.Errorf("Next() = %s, want b1", result.ID)
+	}
+
+	// Verify callCount was reset
+	wrr.mu.RLock()
+	cc := wrr.callCount
+	wrr.mu.RUnlock()
+	if cc >= 1_000_000 {
+		t.Errorf("callCount should be reset, got %d", cc)
+	}
+}
+
 func BenchmarkWeightedRoundRobin_Next_SingleBackend(b *testing.B) {
 	wrr := NewWeightedRoundRobin()
 

@@ -272,4 +272,3 @@ func (b *Backend) GetURL() *url.URL {
 	b.cachedURL.Store(u)
 	return u
 }
-

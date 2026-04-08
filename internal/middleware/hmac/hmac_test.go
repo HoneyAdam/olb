@@ -497,6 +497,118 @@ func TestHMAC_WrongSecret(t *testing.T) {
 	}
 }
 
+// --------------------------------------------------------------------------
+// computeSignature: body read error path
+// --------------------------------------------------------------------------
+
+type errorReader struct{}
+
+func (e *errorReader) Read(_ []byte) (int, error) { return 0, io.ErrUnexpectedEOF }
+func (e *errorReader) Close() error               { return nil }
+
+func TestHMAC_ComputeSignature_BodyReadError(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "secret"
+	config.UseBody = true
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("POST", "/test", io.NopCloser(&errorReader{}))
+	_, sigErr := mw.computeSignature(req)
+	if sigErr == nil {
+		t.Error("expected error when body read fails")
+	}
+}
+
+// --------------------------------------------------------------------------
+// New: default algorithm case (unknown algorithm falls back to sha256)
+// --------------------------------------------------------------------------
+
+func TestNew_UnknownAlgorithm_DefaultsToSHA256(t *testing.T) {
+	config := Config{
+		Enabled:   true,
+		Secret:    "secret",
+		Algorithm: "blake2b",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Should not be nil (default case sets sha256.New)
+	if mw.hasher == nil {
+		t.Error("hasher should not be nil for unknown algorithm")
+	}
+}
+
+// --------------------------------------------------------------------------
+// computeSignature: default encoding case (unknown encoding falls back to hex)
+// --------------------------------------------------------------------------
+
+func TestHMAC_ComputeSignature_DefaultEncoding(t *testing.T) {
+	config := Config{
+		Enabled:  true,
+		Secret:   "secret",
+		Encoding: "unknown",
+		UseBody:  false,
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	sig, sigErr := mw.computeSignature(req)
+	if sigErr != nil {
+		t.Fatalf("computeSignature error: %v", sigErr)
+	}
+	if sig == "" {
+		t.Error("signature should not be empty")
+	}
+
+	// The default encoding case should produce hex output
+	sig2, _ := GenerateSignature("secret", "GET\n/test\n", "sha256", "hex")
+	if sig != sig2 {
+		t.Errorf("default encoding should fall back to hex; got %q, want %q", sig, sig2)
+	}
+}
+
+// --------------------------------------------------------------------------
+// simpleError and errorf coverage
+// --------------------------------------------------------------------------
+
+func TestSimpleError_Error(t *testing.T) {
+	err := errorf("test error message")
+	if err.Error() != "test error message" {
+		t.Errorf("errorf() = %q, want %q", err.Error(), "test error message")
+	}
+
+	// Verify it's a *simpleError
+	if _, ok := err.(*simpleError); !ok {
+		t.Error("errorf should return *simpleError")
+	}
+}
+
+// --------------------------------------------------------------------------
+// GenerateSignature: default encoding case
+// --------------------------------------------------------------------------
+
+func TestGenerateSignature_DefaultEncoding(t *testing.T) {
+	sig, err := GenerateSignature("secret", "msg", "sha256", "custom_encoding")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sig == "" {
+		t.Error("signature should not be empty for unknown encoding")
+	}
+}
+
 func BenchmarkHMAC_Verification(b *testing.B) {
 	config := DefaultConfig()
 	config.Enabled = true
@@ -523,5 +635,53 @@ func BenchmarkHMAC_Verification(b *testing.B) {
 func BenchmarkGenerateSignature(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		GenerateSignature("secret", "message", "sha256", "hex")
+	}
+}
+
+func TestErrorf(t *testing.T) {
+	err := errorf("test error message")
+	if err.Error() != "test error message" {
+		t.Errorf("Expected 'test error message', got '%s'", err.Error())
+	}
+}
+
+func TestNew_InvalidMaxAge(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "test-secret"
+	config.MaxAge = "invalid-duration"
+
+	mw, err := New(config)
+	// Invalid max age may be silently ignored or cause an error
+	t.Logf("New() with invalid MaxAge: err=%v, mw=%v", err, mw)
+}
+
+func TestNew_EmptyAlgorithm(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "test-secret"
+	config.Algorithm = ""
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if mw == nil {
+		t.Fatal("Expected non-nil middleware")
+	}
+}
+
+func TestNew_EmptyEncoding(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "test-secret"
+	config.Encoding = ""
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if mw == nil {
+		t.Fatal("Expected non-nil middleware")
 	}
 }

@@ -1732,3 +1732,60 @@ func TestClient_Get_NilResult(t *testing.T) {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Coverage: delete method error path (non-JSON body)
+// ---------------------------------------------------------------------------
+
+func TestClient_Delete_ErrorNonJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte("not found"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.delete("/test")
+	if err == nil {
+		t.Error("expected error for 404")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: doRequest with body marshal failure
+// ---------------------------------------------------------------------------
+
+func TestClient_DoRequest_MarshalError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	// Channel values can't be marshaled to JSON
+	err := client.Post("/test", make(chan int), nil)
+	if err == nil {
+		t.Error("expected error for unmarshalable body")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Coverage: decodeErrorFromBody with non-JSON error body
+// ---------------------------------------------------------------------------
+
+func TestClient_DecodeErrorFromBody_PlainText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("plain text error"))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL)
+	err := client.get("/system/info", nil)
+	if err == nil {
+		t.Error("expected error for 502")
+	}
+	if !strings.Contains(err.Error(), "502") {
+		t.Errorf("expected 502 in error, got: %v", err)
+	}
+}

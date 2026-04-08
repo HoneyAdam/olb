@@ -760,3 +760,227 @@ func TestMatch_InvalidPath(t *testing.T) {
 		t.Error("path without leading slash should not match")
 	}
 }
+
+// --------------------------------------------------------------------------
+// Additional coverage tests for radix tree edge cases
+// --------------------------------------------------------------------------
+
+func TestDelete_MiddleNode(t *testing.T) {
+	// Test deleting a leaf node where the parent still has other children
+	trie := NewTrie()
+	trie.Insert("/users", "users_handler")
+	trie.Insert("/users/new", "new_handler")
+	trie.Insert("/users/admin", "admin_handler")
+
+	// Delete middle leaf - parent /users should remain
+	trie.Delete("/users/new")
+
+	_, ok := trie.Match("/users/new")
+	if ok {
+		t.Error("/users/new should be deleted")
+	}
+
+	// Parent and sibling should still exist
+	result, ok := trie.Match("/users")
+	if !ok || result.Value != "users_handler" {
+		t.Error("/users should still exist")
+	}
+	result, ok = trie.Match("/users/admin")
+	if !ok || result.Value != "admin_handler" {
+		t.Error("/users/admin should still exist")
+	}
+}
+
+func TestDelete_AllChildren(t *testing.T) {
+	// Delete all children of a node - parent should be cleaned up
+	trie := NewTrie()
+	trie.Insert("/a/b", "ab_handler")
+
+	trie.Delete("/a/b")
+
+	// Both /a/b and /a should be gone since /a was not an endpoint
+	_, ok := trie.Match("/a/b")
+	if ok {
+		t.Error("/a/b should be deleted")
+	}
+}
+
+func TestDelete_RootRoute(t *testing.T) {
+	trie := NewTrie()
+	trie.Insert("/", "root_handler")
+
+	result, ok := trie.Match("/")
+	if !ok || result.Value != "root_handler" {
+		t.Fatal("root should exist before delete")
+	}
+
+	trie.Delete("/")
+
+	_, ok = trie.Match("/")
+	if ok {
+		t.Error("root should be deleted")
+	}
+}
+
+func TestDelete_InvalidInput(t *testing.T) {
+	trie := NewTrie()
+	trie.Insert("/users", "users_handler")
+
+	// Delete with empty string - should be no-op
+	trie.Delete("")
+
+	// Delete with path not starting with / - should be no-op
+	trie.Delete("users")
+
+	// Original should still exist
+	result, ok := trie.Match("/users")
+	if !ok || result.Value != "users_handler" {
+		t.Error("/users should still exist after invalid deletes")
+	}
+}
+
+func TestDelete_WildcardRoute(t *testing.T) {
+	trie := NewTrie()
+	trie.Insert("/files/*filepath", "file_handler")
+	trie.Insert("/files/docs", "docs_handler")
+
+	trie.Delete("/files/*filepath")
+
+	// Wildcard should be gone but static should remain
+	_, ok := trie.Match("/files/js/app.js")
+	if ok {
+		t.Error("wildcard route should be deleted")
+	}
+	result, ok := trie.Match("/files/docs")
+	if !ok || result.Value != "docs_handler" {
+		t.Error("/files/docs should still exist")
+	}
+}
+
+func TestDelete_ParamRoute(t *testing.T) {
+	trie := NewTrie()
+	trie.Insert("/users/:id", "user_handler")
+	trie.Insert("/users/:id/posts", "posts_handler")
+
+	trie.Delete("/users/:id")
+
+	// Param route gone, but deeper route should still be unreachable
+	// since the :id node was removed
+	_, ok := trie.Match("/users/123")
+	if ok {
+		t.Error("/users/:id should be deleted")
+	}
+}
+
+func TestClone_EmptyTrie(t *testing.T) {
+	trie := NewTrie()
+
+	cloned := trie.Clone()
+	if cloned == nil {
+		t.Fatal("Clone of empty trie should not be nil")
+	}
+
+	// No routes to match
+	_, ok := cloned.Match("/anything")
+	if ok {
+		t.Error("empty cloned trie should not match anything")
+	}
+}
+
+func TestClone_NilNodeHandling(t *testing.T) {
+	trie := NewTrie()
+	trie.Insert("/test", "handler")
+
+	// Clone should handle internal nil children correctly
+	cloned := trie.Clone()
+
+	result, ok := cloned.Match("/test")
+	if !ok || result.Value != "handler" {
+		t.Error("cloned trie should match /test")
+	}
+
+	// Verify independence
+	trie.Insert("/extra", "extra_handler")
+	_, ok = cloned.Match("/extra")
+	if ok {
+		t.Error("cloned trie should not see routes added to original after cloning")
+	}
+}
+
+func TestClone_DeepModificationIndependence(t *testing.T) {
+	trie := NewTrie()
+	trie.Insert("/a/b/c/d", "deep_handler")
+
+	cloned := trie.Clone()
+
+	// Delete from original
+	trie.Delete("/a/b/c/d")
+
+	// Cloned should still have it
+	result, ok := cloned.Match("/a/b/c/d")
+	if !ok || result.Value != "deep_handler" {
+		t.Error("cloned trie should be independent of deletions in original")
+	}
+}
+
+func TestDelete_ParamBacktracking(t *testing.T) {
+	// Test deletion when param child exists alongside static
+	trie := NewTrie()
+	trie.Insert("/users/admin", "admin_handler")
+	trie.Insert("/users/:id", "param_handler")
+
+	trie.Delete("/users/:id")
+
+	// Static should remain, param gone
+	result, ok := trie.Match("/users/admin")
+	if !ok || result.Value != "admin_handler" {
+		t.Error("/users/admin should still exist")
+	}
+
+	_, ok = trie.Match("/users/123")
+	if ok {
+		t.Error("/users/:id should be deleted")
+	}
+}
+
+func TestDelete_TrieWithMixedTypes(t *testing.T) {
+	// Insert static, param, and wildcard at same level then delete them one by one
+	trie := NewTrie()
+	trie.Insert("/static", "static_val")
+	trie.Insert("/:param", "param_val")
+	trie.Insert("/*wild", "wild_val")
+
+	// Delete static - matches exact key "static"
+	trie.Delete("/static")
+
+	// After deleting the static endpoint, Match("/static") falls through
+	// to the param match :param, so it still returns a result.
+	result, ok := trie.Match("/static")
+	if !ok {
+		t.Fatal("expected param match for /static after static deleted")
+	}
+	if result.Value != "param_val" {
+		t.Errorf("expected param_val for /static after static deleted, got %v", result.Value)
+	}
+
+	// Param should still work for non-static paths
+	result, ok = trie.Match("/anything")
+	if !ok || result.Value != "param_val" {
+		t.Error("param should still match")
+	}
+
+	// Delete param - uses ":" as key since segment starts with :
+	trie.Delete("/:param")
+
+	// Wildcard should still work
+	result, ok = trie.Match("/deep/nested/path")
+	if !ok || result.Value != "wild_val" {
+		t.Error("wildcard should still match after param deleted")
+	}
+
+	// Now /static should match wildcard (param is gone)
+	result, ok = trie.Match("/static")
+	if !ok || result.Value != "wild_val" {
+		t.Error("wildcard should now catch /static")
+	}
+}

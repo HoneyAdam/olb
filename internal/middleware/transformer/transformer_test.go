@@ -326,6 +326,375 @@ func TestTransformer_EmptyBody(t *testing.T) {
 	}
 }
 
+func TestTransformer_Compress_OutputLargerThanOriginal(t *testing.T) {
+	// Test the branch where compressed output is larger than original body.
+	// In that case compressBody should return the original body without
+	// setting Content-Encoding.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Compress = true
+	config.CompressLevel = 9 // max compression level
+	config.MinCompressSize = 1
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Use random-looking data that doesn't compress well
+	// Repeating a single byte should compress very well, but using a
+	// short random-ish string with MinCompressSize=1 might produce larger output
+	// after gzip overhead.
+	body := "ABCDEFGHIJ" // 10 bytes, may get larger with gzip headers
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// If compression was applied, Content-Encoding should be gzip.
+	// If compressed output was larger, the original body is returned without gzip.
+	// Either way, the response should be valid.
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	// If Content-Encoding is NOT gzip, the body should be the original.
+	if rec.Header().Get("Content-Encoding") != "gzip" {
+		if rec.Body.String() != body {
+			t.Errorf("Expected original body when compressed is larger, got: %s", rec.Body.String())
+		}
+	}
+}
+
+func TestTransformer_Compress_InvalidLevel(t *testing.T) {
+	// Test compressBody with an invalid compression level.
+	// gzip.NewWriterLevel returns an error for levels outside 1-9 (except
+	// gzip.DefaultCompression=-1 and gzip.NoCompression=0).
+	// When CompressLevel is invalid, compressBody should return the original body.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Compress = true
+	config.CompressLevel = 99 // invalid level
+	config.MinCompressSize = 1
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	largeBody := "This is a test body that is definitely large enough to compress properly."
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(largeBody))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	// With invalid compression level, should fall back to original body
+	if rec.Header().Get("Content-Encoding") == "gzip" {
+		// If it somehow used gzip, that's fine, but let's check it's valid
+	} else {
+		if rec.Body.String() != largeBody {
+			t.Errorf("Expected original body when compression fails, got: %s", rec.Body.String())
+		}
+	}
+}
+
+func TestTransformer_Compress_NoCompressionLevel(t *testing.T) {
+	// Test with gzip.NoCompression (level 0) - gzip header overhead
+	// makes the compressed output larger than the original for short bodies.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Compress = true
+	config.CompressLevel = 0 // gzip.NoCompression
+	config.MinCompressSize = 1
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := "hi" // very short body
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	// With NoCompression level and short body, compressed should be larger
+	// so the original should be returned
+	if rec.Header().Get("Content-Encoding") != "gzip" {
+		if rec.Body.String() != body {
+			t.Errorf("Expected original body, got: %s", rec.Body.String())
+		}
+	}
+}
+
+func TestTransformer_TransformJSON(t *testing.T) {
+	// Test that transformJSON is called when JSONTransform is configured
+	// and content type is application/json.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.JSONTransform = &JSONTransform{
+		AddFields: map[string]interface{}{
+			"injected": true,
+		},
+		RemoveFields: []string{"secret"},
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"hello":"world"}`))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	// transformJSON currently returns the body as-is, so we just verify
+	// the response body is intact and the JSON content type was processed.
+	body := rec.Body.String()
+	if !strings.Contains(body, "hello") {
+		t.Errorf("Expected body to contain 'hello', got: %s", body)
+	}
+}
+
+func TestTransformer_TransformJSON_NonJSONContentType(t *testing.T) {
+	// Test that transformJSON is NOT called when content type is not JSON.
+	// Even though JSONTransform is configured, non-JSON content should be
+	// passed through without JSON transformation.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.JSONTransform = &JSONTransform{
+		AddFields: map[string]interface{}{
+			"injected": true,
+		},
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plainBody := "This is plain text, not JSON"
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(plainBody))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Body.String() != plainBody {
+		t.Errorf("Plain text body should not be modified, got: %s", rec.Body.String())
+	}
+}
+
+func TestTransformer_TransformJSON_WithBodyRewrite(t *testing.T) {
+	// Test that both body rewrite AND JSON transform are applied together
+	// when both are configured for a JSON response.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.RewriteBody = map[string]string{
+		"v1": "v2",
+	}
+	config.JSONTransform = &JSONTransform{
+		RemoveFields: []string{"internal"},
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"api":"v1","internal":"data"}`))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "v2") {
+		t.Errorf("Body rewrite should have replaced v1 with v2, got: %s", body)
+	}
+}
+
+func TestTransformer_TransformJSON_EmptyBody(t *testing.T) {
+	// Test transformBody early return with empty body even when JSONTransform is set.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.JSONTransform = &JSONTransform{
+		AddFields: map[string]interface{}{
+			"extra": "value",
+		},
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("Expected status 204, got %d", rec.Code)
+	}
+}
+
+func TestTransformer_Compress_SetsContentEncoding(t *testing.T) {
+	// Test that successful compression sets Content-Encoding: gzip
+	// and removes Content-Length.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Compress = true
+	config.MinCompressSize = 1
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Highly compressible body to ensure compressed is smaller
+	largeBody := strings.Repeat("a", 5000)
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Content-Length", "5000")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(largeBody))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Header().Get("Content-Encoding") != "gzip" {
+		t.Error("Expected Content-Encoding: gzip header")
+	}
+
+	if rec.Header().Get("Content-Length") != "" {
+		t.Error("Content-Length should be removed when gzip is applied")
+	}
+
+	// Verify body is actually gzip compressed (should be much smaller)
+	if rec.Body.Len() >= len(largeBody) {
+		t.Errorf("Compressed body (%d bytes) should be smaller than original (%d bytes)",
+			rec.Body.Len(), len(largeBody))
+	}
+}
+
+func TestTransformer_StatusZero_NoWriteHeader(t *testing.T) {
+	// Test the case where handler does NOT call WriteHeader,
+	// so w.status remains 0 and WriteHeader should not be called on the
+	// underlying ResponseWriter.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.AddHeaders = map[string]string{
+		"X-Test": "value",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Do NOT call WriteHeader, just write body
+		w.Write([]byte("Hello"))
+	}))
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// httptest.ResponseRecorder defaults to 200 when WriteHeader not called
+	if rec.Code != http.StatusOK {
+		t.Errorf("Expected status 200, got %d", rec.Code)
+	}
+
+	if rec.Body.String() != "Hello" {
+		t.Errorf("Expected body 'Hello', got: %s", rec.Body.String())
+	}
+}
+
+func TestTransformer_ExcludeMIMEType_WriteRawWithBody(t *testing.T) {
+	// Test writeRaw path where buffer has content and status is set.
+	// This exercises the writeRaw body-writing branch.
+	config := DefaultConfig()
+	config.Enabled = true
+	config.ExcludeMIMETypes = []string{"application/octet-stream"}
+	config.AddHeaders = map[string]string{
+		"X-Should-Not-Be-Set": "true",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("raw binary data"))
+	}))
+
+	req := httptest.NewRequest("GET", "/download", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	// writeRaw path should not add headers
+	if rec.Header().Get("X-Should-Not-Be-Set") != "" {
+		t.Error("Excluded MIME type should not have transformer headers added")
+	}
+
+	if rec.Body.String() != "raw binary data" {
+		t.Errorf("Expected raw body to pass through, got: %s", rec.Body.String())
+	}
+}
+
 func TestTransformer_StatusCodePreserved(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true

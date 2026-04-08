@@ -1731,7 +1731,6 @@ func TestStopCommand_Run_RemovesPIDFileAfterExit(t *testing.T) {
 	}
 }
 
-
 // --- StartCommand.Run full path coverage ---
 
 func TestStartCommand_Run_FullPathUntilSignalLoop(t *testing.T) {
@@ -1844,4 +1843,40 @@ func TestStopCommand_Run_WithSelfProcess(t *testing.T) {
 		t.Error("Expected error (signal failure on Windows or process timeout on Unix)")
 	}
 	t.Logf("StopCommand.Run returned error (expected): %v", err)
+}
+
+// TestReloadCommand_EmptyAPIAddr_UsesDefault tests that empty --api-addr defaults to localhost:8081.
+func TestReloadCommand_EmptyAPIAddr_UsesDefault(t *testing.T) {
+	// Use non-existent PID file so it falls through to API path
+	// Don't pass --api-addr so it defaults to localhost:8081
+	cmd := &ReloadCommand{}
+	err := cmd.Run([]string{"--pid-file", "/tmp/nonexistent-pid-file-test-reload-default.pid"})
+	if err == nil {
+		t.Error("Expected error (no server on localhost:8081)")
+	}
+	// Should have tried the API fallback, not the PID file error
+	if strings.Contains(err.Error(), "PID file") {
+		t.Errorf("Should have fallen through to API, got: %v", err)
+	}
+}
+
+// TestReloadCommand_APISuccessWithoutExplicitAddr tests the API success path when
+// api-addr is provided via the server.
+func TestReloadCommand_APISuccessWithoutExplicitAddr(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/system/reload" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	apiAddr := strings.TrimPrefix(server.URL, "http://")
+
+	cmd := &ReloadCommand{}
+	err := cmd.Run([]string{"--pid-file", "/tmp/nonexistent-pid-file-test-reload-ok.pid", "--api-addr", apiAddr})
+	if err != nil {
+		t.Errorf("Expected success, got: %v", err)
+	}
 }

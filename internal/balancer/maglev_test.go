@@ -308,6 +308,139 @@ func TestMaglev_FindNextAvailable_EmptyBackends(t *testing.T) {
 	}
 }
 
+func TestMaglev_FindNextAvailable_EmptyInternalBackends(t *testing.T) {
+	m := NewMaglev()
+
+	// Add a backend to populate lookup table
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	m.Add(be1)
+	m.Remove("backend-1")
+
+	// findNextAvailable with empty m.backends should return nil
+	backends := []*backend.Backend{be1}
+	result := m.findNextAvailable(0, backends)
+	if result != nil {
+		t.Errorf("findNextAvailable with empty internal backends = %v, want nil", result.ID)
+	}
+}
+
+func TestMaglev_FindNextAvailableDirect_AllUnavailable(t *testing.T) {
+	m := NewMaglev()
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateDown)
+	m.Add(be1)
+
+	// All provided backends are unavailable
+	backends := []*backend.Backend{be1}
+	result := m.findNextAvailable(0, backends)
+	if result != nil {
+		t.Errorf("findNextAvailable with all unavailable = %v, want nil", result.ID)
+	}
+}
+
+func TestMaglev_Next_NoInternalBackends(t *testing.T) {
+	m := NewMaglev()
+
+	// No backends added at all
+	backends := []*backend.Backend{backend.NewBackend("backend-1", "10.0.0.1:8080")}
+	result := m.Next(backends)
+	if result != nil {
+		t.Errorf("Next with no internal backends = %v, want nil", result.ID)
+	}
+}
+
+func TestMaglev_RebuildLocked_Empty(t *testing.T) {
+	m := NewMaglev()
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	m.Add(be1)
+
+	// Remove all backends to trigger rebuild with empty set
+	m.Remove("backend-1")
+
+	backends := []*backend.Backend{be1}
+	result := m.Next(backends)
+	if result != nil {
+		t.Errorf("Next after removing all backends = %v, want nil", result.ID)
+	}
+}
+
+func TestMaglev_Update_Nonexistent(t *testing.T) {
+	m := NewMaglev()
+
+	// Update on nonexistent backend should not panic
+	b := backend.NewBackend("nonexistent", "10.0.0.1:8080")
+	m.Update(b)
+}
+
+func TestMaglev_Remove_Nonexistent(t *testing.T) {
+	m := NewMaglev()
+	// Remove on empty should not panic
+	m.Remove("nonexistent")
+}
+
+func TestMaglev_RebuildLocked_NoRebuildNeeded(t *testing.T) {
+	m := NewMaglev()
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	be1.SetState(backend.StateUp)
+	m.Add(be1)
+
+	// First call to Next triggers rebuild, sets needRebuild=false
+	backends := []*backend.Backend{be1}
+	m.Next(backends)
+
+	// Directly call rebuildLocked when needRebuild is already false
+	m.mu.Lock()
+	m.rebuildLocked()
+	m.mu.Unlock()
+
+	// Verify the lookup table is still valid
+	result := m.Next(backends)
+	if result == nil {
+		t.Fatal("Next() returned nil after no-op rebuild")
+	}
+}
+
+func TestMaglev_RebuildLocked_EmptyDirect(t *testing.T) {
+	m := NewMaglev()
+
+	// Set needRebuild=true without adding backends
+	m.mu.Lock()
+	m.needRebuild = true
+	m.rebuildLocked()
+	m.mu.Unlock()
+
+	// Lookup table should be all -1
+	for i, idx := range m.lookupTable {
+		if idx != -1 {
+			t.Errorf("lookupTable[%d] = %d, want -1", i, idx)
+			break
+		}
+	}
+}
+
+func TestMaglev_Add_Existing(t *testing.T) {
+	m := NewMaglev()
+
+	be1 := backend.NewBackend("backend-1", "10.0.0.1:8080")
+	m.Add(be1)
+
+	// Add the same backend again (update path)
+	be1Updated := backend.NewBackend("backend-1", "10.0.0.2:8080")
+	m.Add(be1Updated)
+
+	if len(m.backends) != 1 {
+		t.Errorf("Expected 1 backend after re-adding, got %d", len(m.backends))
+	}
+	if m.backends[0].Address != "10.0.0.2:8080" {
+		t.Errorf("Backend not updated on re-add: got %s", m.backends[0].Address)
+	}
+}
+
 func BenchmarkMaglev_Next(b *testing.B) {
 	m := NewMaglev()
 

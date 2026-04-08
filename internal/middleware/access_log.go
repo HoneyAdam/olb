@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +30,18 @@ type AccessLogConfig struct {
 	Output    io.Writer       // log destination (default: os.Stdout)
 	Logger    *logging.Logger // optional structured logger to use
 	SkipPaths []string        // paths to skip logging (e.g., /health)
+
+	// LogBody enables request body logging. This is opt-in because request
+	// bodies may contain sensitive data (passwords, tokens, PII).
+	// When enabled, the body is read up to MaxBodyBytes and included in
+	// JSON-format logs under the "body" field. CLF format does not support
+	// body logging — it is silently ignored.
+	LogBody bool
+
+	// MaxBodyBytes limits the number of bytes read from the request body
+	// for logging. Bodies exceeding this limit are truncated and a
+	// "body_truncated":true field is added. Default: 4096 (4KB).
+	MaxBodyBytes int64
 }
 
 // AccessLogMiddleware logs HTTP requests.
@@ -44,6 +57,9 @@ func NewAccessLogMiddleware(config AccessLogConfig) *AccessLogMiddleware {
 	}
 	if config.Format == "" {
 		config.Format = AccessLogFormatCLF
+	}
+	if config.MaxBodyBytes <= 0 {
+		config.MaxBodyBytes = 4096 // 4KB default
 	}
 
 	return &AccessLogMiddleware{
@@ -73,6 +89,13 @@ func (m *AccessLogMiddleware) Wrap(next http.Handler) http.Handler {
 		// Create request context
 		ctx := NewRequestContext(r, w)
 
+		// Capture request body if enabled (opt-in)
+		var bodyData []byte
+		var bodyTruncated bool
+		if m.config.LogBody && r.Body != nil {
+			bodyData, bodyTruncated = m.readBody(r)
+		}
+
 		// Call next handler
 		next.ServeHTTP(ctx.Response, r)
 
@@ -81,11 +104,43 @@ func (m *AccessLogMiddleware) Wrap(next http.Handler) http.Handler {
 		ctx.BytesOut = ctx.Response.BytesWritten()
 
 		// Log the request synchronously (logging is fast, no need for goroutine)
-		m.log(ctx)
+		m.log(ctx, bodyData, bodyTruncated)
 
 		// Release context after logging
 		ctx.Release()
 	})
+}
+
+// readBody reads up to MaxBodyBytes from the request body, restores it for
+// downstream handlers, and returns the captured bytes along with a truncation flag.
+func (m *AccessLogMiddleware) readBody(r *http.Request) ([]byte, bool) {
+	maxBytes := m.config.MaxBodyBytes
+	if maxBytes <= 0 {
+		maxBytes = 4096
+	}
+
+	// Read exactly maxBytes, then check if there's more
+	buf := make([]byte, maxBytes)
+	n, _ := io.ReadFull(r.Body, buf)
+
+	var truncated bool
+	if n == int(maxBytes) {
+		// Peek one more byte to detect truncation without losing it
+		peekBuf := make([]byte, 1)
+		peekN, _ := r.Body.Read(peekBuf)
+		if peekN > 0 {
+			truncated = true
+			// Restore the peeked byte along with the rest
+			r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(peekBuf[:peekN]), r.Body))
+		}
+	}
+
+	body := buf[:n]
+
+	// Restore the body for downstream handlers
+	r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(body), r.Body))
+
+	return body, truncated
 }
 
 // shouldSkip checks if the path should be skipped from logging.
@@ -99,10 +154,10 @@ func (m *AccessLogMiddleware) shouldSkip(path string) bool {
 }
 
 // log writes the access log entry.
-func (m *AccessLogMiddleware) log(ctx *RequestContext) {
+func (m *AccessLogMiddleware) log(ctx *RequestContext, body []byte, bodyTruncated bool) {
 	switch m.config.Format {
 	case AccessLogFormatJSON:
-		m.logJSON(ctx)
+		m.logJSON(ctx, body, bodyTruncated)
 	case AccessLogFormatCLF:
 		m.logCLF(ctx)
 	default:
@@ -111,7 +166,7 @@ func (m *AccessLogMiddleware) log(ctx *RequestContext) {
 }
 
 // logJSON logs in JSON format.
-func (m *AccessLogMiddleware) logJSON(ctx *RequestContext) {
+func (m *AccessLogMiddleware) logJSON(ctx *RequestContext, body []byte, bodyTruncated bool) {
 	req := ctx.Request
 
 	// Build route name
@@ -206,6 +261,16 @@ func (m *AccessLogMiddleware) logJSON(ctx *RequestContext) {
 	sb.WriteString(fmt.Sprintf("%d", ctx.BytesOut))
 	sb.WriteString(`,"duration_ms":`)
 	sb.WriteString(fmt.Sprintf("%.3f", float64(ctx.Duration().Nanoseconds())/1e6))
+
+	// Body (only when LogBody is enabled)
+	if body != nil {
+		sb.WriteString(`,"body":"`)
+		sb.WriteString(escapeJSON(string(body)))
+		sb.WriteString(`"`)
+		if bodyTruncated {
+			sb.WriteString(`,"body_truncated":true`)
+		}
+	}
 
 	// Backend
 	if backendName != "" {

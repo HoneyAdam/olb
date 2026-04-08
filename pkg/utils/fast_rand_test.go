@@ -521,3 +521,37 @@ func TestRandBool(t *testing.T) {
 		t.Errorf("RandBool distribution: %d true out of 1000, expected ~500", trueCount)
 	}
 }
+
+func TestInt31n_ZeroAndNegative(t *testing.T) {
+	fr := NewFastRandWithSeed(42)
+	if v := fr.Int31n(0); v != 0 {
+		t.Errorf("Int31n(0) = %d, want 0", v)
+	}
+	if v := fr.Int31n(-5); v != 0 {
+		t.Errorf("Int31n(-5) = %d, want 0", v)
+	}
+	// Positive value should work
+	if v := fr.Int31n(100); v < 0 || v >= 100 {
+		t.Errorf("Int31n(100) = %d, want [0, 100)", v)
+	}
+}
+
+func TestIntn_ZeroAndNegative(t *testing.T) {
+	fr := NewFastRandWithSeed(42)
+	if v := fr.Intn(0); v != 0 {
+		t.Errorf("Intn(0) = %d, want 0", v)
+	}
+	if v := fr.Intn(-1); v != 0 {
+		t.Errorf("Intn(-1) = %d, want 0", v)
+	}
+}
+
+func TestInt63n_ZeroAndNegative(t *testing.T) {
+	fr := NewFastRandWithSeed(42)
+	if v := fr.Int63n(0); v != 0 {
+		t.Errorf("Int63n(0) = %d, want 0", v)
+	}
+	if v := fr.Int63n(-1); v != 0 {
+		t.Errorf("Int63n(-1) = %d, want 0", v)
+	}
+}
