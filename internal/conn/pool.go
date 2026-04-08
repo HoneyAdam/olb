@@ -41,8 +41,9 @@ type Pool struct {
 	stopCh chan struct{}
 
 	// Statistics
-	hits   int64
-	misses int64
+	hits      int64
+	misses    int64
+	evictions int64
 }
 
 // PoolConfig contains configuration for a connection pool.
@@ -112,13 +113,16 @@ func (p *Pool) evictIdle() {
 				return
 			}
 			remaining := make([]*PooledConn, 0, len(p.idle))
+			evicted := 0
 			for _, conn := range p.idle {
 				if conn.isExpired(p.maxLifetime, p.idleTimeout) {
 					conn.Conn.Close()
+					evicted++
 				} else {
 					remaining = append(remaining, conn)
 				}
 			}
+			p.evictions += int64(evicted)
 			p.idle = remaining
 			p.mu.Unlock()
 		}
@@ -258,6 +262,7 @@ func (p *Pool) Stats() PoolStats {
 		MaxSize:   p.maxSize,
 		Hits:      p.hits,
 		Misses:    p.misses,
+		Evictions: p.evictions,
 	}
 }
 
@@ -270,6 +275,7 @@ type PoolStats struct {
 	MaxSize   int
 	Hits      int64
 	Misses    int64
+	Evictions int64
 }
 
 // PooledConn is a connection that can be returned to a pool.

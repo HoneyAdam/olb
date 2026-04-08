@@ -678,11 +678,11 @@ func (e *Engine) Start() error {
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
 			// Initial update
-			e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker)
+			e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker, e.connPoolMgr)
 			for {
 				select {
 				case <-ticker.C:
-					e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker)
+					e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker, e.connPoolMgr)
 				case <-e.sysMetricsStop:
 					return
 				}
