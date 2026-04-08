@@ -51,9 +51,11 @@ type HTTPProxy struct {
 	sseHandler     *SSEHandler
 
 	// Configuration
-	proxyTimeout time.Duration
-	dialTimeout  time.Duration
-	maxRetries   int
+	proxyTimeout        time.Duration
+	dialTimeout         time.Duration
+	maxRetries          int
+	maxIdleConns        int
+	maxIdleConnsPerHost int
 
 	// Error handling (protected by atomic for concurrent access)
 	errorHandler atomic.Value // stores func(http.ResponseWriter, *http.Request, error)
@@ -72,14 +74,18 @@ type Config struct {
 	ProxyTimeout    time.Duration
 	DialTimeout     time.Duration
 	MaxRetries      int
+	MaxIdleConns        int
+	MaxIdleConnsPerHost int
 }
 
 // DefaultConfig returns a default configuration.
 func DefaultConfig() *Config {
 	return &Config{
-		ProxyTimeout: 60 * time.Second,
-		DialTimeout:  10 * time.Second,
-		MaxRetries:   3,
+		ProxyTimeout:        60 * time.Second,
+		DialTimeout:         10 * time.Second,
+		MaxRetries:          3,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
 	}
 }
 
@@ -102,6 +108,14 @@ func NewHTTPProxy(config *Config) *HTTPProxy {
 	if maxRetries == 0 {
 		maxRetries = 3
 	}
+	maxIdleConns := config.MaxIdleConns
+	if maxIdleConns == 0 {
+		maxIdleConns = 100
+	}
+	maxIdleConnsPerHost := config.MaxIdleConnsPerHost
+	if maxIdleConnsPerHost == 0 {
+		maxIdleConnsPerHost = 10
+	}
 
 	p := &HTTPProxy{
 		router:          config.Router,
@@ -113,10 +127,12 @@ func NewHTTPProxy(config *Config) *HTTPProxy {
 		grpcHandler:     NewGRPCHandler(nil),
 		grpcWebHandler:  NewGRPCWebHandler(NewGRPCHandler(nil)),
 		sseHandler:      NewSSEHandler(nil),
-		proxyTimeout:    proxyTimeout,
-		dialTimeout:     dialTimeout,
-		maxRetries:      maxRetries,
-		errorHandler:    func() atomic.Value { v := atomic.Value{}; v.Store(defaultErrorHandler); return v }(),
+		proxyTimeout:        proxyTimeout,
+		dialTimeout:         dialTimeout,
+		maxRetries:          maxRetries,
+		maxIdleConns:        maxIdleConns,
+		maxIdleConnsPerHost: maxIdleConnsPerHost,
+		errorHandler:        func() atomic.Value { v := atomic.Value{}; v.Store(defaultErrorHandler); return v }(),
 	}
 
 	// Create HTTP client with custom transport
@@ -151,8 +167,8 @@ func (p *HTTPProxy) createTransport() *http.Transport {
 			}
 			return dialer.DialContext(ctx, network, addr)
 		},
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
+		MaxIdleConns:          p.maxIdleConns,
+		MaxIdleConnsPerHost:   p.maxIdleConnsPerHost,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,

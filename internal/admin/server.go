@@ -15,6 +15,7 @@ import (
 	"github.com/openloadbalancer/olb/internal/backend"
 	"github.com/openloadbalancer/olb/internal/health"
 	"github.com/openloadbalancer/olb/internal/metrics"
+	"github.com/openloadbalancer/olb/internal/middleware/csrf"
 	"github.com/openloadbalancer/olb/internal/router"
 )
 
@@ -47,6 +48,9 @@ type Server struct {
 	server    *http.Server
 	config    *AuthConfig
 	startTime time.Time
+
+	// CSRF
+	csrfConfig *csrf.Config
 
 	// CORS
 	allowedOrigins []string
@@ -91,6 +95,11 @@ type Config struct {
 	// Use "*" to allow all origins (credentials won't be sent).
 	// Use specific origins like ["https://admin.example.com"] for production.
 	AllowedOrigins []string
+
+	// CSRF configuration for browser-based admin access.
+	// When nil, CSRF protection is disabled (API-only mode).
+	// When provided with Enabled=true, state-changing endpoints require a CSRF token.
+	CSRFConfig *csrf.Config
 
 	// Optional components
 	ClusterAdmin ClusterAdmin // optional cluster management
@@ -146,6 +155,7 @@ func NewServer(config *Config) (*Server, error) {
 		allowedOrigins: config.AllowedOrigins,
 		certLister:     config.CertLister,
 		wafStatus:      config.WAFStatus,
+		csrfConfig:     config.CSRFConfig,
 		startTime:      time.Now(),
 		state:          "running",
 	}
@@ -219,6 +229,16 @@ func (s *Server) setupRoutes() {
 	// Apply auth middleware if configured
 	if s.config != nil {
 		handler = AuthMiddleware(s.config)(handler)
+	}
+
+	// Apply CSRF protection for browser-based access to state-changing endpoints.
+	// Safe methods (GET, HEAD, OPTIONS) pass through and receive a CSRF cookie.
+	// The /metrics endpoint is excluded since Prometheus scrapers don't send tokens.
+	if s.csrfConfig != nil && s.csrfConfig.Enabled {
+		csrfMW, err := csrf.New(*s.csrfConfig)
+		if err == nil {
+			handler = csrfMW.Wrap(handler)
+		}
 	}
 
 	// Apply CORS for admin API (restricted to allowed origins)
