@@ -93,10 +93,44 @@ bench:
 	@echo "Running benchmarks..."
 	go test -bench=. -benchmem ./...
 
-## bench-profile: Run benchmarks with profiling
+## bench-profile: Run benchmarks with CPU and memory profiling per package
 bench-profile:
 	@echo "Running benchmarks with profiling..."
-	go test -bench=. -benchmem -cpuprofile=cpu.prof -memprofile=mem.prof ./...
+	@mkdir -p profiles
+	@for pkg in $$(go list ./... | grep -v /vendor/); do \
+		has_bench=$$(grep -rl "func Benchmark" $$(echo $$pkg | sed 's|github.com/openloadbalancer/olb/||') 2>/dev/null || true); \
+		if [ -n "$$has_bench" ]; then \
+			name=$$(echo $$pkg | sed 's|/|_|g'); \
+			echo "  Profiling $$pkg..."; \
+			go test -bench=. -benchmem -count=1 \
+				-cpuprofile=profiles/$${name}.cpu.prof \
+				-memprofile=profiles/$${name}.mem.prof \
+				$$pkg 2>&1 | tail -5; \
+		fi; \
+	done
+	@echo ""
+	@echo "Profiles written to profiles/"
+	@echo "Analyze with: go tool pprof -top profiles/<name>.cpu.prof"
+	@echo "Analyze with: go tool pprof -top profiles/<name>.mem.prof"
+
+## bench-alloc: Run benchmarks with allocation tracking
+bench-alloc:
+	@echo "Running benchmarks with allocation tracking..."
+	go test -bench=. -benchmem -run=^$ ./... 2>&1 | grep -E "(Benchmark|ns/op|allocs)"
+
+## bench-compare: Compare benchmarks between two commits (usage: make bench-compare BASE=main)
+bench-compare:
+	@echo "Comparing benchmarks against $(BASE)..."
+	@which benchstat >/dev/null 2>&1 || (echo "Install benchstat: go install golang.org/x/perf/cmd/benchstat@latest" && exit 1)
+	@mkdir -p profiles
+	@echo "Running old benchmarks ($$BASE)..."
+	@git stash -q 2>/dev/null; git checkout $(BASE) -q 2>/dev/null
+	@go test -bench=. -count=5 -run=^$ ./... > profiles/old.txt 2>/dev/null || true
+	@git checkout - -q 2>/dev/null; git stash pop -q 2>/dev/null
+	@echo "Running new benchmarks (current)..."
+	@go test -bench=. -count=5 -run=^$ ./... > profiles/new.txt 2>/dev/null || true
+	@echo ""
+	@benchstat profiles/old.txt profiles/new.txt
 
 ## lint: Run linters (requires golangci-lint)
 lint:

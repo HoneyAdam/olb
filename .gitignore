@@ -21,6 +21,7 @@ coverage.html
 # Benchmarks
 bench-results/
 build-results/
+profiles/
 
 # Dependencies
 vendor/

@@ -61,7 +61,7 @@ OpenLoadBalancer is a remarkably complete load balancer implementation with 97% 
 - [x] **Admin auth rate limit hardening** -- Increase from 30/min to configurable limit, add progressive backoff, add account lockout after N failures. ~4h
 - [x] **Add request body logging opt-in** -- SECURITY.md notes "request body logging may capture sensitive data". Make body logging explicitly opt-in with per-route control. ~4h
 - [x] **Refactor engine.go** -- Break `createMiddlewareChain()` (~800 LOC) into per-middleware registration functions. Break `gossip.go` (1,715 LOC) into logical files. ~8h
-- [ ] **Add pprof memory profiling to benchmarks** -- Include heap and CPU profiles in benchmark runs to identify allocation hotspots. ~4h
+- [x] **Add pprof memory profiling to benchmarks** -- Include heap and CPU profiles in benchmark runs to identify allocation hotspots. ~4h
 - [x] **Validate config on startup comprehensively** -- Add validation for all middleware config types, catch conflicting settings early. ~8h
 - [x] **Add circuit breaker to admin API backend calls** -- Admin API currently has no protection against cascading failures when calling engine internals. ~4h
 - [x] **WebSocket connection limit enforcement** -- Add configurable max concurrent WebSocket connections per listener. ~2h
