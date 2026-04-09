@@ -212,7 +212,7 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 						return writeErr
 					}
 					flusher.Flush()
-					continue
+					return nil
 				}
 				return res.err
 			}

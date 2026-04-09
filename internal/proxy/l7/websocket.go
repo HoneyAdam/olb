@@ -354,6 +354,11 @@ func (wh *WebSocketHandler) dialBackend(r *http.Request, b *backend.Backend) (ne
 func (wh *WebSocketHandler) proxyWebSocket(clientConn, backendConn net.Conn) error {
 	errChan := make(chan error, 2)
 
+	// Use sync.Once for each connection to prevent concurrent Close() races.
+	var clientOnce, backendOnce sync.Once
+	closeClient := func() { clientOnce.Do(func() { clientConn.Close() }) }
+	closeBackend := func() { backendOnce.Do(func() { backendConn.Close() }) }
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -362,8 +367,8 @@ func (wh *WebSocketHandler) proxyWebSocket(clientConn, backendConn net.Conn) err
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				backendConn.Close()
-				clientConn.Close()
+				closeBackend()
+				closeClient()
 				errChan <- fmt.Errorf("panic in client->backend copy: %v", r)
 				return
 			}
@@ -372,7 +377,7 @@ func (wh *WebSocketHandler) proxyWebSocket(clientConn, backendConn net.Conn) err
 		if err != nil && !isWebSocketCloseError(err) {
 			errChan <- fmt.Errorf("client to backend: %w", err)
 		}
-		backendConn.Close()
+		closeBackend()
 	}()
 
 	// Backend -> Client
@@ -380,8 +385,8 @@ func (wh *WebSocketHandler) proxyWebSocket(clientConn, backendConn net.Conn) err
 		defer wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
-				clientConn.Close()
-				backendConn.Close()
+				closeClient()
+				closeBackend()
 				errChan <- fmt.Errorf("panic in backend->client copy: %v", r)
 				return
 			}
@@ -390,7 +395,7 @@ func (wh *WebSocketHandler) proxyWebSocket(clientConn, backendConn net.Conn) err
 		if err != nil && !isWebSocketCloseError(err) {
 			errChan <- fmt.Errorf("backend to client: %w", err)
 		}
-		clientConn.Close()
+		closeClient()
 	}()
 
 	wg.Wait()

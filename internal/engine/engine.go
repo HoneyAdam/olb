@@ -677,10 +677,11 @@ func (e *Engine) Start() error {
 	}
 
 	// 7. Start admin server
+	adminAddr := getAdminAddress(e.config)
 	e.wg.Add(1)
 	go func() {
 		defer e.wg.Done()
-		addr := getAdminAddress(e.config)
+		addr := adminAddr
 		e.logger.Info("Admin server starting",
 			logging.String("address", addr),
 		)
