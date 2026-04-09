@@ -200,7 +200,7 @@ func (r *SNIRouter) proxyToBackend(clientConn net.Conn, backend *backend.Backend
 	defer backendConn.Close()
 
 	// Bidirectional copy
-	_, _, err = CopyBidirectional(clientConn, backendConn, 0)
+	_, _, err = CopyBidirectional(clientConn, backendConn, 5*time.Minute)
 	return err
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"strings"
 )
@@ -200,7 +201,8 @@ func (m *Middleware) setToken(w http.ResponseWriter, r *http.Request) {
 func (m *Middleware) handleError(w http.ResponseWriter, r *http.Request, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
-	w.Write([]byte(`{"error":"CSRF validation failed","message":"` + message + `"}`))
+	resp, _ := json.Marshal(map[string]string{"error": "CSRF validation failed", "message": message})
+	w.Write(resp)
 }
 
 // generateToken generates a random CSRF token.

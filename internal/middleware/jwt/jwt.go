@@ -298,7 +298,8 @@ func computeHMAC(data, secret, algorithm string) []byte {
 // unauthorized writes unauthorized response.
 func (m *Middleware) unauthorized(w http.ResponseWriter, message string) {
 	w.Header().Set("WWW-Authenticate", "Bearer")
-	http.Error(w, `{"error":"unauthorized","message":"`+message+`"}`, http.StatusUnauthorized)
+	resp, _ := json.Marshal(map[string]string{"error": "unauthorized", "message": message})
+	http.Error(w, string(resp), http.StatusUnauthorized)
 }
 
 // Header represents JWT header.

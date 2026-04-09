@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -191,6 +192,10 @@ func NewServer(config *Config) (*Server, error) {
 		state:            "running",
 	}
 
+	if config.Auth == nil {
+		log.Printf("WARNING: Admin API at %s has no authentication configured — all endpoints are publicly accessible", config.Address)
+	}
+
 	s.setupRoutes()
 	return s, nil
 }
@@ -273,9 +278,11 @@ func (s *Server) setupRoutes() {
 	handler = rl.middleware(handler)
 	s.rateLimiter = rl
 
-	// Apply auth middleware if configured
+	// Apply auth middleware if configured; warn if admin API has no authentication
 	if s.config != nil {
 		handler = AuthMiddleware(s.config)(handler)
+	} else {
+		handler = warnNoAuth(handler)
 	}
 
 	// Apply CSRF protection for browser-based access to state-changing endpoints.
@@ -481,8 +488,16 @@ func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 		}
 
 		rl.mu.Lock()
+		// Cap visitor map size to prevent memory exhaustion under distributed attacks
+		const maxVisitors = 100000
 		v, exists := rl.visitors[ip]
 		if !exists || time.Since(v.lastSeen) > rl.window {
+			if !exists && len(rl.visitors) >= maxVisitors {
+				rl.mu.Unlock()
+				w.Header().Set("Retry-After", "60")
+				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				return
+			}
 			rl.visitors[ip] = &rlVisitor{count: 1, lastSeen: time.Now()}
 			rl.mu.Unlock()
 			next.ServeHTTP(w, r)
@@ -497,6 +512,17 @@ func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 			return
 		}
 		rl.mu.Unlock()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// warnNoAuth adds a response header warning when the admin API has no authentication
+// configured. This alerts operators and monitoring tools that the admin API is unprotected.
+func warnNoAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			w.Header().Set("X-Security-Warning", "admin API has no authentication configured")
+		}
 		next.ServeHTTP(w, r)
 	})
 }

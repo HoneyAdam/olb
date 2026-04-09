@@ -106,6 +106,12 @@ func (el *EventLogger) LogEvent(evt *WAFEvent) {
 		}
 	}
 
+	// Cap findings to prevent log bloat from requests that trigger many rules
+	const maxFindings = 20
+	if len(evt.Findings) > maxFindings {
+		evt.Findings = evt.Findings[:maxFindings]
+	}
+
 	data, err := json.Marshal(evt)
 	if err != nil {
 		return

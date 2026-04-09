@@ -42,8 +42,7 @@ type WebSocketConfig struct {
 	MaxConns int
 
 	// TLSInsecureSkipVerify controls whether backend TLS certificates are verified.
-	// Defaults to true for backward compatibility with internal self-signed certs.
-	// Set to false when proxying to external backends with valid certificates.
+	// Defaults to false (secure). Set to true only for backends with self-signed certs.
 	TLSInsecureSkipVerify bool
 }
 
@@ -54,7 +53,7 @@ func DefaultWebSocketConfig() *WebSocketConfig {
 		IdleTimeout:           60 * time.Second,
 		PingInterval:          30 * time.Second,
 		MaxMessageSize:        10 * 1024 * 1024, // 10MB
-		TLSInsecureSkipVerify: true,              // backward compatible default
+		TLSInsecureSkipVerify: false,             // secure default: verify backend TLS certificates
 	}
 }
 
@@ -218,6 +217,11 @@ func isWSHopByHop(name string) bool {
 	return wsHopByHop[http.CanonicalHeaderKey(name)]
 }
 
+// sanitizeHeaderValue strips CR and LF characters to prevent header injection.
+func sanitizeHeaderValue(v string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(v)
+}
+
 // writeUpgradeRequest writes the WebSocket upgrade HTTP request to the backend.
 func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, b *backend.Backend) error {
 	path := r.URL.RequestURI()
@@ -225,9 +229,14 @@ func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, 
 		path = "/"
 	}
 
+	// Reject paths containing CRLF to prevent request smuggling
+	if strings.ContainsAny(path, "\r\n") {
+		return fmt.Errorf("invalid request path: contains CR/LF characters")
+	}
+
 	var buf strings.Builder
 	buf.WriteString(fmt.Sprintf("GET %s HTTP/1.1\r\n", path))
-	buf.WriteString(fmt.Sprintf("Host: %s\r\n", r.Host))
+	buf.WriteString(fmt.Sprintf("Host: %s\r\n", sanitizeHeaderValue(r.Host)))
 
 	// Forward original headers, stripping hop-by-hop headers to prevent smuggling
 	for key, vals := range r.Header {
@@ -235,7 +244,7 @@ func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, 
 			continue
 		}
 		for _, val := range vals {
-			buf.WriteString(fmt.Sprintf("%s: %s\r\n", key, val))
+			buf.WriteString(fmt.Sprintf("%s: %s\r\n", key, sanitizeHeaderValue(val)))
 		}
 	}
 
@@ -297,20 +306,26 @@ func computeWebSocketAccept(key string) string {
 }
 
 // extractClientIP extracts the client IP from a request.
+// Only trusts X-Forwarded-For/X-Real-IP when the direct peer is a trusted proxy.
 func extractClientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		first, _, _ := strings.Cut(xff, ",")
-		return strings.TrimSpace(first)
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
+
+	if isPrivateOrLoopback(host) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			first, _, _ := strings.Cut(xff, ",")
+			return strings.TrimSpace(first)
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
+	}
+
 	return host
 }
+
 
 // dialBackend dials the backend server for WebSocket connection.
 func (wh *WebSocketHandler) dialBackend(r *http.Request, b *backend.Backend) (net.Conn, error) {

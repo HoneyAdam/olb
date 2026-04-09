@@ -477,25 +477,36 @@ func (p *HTTPProxy) prepareOutboundRequest(r *http.Request, b *backend.Backend) 
 }
 
 // getClientIP extracts the client IP from the request.
+// Only trusts X-Forwarded-For/X-Real-IP when the direct peer is a trusted proxy.
 func getClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain
-		first, _, _ := strings.Cut(xff, ",")
-		return strings.TrimSpace(first)
-	}
-
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-
-	// Fall back to remote address
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
+
+	// Only trust proxy headers if the direct connection comes from a
+	// private/loopback address (trusted proxy). For public-facing deployments,
+	// the middleware-layer trusted proxy config provides finer control.
+	if isPrivateOrLoopback(host) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			first, _, _ := strings.Cut(xff, ",")
+			return strings.TrimSpace(first)
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
+	}
+
 	return host
+}
+
+// isPrivateOrLoopback checks if an IP belongs to a private or loopback range.
+func isPrivateOrLoopback(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	return parsed.IsLoopback() || parsed.IsPrivate()
 }
 
 // copyHeaders copies headers from source to destination, excluding hop-by-hop headers.

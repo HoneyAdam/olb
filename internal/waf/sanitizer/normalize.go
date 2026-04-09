@@ -31,7 +31,7 @@ func DecodeMultiLevel(s string) string {
 	}
 
 	prev := s
-	for range 3 { // max 3 levels to prevent infinite loops
+	for range 5 { // max 5 levels to prevent multi-level encoding bypass
 		decoded, err := url.QueryUnescape(prev)
 		if err != nil || decoded == prev {
 			break

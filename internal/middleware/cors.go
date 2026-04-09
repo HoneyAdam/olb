@@ -37,6 +37,9 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 	}
 
 	// Process allowed origins
+	// Note: AllowedOrigins: ["*"] with AllowCredentials: true will reflect any
+	// origin with credentials, effectively disabling same-origin policy for
+	// credentialed requests. Use a specific origin list with AllowCredentials.
 	for _, origin := range config.AllowedOrigins {
 		if origin == "*" {
 			m.allowAllOrigins = true

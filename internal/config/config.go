@@ -110,7 +110,7 @@ type MaxBodySizeConfig struct {
 // JWTConfig represents JWT authentication configuration.
 type JWTConfig struct {
 	Enabled          bool                `yaml:"enabled" json:"enabled"`
-	Secret           string              `yaml:"secret" json:"secret"`                       // HMAC secret (for HS256/HS384/HS512)
+	Secret           string              `yaml:"secret" json:"-"`                            // HMAC secret (for HS256/HS384/HS512)
 	PublicKey        string              `yaml:"public_key" json:"public_key"`               // Ed25519 public key path or base64 (for EdDSA)
 	Algorithm        string              `yaml:"algorithm" json:"algorithm"`                 // HS256, HS384, HS512, EdDSA
 	Header           string              `yaml:"header" json:"header"`                       // Authorization header name (default: "Authorization")
@@ -129,7 +129,7 @@ type JWTClaimsValidation struct {
 // BasicAuthConfig represents Basic Authentication configuration.
 type BasicAuthConfig struct {
 	Enabled      bool              `yaml:"enabled" json:"enabled"`
-	Users        map[string]string `yaml:"users" json:"users"`                 // username -> password (hashed or plain)
+	Users        map[string]string `yaml:"users" json:"-"`                     // username -> password (hashed or plain)
 	Realm        string            `yaml:"realm" json:"realm"`                 // Auth realm (default: "Restricted")
 	ExcludePaths []string          `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude
 	Hash         string            `yaml:"hash" json:"hash"`                   // Password hash: "sha256", "plain" (default: "sha256")

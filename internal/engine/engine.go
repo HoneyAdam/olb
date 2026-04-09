@@ -322,13 +322,15 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 
 	// Create admin server
 	adminCfg := &admin.Config{
-		Address:              getAdminAddress(cfg),
-		PoolManager:          poolMgr,
-		Router:               rtr,
-		HealthChecker:        healthChecker,
-		Metrics:              admin.NewDefaultMetrics(metricsRegistry),
-		RateLimitMaxRequests: cfg.Admin.RateLimitMaxRequests,
-		RateLimitWindow:      cfg.Admin.RateLimitWindow,
+		Address:       getAdminAddress(cfg),
+		PoolManager:   poolMgr,
+		Router:        rtr,
+		HealthChecker: healthChecker,
+		Metrics:       admin.NewDefaultMetrics(metricsRegistry),
+	}
+	if cfg.Admin != nil {
+		adminCfg.RateLimitMaxRequests = cfg.Admin.RateLimitMaxRequests
+		adminCfg.RateLimitWindow = cfg.Admin.RateLimitWindow
 	}
 
 	// Wire optional admin components
