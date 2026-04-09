@@ -153,6 +153,8 @@ func TestUDPProxy_ReceiveFromBackend_ForwardsData(t *testing.T) {
 		proxy.receiveFromBackend(session)
 		close(done)
 	}()
+	// Brief pause to ensure receiveFromBackend goroutine is running
+	time.Sleep(10 * time.Millisecond)
 	go func() {
 		buf := make([]byte, 65535)
 		n, addr, err := backendServer.ReadFrom(buf)
