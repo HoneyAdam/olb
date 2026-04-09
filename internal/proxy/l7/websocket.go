@@ -229,8 +229,10 @@ func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, 
 		path = "/"
 	}
 
-	// Reject paths containing CRLF to prevent request smuggling
-	if strings.ContainsAny(path, "\r\n") {
+	// Reject paths containing CRLF (raw or URL-encoded) to prevent request smuggling
+	if strings.ContainsAny(path, "\r\n") ||
+		strings.Contains(strings.ToLower(path), "%0d") ||
+		strings.Contains(strings.ToLower(path), "%0a") {
 		return fmt.Errorf("invalid request path: contains CR/LF characters")
 	}
 

@@ -581,3 +581,22 @@ func TestSanitizer_PathOverrideExactMatch(t *testing.T) {
 		t.Fatalf("expected no error on exact override path, got %v", err)
 	}
 }
+
+func TestDecodeMultiLevel_QuadrupleEncoding(t *testing.T) {
+	// Quadruple-encoded single quote: %25252527 → %252527 → %2527 → %27 → '
+	// With limit=3 this would stop at %27; with limit=5 it reaches '
+	input := "%25252527"
+	got := DecodeMultiLevel(input)
+	if got != "'" {
+		t.Errorf("DecodeMultiLevel(%q) = %q, want %q (quadruple encoding not fully decoded)", input, got, "'")
+	}
+}
+
+func TestDecodeMultiLevel_FiveLevel(t *testing.T) {
+	// 5-level encoding should decode fully
+	input := "%2525252527"
+	got := DecodeMultiLevel(input)
+	if got != "'" {
+		t.Errorf("DecodeMultiLevel(%q) = %q, want %q", input, got, "'")
+	}
+}

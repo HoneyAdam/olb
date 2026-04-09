@@ -5828,3 +5828,36 @@ func TestPoolToInfo_NoHealthCheck(t *testing.T) {
 		t.Errorf("expected total=1, got %d", info.Total)
 	}
 }
+
+func TestNoAuthWarningHeader(t *testing.T) {
+	server, _, _, _, _ := setupTestServer(t, nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)
+	rec := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(rec, req)
+
+	warning := rec.Header().Get("X-Security-Warning")
+	if warning == "" {
+		t.Error("expected X-Security-Warning header when auth is not configured")
+	}
+	if !strings.Contains(warning, "no authentication") {
+		t.Errorf("unexpected warning: %s", warning)
+	}
+}
+
+func TestNoAuthWarningHeader_AbsentWithAuth(t *testing.T) {
+	authConfig := &AuthConfig{
+		BearerTokens: []string{"test-token"},
+	}
+	server, _, _, _, _ := setupTestServer(t, authConfig)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/system/info", nil)
+	req.Header.Set("Authorization", "Bearer test-token")
+	rec := httptest.NewRecorder()
+	server.server.Handler.ServeHTTP(rec, req)
+
+	warning := rec.Header().Get("X-Security-Warning")
+	if warning != "" {
+		t.Error("X-Security-Warning should not be present when auth is configured")
+	}
+}

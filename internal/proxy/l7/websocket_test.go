@@ -2,6 +2,7 @@ package l7
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -1725,3 +1726,117 @@ func TestWebSocketHandler_MaxConns_RejectsOverLimit(t *testing.T) {
 	// Cleanup
 	wh.conns.Add(-1)
 }
+
+func TestExtractClientIP_UntrustedPeer(t *testing.T) {
+	tests := []struct {
+		name string
+		req  *http.Request
+		want string
+	}{
+		{
+			"public peer ignores XFF",
+			&http.Request{
+				Header:     http.Header{"X-Forwarded-For": []string{"10.0.0.1"}},
+				RemoteAddr: "203.0.113.50:12345",
+			},
+			"203.0.113.50",
+		},
+		{
+			"public peer ignores X-Real-IP",
+			&http.Request{
+				Header:     http.Header{"X-Real-Ip": []string{"10.0.0.2"}},
+				RemoteAddr: "198.51.100.1:12345",
+			},
+			"198.51.100.1",
+		},
+		{
+			"private peer trusts XFF",
+			&http.Request{
+				Header:     http.Header{"X-Forwarded-For": []string{"203.0.113.50"}},
+				RemoteAddr: "10.0.0.5:12345",
+			},
+			"203.0.113.50",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractClientIP(tt.req)
+			if got != tt.want {
+				t.Errorf("extractClientIP() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSanitizeHeaderValue(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"normal-value", "normal-value"},
+		{"value\r\nInjected: header", "valueInjected: header"},
+		{"value\rpartial", "valuepartial"},
+		{"value\npartial", "valuepartial"},
+		{"clean", "clean"},
+	}
+	for _, tt := range tests {
+		if got := sanitizeHeaderValue(tt.input); got != tt.want {
+			t.Errorf("sanitizeHeaderValue(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestWriteUpgradeRequest_CRLFRejection(t *testing.T) {
+	wh := &WebSocketHandler{}
+	var buf bytes.Buffer
+	conn := &mockNetConn{Writer: &buf}
+
+	tests := []struct {
+		name    string
+		path    string // decoded Path
+		rawPath string // optional RawPath (URL-encoded)
+	}{
+		{"raw CRLF in path", "/path\r\nInjected: header", ""},
+		{"raw LF in path", "/path\nInjected", ""},
+		{"URL-encoded CRLF", "/path\r\nInjected: header", "/path%0d%0aInjected:%20header"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			u := &url.URL{Path: tt.path}
+			if tt.rawPath != "" {
+				u.RawPath = tt.rawPath
+			}
+			req := &http.Request{
+				Method: "GET",
+				URL:    u,
+				Header: http.Header{
+					"Connection": []string{"Upgrade"},
+					"Upgrade":    []string{"websocket"},
+				},
+				Host: "localhost",
+			}
+
+			err := wh.writeUpgradeRequest(conn, req, &backend.Backend{})
+			if err == nil {
+				t.Errorf("expected error for CRLF in path")
+				return
+			}
+			if !strings.Contains(err.Error(), "CR/LF") {
+				t.Errorf("expected CR/LF error, got: %v", err)
+			}
+		})
+	}
+}
+
+// mockNetConn is a minimal net.Conn for testing writeUpgradeRequest.
+type mockNetConn struct {
+	io.Writer
+}
+
+func (m *mockNetConn) Read(b []byte) (int, error)         { return 0, nil }
+func (m *mockNetConn) Close() error                        { return nil }
+func (m *mockNetConn) LocalAddr() net.Addr                 { return nil }
+func (m *mockNetConn) RemoteAddr() net.Addr                { return nil }
+func (m *mockNetConn) SetDeadline(time.Time) error         { return nil }
+func (m *mockNetConn) SetReadDeadline(time.Time) error     { return nil }
+func (m *mockNetConn) SetWriteDeadline(time.Time) error    { return nil }

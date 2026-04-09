@@ -3400,3 +3400,75 @@ func TestShadowManager_ForceHeader(t *testing.T) {
 		t.Error("expected ShouldShadowRequest=true with force header")
 	}
 }
+
+func TestGetClientIP_UntrustedPeerIgnoresXFF(t *testing.T) {
+	// Public IP peers should NOT trust X-Forwarded-For (prevents IP spoofing)
+	tests := []struct {
+		name       string
+		remoteAddr string
+		headers    map[string]string
+		expected   string
+	}{
+		{
+			name:       "public peer XFF ignored",
+			remoteAddr: "203.0.113.50:12345",
+			headers:    map[string]string{"X-Forwarded-For": "10.0.0.1"},
+			expected:   "203.0.113.50",
+		},
+		{
+			name:       "public peer X-Real-IP ignored",
+			remoteAddr: "198.51.100.1:12345",
+			headers:    map[string]string{"X-Real-IP": "10.0.0.1"},
+			expected:   "198.51.100.1",
+		},
+		{
+			name:       "private peer XFF trusted",
+			remoteAddr: "10.0.0.5:12345",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.50"},
+			expected:   "203.0.113.50",
+		},
+		{
+			name:       "loopback peer XFF trusted",
+			remoteAddr: "127.0.0.1:12345",
+			headers:    map[string]string{"X-Forwarded-For": "203.0.113.50"},
+			expected:   "203.0.113.50",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+			result := getClientIP(req)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestIsPrivateOrLoopback(t *testing.T) {
+	tests := []struct {
+		ip       string
+		expected bool
+	}{
+		{"127.0.0.1", true},
+		{"10.0.0.1", true},
+		{"172.16.0.1", true},
+		{"192.168.1.1", true},
+		{"203.0.113.50", false},
+		{"8.8.8.8", false},
+		{"invalid", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			if got := isPrivateOrLoopback(tt.ip); got != tt.expected {
+				t.Errorf("isPrivateOrLoopback(%q) = %v, want %v", tt.ip, got, tt.expected)
+			}
+		})
+	}
+}

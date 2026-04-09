@@ -1,6 +1,7 @@
 package csrf
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -498,5 +499,34 @@ func TestTokenNotRegenerated(t *testing.T) {
 		if c.Name == "csrf_token" {
 			t.Error("Token should not be regenerated when cookie exists")
 		}
+	}
+}
+
+func TestCSRF_ErrorResponseIsValidJSON(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called")
+	}))
+
+	req := httptest.NewRequest("POST", "/test", nil)
+	req.Header.Set("X-CSRF-Token", `injection","extra":"bad`)
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: "valid-token"})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	body := rec.Body.Bytes()
+	var parsed map[string]string
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("CSRF error response is not valid JSON: %v\nbody: %s", err, body)
+	}
+	if parsed["error"] != "CSRF validation failed" {
+		t.Errorf("unexpected error field: %s", parsed["error"])
 	}
 }

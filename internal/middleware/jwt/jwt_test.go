@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"hash"
 	"net/http"
+	"strings"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -1360,5 +1361,30 @@ func TestJWT_ClaimsID(t *testing.T) {
 	}
 	if retrieved.JWTID != "unique-token-id" {
 		t.Errorf("JWTID = %s, want unique-token-id", retrieved.JWTID)
+	}
+}
+
+func TestUnauthorized_SafeJSONOutput(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Secret = "test-secret"
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := httptest.NewRecorder()
+	// Simulate a message with JSON-breaking characters
+	mw.unauthorized(rec, `injection","extra":"bad`)
+
+	body := rec.Body.String()
+	// The response must be valid JSON (json.Marshal escapes special chars)
+	var parsed map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &parsed); err != nil {
+		t.Fatalf("response is not valid JSON: %v\nbody: %s", err, body)
+	}
+	if parsed["message"] != `injection","extra":"bad` {
+		t.Errorf("message not properly escaped, got: %s", parsed["message"])
 	}
 }

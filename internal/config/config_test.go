@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1593,5 +1594,45 @@ func TestConfig_Validate_MiddlewareDisabled_NoValidation(t *testing.T) {
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("disabled middleware should not trigger validation: %v", err)
+	}
+}
+
+func TestJWTConfig_SecretRedactedFromJSON(t *testing.T) {
+	cfg := JWTConfig{
+		Enabled:   true,
+		Secret:    "super-secret-key",
+		Algorithm: "HS256",
+		Header:    "Authorization",
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if strings.Contains(string(data), "super-secret-key") {
+		t.Error("JWT secret should be redacted from JSON output (json:\"-\")")
+	}
+	if !strings.Contains(string(data), "HS256") {
+		t.Error("non-secret fields should still be present")
+	}
+}
+
+func TestBasicAuthConfig_UsersRedactedFromJSON(t *testing.T) {
+	cfg := BasicAuthConfig{
+		Enabled: true,
+		Users:   map[string]string{"admin": "hashed-password"},
+		Realm:   "Restricted",
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if strings.Contains(string(data), "hashed-password") {
+		t.Error("BasicAuth users/passwords should be redacted from JSON output")
+	}
+	if strings.Contains(string(data), "admin") {
+		t.Error("BasicAuth usernames should be redacted from JSON output")
+	}
+	if !strings.Contains(string(data), "Restricted") {
+		t.Error("non-secret fields should still be present")
 	}
 }
