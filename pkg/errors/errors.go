@@ -227,22 +227,35 @@ func (e *Error) Unwrap() error {
 }
 
 // WithContext adds context fields to the error.
-// Returns the same error for chaining.
+// Returns a new Error to avoid mutating shared sentinels.
 func (e *Error) WithContext(key string, value any) *Error {
-	if e.Context == nil {
-		e.Context = make(map[string]any)
+	ctx := make(map[string]any, len(e.Context)+1)
+	for k, v := range e.Context {
+		ctx[k] = v
 	}
-	e.Context[key] = value
-	return e
+	ctx[key] = value
+	return &Error{
+		Code:    e.Code,
+		Message: e.Message,
+		Cause:   e.Cause,
+		Context: ctx,
+	}
 }
 
 // WithContextMap adds multiple context fields at once.
+// Returns a new Error to avoid mutating shared sentinels.
 func (e *Error) WithContextMap(ctx map[string]any) *Error {
-	if e.Context == nil {
-		e.Context = make(map[string]any)
+	newCtx := make(map[string]any, len(e.Context)+len(ctx))
+	for k, v := range e.Context {
+		newCtx[k] = v
 	}
-	maps.Copy(e.Context, ctx)
-	return e
+	maps.Copy(newCtx, ctx)
+	return &Error{
+		Code:    e.Code,
+		Message: e.Message,
+		Cause:   e.Cause,
+		Context: newCtx,
+	}
 }
 
 // Is reports whether this error matches the target.
