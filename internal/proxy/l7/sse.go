@@ -192,7 +192,7 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 		// Read line with timeout handling
 		lineCh := make(chan readLineResult, 1)
 		go func() {
-			line, err := sh.readLineWithTimeout(reader, sh.config.IdleTimeout, func() { resp.Body.Close() })
+			line, err := sh.readLineWithTimeout(ctx, reader, sh.config.IdleTimeout, func() { resp.Body.Close() })
 			lineCh <- readLineResult{line: line, err: err}
 		}()
 
@@ -237,7 +237,9 @@ type readLineResult struct {
 // readLineWithTimeout reads a line with a timeout.
 // If a cancel function is provided, it is called on timeout so the caller
 // can unblock the underlying reader (e.g. by closing resp.Body).
-func (sh *SSEHandler) readLineWithTimeout(reader *bufio.Reader, timeout time.Duration, onCancel func()) ([]byte, error) {
+// The drain goroutine uses the provided context to bound its lifetime
+// rather than potentially blocking forever.
+func (sh *SSEHandler) readLineWithTimeout(ctx context.Context, reader *bufio.Reader, timeout time.Duration, onCancel func()) ([]byte, error) {
 	if timeout > 0 {
 		type result struct {
 			line []byte
@@ -260,8 +262,14 @@ func (sh *SSEHandler) readLineWithTimeout(reader *bufio.Reader, timeout time.Dur
 			if onCancel != nil {
 				onCancel()
 			}
-			// Drain the goroutine so it doesn't leak
-			go func() { <-ch }()
+			// Drain the goroutine, but bound its lifetime to the context
+			// so it doesn't leak if the underlying reader never returns.
+			go func() {
+				select {
+				case <-ch:
+				case <-ctx.Done():
+				}
+			}()
 			return nil, &timeoutError{}
 		}
 	}

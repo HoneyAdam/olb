@@ -3354,7 +3354,7 @@ func TestCreateMiddlewareChainAllEnabled(t *testing.T) {
 		},
 		CORS: &config.CORSConfig{
 			Enabled:          true,
-			AllowedOrigins:   []string{"*"},
+			AllowedOrigins:   []string{"https://example.com"},
 			AllowedMethods:   []string{"GET"},
 			AllowCredentials: true,
 			MaxAge:           3600,

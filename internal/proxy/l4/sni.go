@@ -146,7 +146,7 @@ func (r *SNIRouter) peekClientHello(conn net.Conn) (string, net.Conn, error) {
 	// Read the rest of the record based on declared length
 	recordLen := int(header[3])<<8 | int(header[4])
 	if recordLen > r.config.MaxHandshakeSize {
-		recordLen = r.config.MaxHandshakeSize
+		return "", conn, fmt.Errorf("TLS ClientHello too large (%d bytes, max %d)", recordLen, r.config.MaxHandshakeSize)
 	}
 	record := make([]byte, recordLen)
 	if _, err := io.ReadFull(conn, record); err != nil {
@@ -638,8 +638,8 @@ func (p *SNIProxy) HandleConnection(conn net.Conn) {
 	}
 	defer backendConn.Close()
 
-	// Copy data
-	CopyBidirectional(peekedConn, backendConn, 0)
+	// Copy data (5 minute idle timeout to prevent hung connections)
+	CopyBidirectional(peekedConn, backendConn, 5*time.Minute)
 }
 
 // CreateTLSConfigForSNI creates a TLS config for SNI-based routing.

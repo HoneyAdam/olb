@@ -1025,13 +1025,13 @@ func TestIsTrustedSource_NoTrustedNets(t *testing.T) {
 	}
 	defer innerListener.Close()
 
-	// No TrustedNetworks configured — all sources should be trusted
+	// No TrustedNetworks configured — no sources should be trusted (secure default)
 	config := &PROXYProtocolConfig{}
 	listener := NewPROXYListener(innerListener, config)
 
 	addr := &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 12345}
-	if !listener.isTrustedSource(addr) {
-		t.Error("Expected trusted when no TrustedNetworks configured")
+	if listener.isTrustedSource(addr) {
+		t.Error("Expected NOT trusted when no TrustedNetworks configured (secure default)")
 	}
 }
 
@@ -1123,8 +1123,8 @@ func TestIsTrustedSource_AllInvalidCIDRs(t *testing.T) {
 
 	// All CIDRs are invalid, so trustedReady should be false
 	addr := &net.TCPAddr{IP: net.ParseIP("10.0.0.1"), Port: 12345}
-	if !listener.isTrustedSource(addr) {
-		t.Error("Expected trusted when no valid CIDRs parsed (trustedReady=false)")
+	if listener.isTrustedSource(addr) {
+		t.Error("Expected NOT trusted when no valid CIDRs parsed (secure default)")
 	}
 }
 

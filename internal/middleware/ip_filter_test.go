@@ -367,13 +367,13 @@ func TestIPFilterMiddleware_XForwardedFor_Trusted(t *testing.T) {
 	}{
 		{
 			name:     "XFF allowed IP passes even though RemoteAddr is denied",
-			remoteIP: "9.9.9.9:1234",
+			remoteIP: "10.0.0.1:1234", // private IP = trusted proxy
 			xff:      "1.2.3.4",
 			wantCode: http.StatusOK,
 		},
 		{
 			name:     "XFF denied IP blocked even though RemoteAddr would be allowed",
-			remoteIP: "1.2.3.4:1234",
+			remoteIP: "10.0.0.1:1234", // private IP = trusted proxy
 			xff:      "9.9.9.9",
 			wantCode: http.StatusForbidden,
 		},

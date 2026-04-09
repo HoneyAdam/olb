@@ -219,26 +219,30 @@ func (g *GeoDNS) ReloadDB() error {
 }
 
 // extractClientIP extracts the real client IP from the request.
+// Only trusts X-Forwarded-For / X-Real-IP headers when the direct peer
+// is a private/loopback address (i.e., a trusted internal proxy).
 func (g *GeoDNS) extractClientIP(r *http.Request) string {
-	// Check X-Forwarded-For header
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP (closest to client)
-		ips := strings.Split(xff, ",")
-		if len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+
+	// Only trust forwarding headers from private/loopback addresses
+	ip := net.ParseIP(host)
+	if ip != nil && (ip.IsPrivate() || ip.IsLoopback()) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			ips := strings.Split(xff, ",")
+			if len(ips) > 0 {
+				if clientIP := strings.TrimSpace(ips[0]); clientIP != "" {
+					return clientIP
+				}
+			}
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return xri
 		}
 	}
 
-	// Check X-Real-IP header
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return xri
-	}
-
-	// Fall back to RemoteAddr
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
 	return host
 }
 

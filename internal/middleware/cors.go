@@ -2,6 +2,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -37,9 +38,15 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 	}
 
 	// Process allowed origins
-	// Note: AllowedOrigins: ["*"] with AllowCredentials: true will reflect any
-	// origin with credentials, effectively disabling same-origin policy for
-	// credentialed requests. Use a specific origin list with AllowCredentials.
+	// Reject wildcard origins when credentials are enabled to prevent
+	// effectively disabling same-origin policy for credentialed requests.
+	if config.AllowCredentials {
+		for _, origin := range config.AllowedOrigins {
+			if origin == "*" {
+				panic(fmt.Sprintf("CORS misconfiguration: AllowedOrigins cannot contain '*' when AllowCredentials is true — specify explicit origins instead"))
+			}
+		}
+	}
 	for _, origin := range config.AllowedOrigins {
 		if origin == "*" {
 			m.allowAllOrigins = true

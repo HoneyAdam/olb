@@ -170,7 +170,8 @@ func (m *IPFilterMiddleware) Wrap(next http.Handler) http.Handler {
 }
 
 // extractClientIP extracts the client IP from the request.
-// If TrustXForwardedFor is true, the leftmost IP from X-Forwarded-For is used.
+// If TrustXForwardedFor is true, the leftmost IP from X-Forwarded-For is used,
+// but only when the direct peer is a private/loopback address (trusted proxy).
 // Otherwise, the RemoteAddr is used directly.
 func (m *IPFilterMiddleware) extractClientIP(r *http.Request) string {
 	m.mu.RLock()
@@ -178,13 +179,18 @@ func (m *IPFilterMiddleware) extractClientIP(r *http.Request) string {
 	m.mu.RUnlock()
 
 	if trustXFF {
-		xff := r.Header.Get("X-Forwarded-For")
-		if xff != "" {
-			// Use the leftmost (original client) IP
-			parts := strings.SplitN(xff, ",", 2)
-			ip := strings.TrimSpace(parts[0])
-			if ip != "" {
-				return ip
+		peerIP := utils.ExtractIP(r.RemoteAddr)
+		parsedPeer := net.ParseIP(peerIP)
+		// Only trust XFF from private/loopback addresses (trusted proxies)
+		if parsedPeer != nil && (parsedPeer.IsPrivate() || parsedPeer.IsLoopback()) {
+			xff := r.Header.Get("X-Forwarded-For")
+			if xff != "" {
+				// Use the leftmost (original client) IP
+				parts := strings.SplitN(xff, ",", 2)
+				ip := strings.TrimSpace(parts[0])
+				if ip != "" {
+					return ip
+				}
 			}
 		}
 	}

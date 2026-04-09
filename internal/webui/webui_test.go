@@ -137,8 +137,8 @@ func TestServeIndex_NoIndexFile(t *testing.T) {
 		t.Errorf("expected 500, got %d", rec.Code)
 	}
 	body, _ := io.ReadAll(rec.Body)
-	if !strings.Contains(string(body), "index.html not found") {
-		t.Errorf("expected 'index.html not found', got %q", string(body))
+	if !strings.Contains(string(body), "web ui not available") {
+		t.Errorf("expected 'web ui not available', got %q", string(body))
 	}
 }
 

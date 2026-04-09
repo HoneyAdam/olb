@@ -147,10 +147,14 @@ func (sm *ShadowManager) sendShadow(req *http.Request, backendAddr string, targe
 	shadowReq.Header.Set("X-OLB-Shadow", "true")
 	shadowReq.Header.Set("X-OLB-Shadow-Source", req.Host)
 
-	// Copy body if configured
+	// Copy body if configured. We must buffer the body so the original
+	// request remains readable by the main proxy path after this goroutine.
 	if sm.config.CopyBody && req.Body != nil {
-		body, err := io.ReadAll(req.Body)
-		if err == nil && len(body) > 0 {
+		const maxShadowBodySize = 4 * 1024 * 1024 // 4MB max shadow body
+		body, err := io.ReadAll(io.LimitReader(req.Body, maxShadowBodySize+1))
+		if err == nil && len(body) > 0 && len(body) <= maxShadowBodySize {
+			// Restore the original body so the main proxy can still read it
+			req.Body = io.NopCloser(bytes.NewReader(body))
 			shadowReq.Body = io.NopCloser(bytes.NewReader(body))
 			shadowReq.ContentLength = int64(len(body))
 		}

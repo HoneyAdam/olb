@@ -141,27 +141,22 @@ func TestCORSMiddleware_WildcardOrigin(t *testing.T) {
 }
 
 func TestCORSMiddleware_WildcardOriginWithCredentials(t *testing.T) {
-	// When AllowCredentials is true, wildcard origin should not be used
-	m := NewCORSMiddleware(CORSConfig{
+	// When AllowCredentials is true, wildcard origin should be rejected at construction
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Error("expected panic when creating CORS middleware with wildcard origin and credentials enabled")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "AllowedOrigins cannot contain '*'") {
+			t.Errorf("unexpected panic message: %v", r)
+		}
+	}()
+	NewCORSMiddleware(CORSConfig{
 		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST"},
 		AllowCredentials: true,
 	})
-
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
-
-	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("Origin", "https://example.com")
-
-	rr := httptest.NewRecorder()
-	m.Wrap(next).ServeHTTP(rr, req)
-
-	// Should use the actual origin, not wildcard, when credentials are enabled
-	if got := rr.Header().Get("Access-Control-Allow-Origin"); got != "https://example.com" {
-		t.Errorf("expected Access-Control-Allow-Origin 'https://example.com' (not wildcard with credentials), got '%s'", got)
-	}
 }
 
 func TestCORSMiddleware_SpecificOriginMatching(t *testing.T) {

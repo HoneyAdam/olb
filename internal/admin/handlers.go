@@ -286,7 +286,7 @@ func (s *Server) reloadConfig(w http.ResponseWriter, r *http.Request) {
 		return s.onReload()
 	})
 	if err != nil {
-		writeError(w, http.StatusServiceUnavailable, "RELOAD_FAILED", err.Error())
+		writeError(w, http.StatusServiceUnavailable, "RELOAD_FAILED", "configuration reload failed")
 		return
 	}
 
@@ -404,7 +404,7 @@ func (s *Server) addBackend(w http.ResponseWriter, r *http.Request) {
 		})
 		if err := s.raftProposer.ProposeUpdateBackend(poolName, backendJSON); err != nil {
 			writeError(w, http.StatusConflict, "RAFT_ERROR",
-				"failed to propose backend addition: "+err.Error())
+				"failed to propose backend addition")
 			return
 		}
 		writeSuccess(w, map[string]string{
@@ -461,7 +461,7 @@ func (s *Server) removeBackend(w http.ResponseWriter, r *http.Request) {
 	if s.raftProposer != nil {
 		if err := s.raftProposer.ProposeDeleteBackend(poolName, backendID); err != nil {
 			writeError(w, http.StatusConflict, "RAFT_ERROR",
-				"failed to propose backend removal: "+err.Error())
+				"failed to propose backend removal")
 			return
 		}
 		writeSuccess(w, map[string]string{
@@ -550,7 +550,7 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := s.raftProposer.ProposeUpdateBackend(poolName, backendJSON); err != nil {
 			writeError(w, http.StatusConflict, "RAFT_ERROR",
-				"failed to propose backend update: "+err.Error())
+				"failed to propose backend update")
 			return
 		}
 		writeSuccess(w, map[string]string{
@@ -778,12 +778,12 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 		// Clustered mode: propose through Raft
 		body, err := readBody(r)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", "invalid request body")
 			return
 		}
 		if err := s.raftProposer.ProposeSetConfig(body); err != nil {
 			writeError(w, http.StatusConflict, "RAFT_ERROR",
-				"failed to propose config change: "+err.Error())
+				"failed to propose config change")
 			return
 		}
 		writeSuccess(w, map[string]string{"status": "proposed"})
@@ -797,7 +797,7 @@ func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.onReload(); err != nil {
-		writeError(w, http.StatusInternalServerError, "RELOAD_ERROR", err.Error())
+		writeError(w, http.StatusInternalServerError, "RELOAD_ERROR", "configuration reload failed")
 		return
 	}
 	writeSuccess(w, map[string]string{"status": "reloaded"})

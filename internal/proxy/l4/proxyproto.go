@@ -504,9 +504,12 @@ func (l *PROXYListener) initTrustedNets() {
 }
 
 // isTrustedSource checks if the remote address is in a trusted network.
+// When no trusted networks are configured, PROXY headers are NOT trusted
+// from any source — the real RemoteAddr is used instead. This prevents
+// IP spoofing when TrustedNetworks is left at its default (empty).
 func (l *PROXYListener) isTrustedSource(remoteAddr net.Addr) bool {
 	if !l.trustedReady {
-		return true // No trusted networks configured — accept all
+		return false // No trusted networks configured — trust no one
 	}
 	ip, _, err := net.SplitHostPort(remoteAddr.String())
 	if err != nil {

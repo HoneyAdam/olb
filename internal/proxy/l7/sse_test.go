@@ -874,7 +874,7 @@ func TestSSEHandler_readLineWithTimeout_TriggersTimeout(t *testing.T) {
 	bufReader := bufio.NewReader(reader)
 
 	cancelCalled := false
-	line, err := handler.readLineWithTimeout(bufReader, 50*time.Millisecond, func() {
+	line, err := handler.readLineWithTimeout(context.Background(), bufReader, 50*time.Millisecond, func() {
 		cancelCalled = true
 	})
 
@@ -896,7 +896,7 @@ func TestSSEHandler_readLineWithTimeout_NoTimeout(t *testing.T) {
 	data := "data: hello\n\n"
 	bufReader := bufio.NewReader(bytes.NewReader([]byte(data)))
 
-	line, err := handler.readLineWithTimeout(bufReader, 0, nil)
+	line, err := handler.readLineWithTimeout(context.Background(), bufReader, 0, nil)
 	if err != nil {
 		t.Errorf("readLineWithTimeout error: %v", err)
 	}

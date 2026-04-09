@@ -550,12 +550,8 @@ func HandleHTTP2Proxy(w http.ResponseWriter, r *http.Request, b *backend.Backend
 	}
 	defer resp.Body.Close()
 
-	// Copy response
-	for key, values := range resp.Header {
-		for _, value := range values {
-			w.Header().Add(key, value)
-		}
-	}
+	// Copy response (filter hop-by-hop headers)
+	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
 	// Stream response body

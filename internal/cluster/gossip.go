@@ -268,6 +268,7 @@ type Gossip struct {
 
 	// Local node information.
 	localNode *GossipNode
+	localMu   sync.RWMutex // protects localNode fields (Incarnation, State, Metadata)
 
 	// Members tracked by this node, keyed by node ID.
 	members   map[string]*GossipNode
@@ -447,7 +448,9 @@ func (g *Gossip) Join(existing []string) error {
 
 // Leave gracefully leaves the cluster by broadcasting a LEAVE message.
 func (g *Gossip) Leave() error {
+	g.localMu.Lock()
 	g.localNode.State = StateLeft
+	g.localMu.Unlock()
 
 	// Broadcast LEAVE to all known members.
 	msg := g.encodeLeaveMessage(g.localNode)
@@ -526,9 +529,21 @@ func (g *Gossip) OnEvent(handler EventHandler) {
 
 // SetMetadata sets metadata on the local node.
 func (g *Gossip) SetMetadata(key, value string) {
-	g.membersMu.Lock()
+	g.localMu.Lock()
 	g.localNode.Metadata[key] = value
-	g.membersMu.Unlock()
+	g.localMu.Unlock()
+}
+
+// copyMetadata returns a safe copy of a metadata map for use outside locks.
+func copyMetadata(m map[string]string) map[string]string {
+	if m == nil {
+		return nil
+	}
+	cp := make(map[string]string, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	return cp
 }
 
 // ---- Binary message encoding/decoding ----
@@ -762,13 +777,14 @@ func decodeDead(payload []byte) (incarnation uint32, nodeID string, err error) {
 
 // encodeJoinMessage encodes a JOIN message for the local node.
 func (g *Gossip) encodeJoinMessage() []byte {
-	return encodeMessage(MsgJoin, encodeNodePayload(
-		g.localNode.Incarnation,
-		g.localNode.ID,
-		g.localNode.Address,
-		g.localNode.Port,
-		g.localNode.Metadata,
-	))
+	g.localMu.RLock()
+	inc := g.localNode.Incarnation
+	id := g.localNode.ID
+	addr := g.localNode.Address
+	port := g.localNode.Port
+	meta := copyMetadata(g.localNode.Metadata)
+	g.localMu.RUnlock()
+	return encodeMessage(MsgJoin, encodeNodePayload(inc, id, addr, port, meta))
 }
 
 // encodeLeaveMessage encodes a LEAVE message for a node.
@@ -778,7 +794,7 @@ func (g *Gossip) encodeLeaveMessage(node *GossipNode) []byte {
 		node.ID,
 		node.Address,
 		node.Port,
-		node.Metadata,
+		copyMetadata(node.Metadata),
 	))
 }
 
@@ -1110,11 +1126,15 @@ func (g *Gossip) handleSuspect(payload []byte) {
 
 	// If we are being suspected, refute by incrementing incarnation.
 	if nodeID == g.localNode.ID {
+		g.localMu.Lock()
 		if incarnation >= g.localNode.Incarnation {
 			g.localNode.Incarnation = incarnation + 1
 			alive := encodeAlive(g.localNode.Incarnation, g.localNode.ID,
-				g.localNode.Address, g.localNode.Port, g.localNode.Metadata)
+				g.localNode.Address, g.localNode.Port, copyMetadata(g.localNode.Metadata))
+			g.localMu.Unlock()
 			g.queueBroadcast(alive)
+		} else {
+			g.localMu.Unlock()
 		}
 		return
 	}
@@ -1195,9 +1215,11 @@ func (g *Gossip) handleDead(payload []byte) {
 
 	// If we are declared dead, refute.
 	if nodeID == g.localNode.ID {
+		g.localMu.Lock()
 		g.localNode.Incarnation = incarnation + 1
 		alive := encodeAlive(g.localNode.Incarnation, g.localNode.ID,
-			g.localNode.Address, g.localNode.Port, g.localNode.Metadata)
+			g.localNode.Address, g.localNode.Port, copyMetadata(g.localNode.Metadata))
+		g.localMu.Unlock()
 		g.queueBroadcast(alive)
 		return
 	}
@@ -1311,10 +1333,12 @@ func (g *Gossip) sendMemberList(addr string) {
 	var messages [][]byte
 
 	// Include ourselves.
+	g.localMu.RLock()
 	messages = append(messages, encodeAlive(
 		g.localNode.Incarnation, g.localNode.ID,
-		g.localNode.Address, g.localNode.Port, g.localNode.Metadata,
+		g.localNode.Address, g.localNode.Port, copyMetadata(g.localNode.Metadata),
 	))
+	g.localMu.RUnlock()
 
 	for _, m := range g.members {
 		if m.State == StateAlive || m.State == StateSuspect {

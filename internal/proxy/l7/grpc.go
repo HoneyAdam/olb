@@ -297,11 +297,19 @@ func (gwh *GRPCWebHandler) HandleGRPCWeb(w http.ResponseWriter, r *http.Request,
 	originalContentType := r.Header.Get("Content-Type")
 
 	// Phase 1: Decode request body if grpc-web-text
+	maxReqSize := gwh.grpcHandler.config.MaxMessageSize
+	if maxReqSize == 0 {
+		maxReqSize = 4 * 1024 * 1024
+	}
+
 	var requestBody []byte
 	if isTextMode {
-		raw, err := io.ReadAll(r.Body)
+		raw, err := io.ReadAll(io.LimitReader(r.Body, int64(maxReqSize)+1))
 		if err != nil {
 			return fmt.Errorf("reading gRPC-Web request body: %w", err)
+		}
+		if len(raw) > maxReqSize {
+			return fmt.Errorf("gRPC-Web request body exceeds maximum size (%d bytes)", maxReqSize)
 		}
 		requestBody, err = base64.StdEncoding.DecodeString(string(raw))
 		if err != nil {
@@ -309,9 +317,12 @@ func (gwh *GRPCWebHandler) HandleGRPCWeb(w http.ResponseWriter, r *http.Request,
 		}
 	} else {
 		var err error
-		requestBody, err = io.ReadAll(r.Body)
+		requestBody, err = io.ReadAll(io.LimitReader(r.Body, int64(maxReqSize)+1))
 		if err != nil {
 			return fmt.Errorf("reading gRPC-Web request body: %w", err)
+		}
+		if len(requestBody) > maxReqSize {
+			return fmt.Errorf("gRPC-Web request body exceeds maximum size (%d bytes)", maxReqSize)
 		}
 	}
 	r.Body.Close()

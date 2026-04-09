@@ -226,6 +226,12 @@ func (c *Cluster) run() {
 			close(c.runDone)
 		}
 	}()
+
+	// Periodic compaction ticker so followers also compact their logs,
+	// preventing unbounded in-memory log growth on non-leader nodes.
+	compactionTicker := time.NewTicker(60 * time.Second)
+	defer compactionTicker.Stop()
+
 	for {
 		select {
 		case <-c.stopCh:
@@ -238,6 +244,10 @@ func (c *Cluster) run() {
 			}
 		case cmd := <-c.commandCh:
 			c.handleCommand(cmd)
+		case <-compactionTicker.C:
+			if c.GetState() != StateLeader {
+				c.maybeCompactLog()
+			}
 		}
 	}
 }

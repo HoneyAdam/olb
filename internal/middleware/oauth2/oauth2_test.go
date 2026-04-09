@@ -76,7 +76,7 @@ func TestOAuth2_InvalidTokenFormat(t *testing.T) {
 	}
 }
 
-func TestOAuth2_ValidToken(t *testing.T) {
+func TestOAuth2_RejectsWithoutValidationMethod(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true
 	config.Prefix = "Bearer "
@@ -86,27 +86,43 @@ func TestOAuth2_ValidToken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var receivedSubject string
 	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		info := GetTokenInfo(r.Context())
-		if info != nil {
-			receivedSubject = info.Subject
-		}
-		w.WriteHeader(http.StatusOK)
+		t.Error("Handler should not be called without a validation method configured")
 	}))
 
-	// Valid JWT format token (will pass mock validation)
+	// Valid JWT format token, but no JWKS URL or introspection URL configured
 	req := httptest.NewRequest("GET", "/test", nil)
 	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyMTIzIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
+	}
+}
+
+func TestOAuth2_RejectsOpaqueTokenWithoutIntrospection(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Prefix = "Bearer "
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
 	}
 
-	if receivedSubject != "user" {
-		t.Errorf("Expected subject 'user', got '%s'", receivedSubject)
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("Handler should not be called without validation method")
+	}))
+
+	// Opaque token (not JWT format) — should be rejected without introspection URL
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.Header.Set("Authorization", "Bearer opaque-token-12345")
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401, got %d", rec.Code)
 	}
 }
 
@@ -159,8 +175,8 @@ func TestOAuth2_InsufficientScope(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusForbidden {
-		t.Errorf("Expected status 403, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401 (no validation method), got %d", rec.Code)
 	}
 }
 
@@ -175,7 +191,7 @@ func TestOAuth2_NoPrefix(t *testing.T) {
 	}
 
 	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
+		t.Error("Handler should not be called without validation method")
 	}))
 
 	req := httptest.NewRequest("GET", "/test", nil)
@@ -183,42 +199,8 @@ func TestOAuth2_NoPrefix(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
-	}
-}
-
-func TestOAuth2_OpaqueToken(t *testing.T) {
-	config := DefaultConfig()
-	config.Enabled = true
-	config.Prefix = "Bearer "
-
-	mw, err := New(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var receivedActive bool
-	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		info := GetTokenInfo(r.Context())
-		if info != nil {
-			receivedActive = info.Active
-		}
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	// Opaque token (not JWT format)
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("Authorization", "Bearer opaque-token-12345")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
-	}
-
-	if !receivedActive {
-		t.Error("Expected token to be active")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401 (no validation method), got %d", rec.Code)
 	}
 }
 
@@ -419,42 +401,52 @@ func TestExtractToken(t *testing.T) {
 	}
 }
 
-func TestValidateToken(t *testing.T) {
+func TestValidateToken_RejectsEmpty(t *testing.T) {
 	config := DefaultConfig()
 	mw, _ := New(config)
 
+	_, err := mw.validateToken(t.Context(), "")
+	if err == nil {
+		t.Error("Expected error for empty token")
+	}
+}
+
+func TestValidateToken_RejectsWithoutConfig(t *testing.T) {
+	config := DefaultConfig()
+	mw, _ := New(config)
+
+	// JWT format but no JWKS URL — should reject
+	_, err := mw.validateToken(t.Context(), "header.payload.signature")
+	if err == nil {
+		t.Error("Expected error when no validation method is configured")
+	}
+
+	// Opaque token without introspection URL — should reject
+	_, err = mw.validateToken(t.Context(), "opaque-token")
+	if err == nil {
+		t.Error("Expected error when no validation method is configured for opaque token")
+	}
+}
+
+func TestBase64urlDecode(t *testing.T) {
 	tests := []struct {
-		name    string
-		token   string
-		wantErr bool
+		input string
+		want  string
 	}{
-		{
-			name:    "empty token",
-			token:   "",
-			wantErr: true,
-		},
-		{
-			name:    "JWT format",
-			token:   "header.payload.signature",
-			wantErr: false,
-		},
-		{
-			name:    "opaque token",
-			token:   "opaque-token-string",
-			wantErr: false,
-		},
+		{"dGVzdA", "test"},
+		{"dGVzdA==", "test"},
+		{"", ""},
+		{"Zm9vYmFy", "foobar"},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			info, err := mw.validateToken(tt.token)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("validateToken() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !tt.wantErr && info == nil {
-				t.Error("validateToken() should return info when no error")
-			}
-		})
+		got, err := base64urlDecode(tt.input)
+		if err != nil {
+			t.Errorf("base64urlDecode(%q) error: %v", tt.input, err)
+			continue
+		}
+		if string(got) != tt.want {
+			t.Errorf("base64urlDecode(%q) = %q, want %q", tt.input, got, tt.want)
+		}
 	}
 }

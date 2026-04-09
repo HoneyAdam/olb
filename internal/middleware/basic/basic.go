@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -55,6 +56,7 @@ func New(config Config) (*Middleware, error) {
 			h := sha256.Sum256([]byte(pass))
 			m.hashes[user] = h[:]
 		case "plain":
+			log.Printf("WARNING: basic auth user %q uses plaintext password storage — use 'sha256' or 'bcrypt' hash instead", user)
 			m.hashes[user] = []byte(pass)
 		default:
 			// Store as-is for bcrypt (checked at runtime)

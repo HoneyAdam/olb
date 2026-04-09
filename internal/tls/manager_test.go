@@ -466,20 +466,27 @@ func TestBuildTLSConfig_VersionValues(t *testing.T) {
 	tests := []struct {
 		version string
 		want    uint16
+		wantErr bool
 	}{
-		{"1.0", tls.VersionTLS10},
-		{"1.1", tls.VersionTLS11},
-		{"1.2", tls.VersionTLS12},
-		{"1.3", tls.VersionTLS13},
-		{"tls10", tls.VersionTLS10},
-		{"tls11", tls.VersionTLS11},
-		{"tls12", tls.VersionTLS12},
-		{"tls13", tls.VersionTLS13},
+		{"1.0", 0, true}, // TLS 1.0 rejected per RFC 8996
+		{"1.1", 0, true}, // TLS 1.1 rejected per RFC 8996
+		{"1.2", tls.VersionTLS12, false},
+		{"1.3", tls.VersionTLS13, false},
+		{"tls10", 0, true}, // TLS 1.0 rejected per RFC 8996
+		{"tls11", 0, true}, // TLS 1.1 rejected per RFC 8996
+		{"tls12", tls.VersionTLS12, false},
+		{"tls13", tls.VersionTLS13, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {
 			config, err := BuildTLSConfig(tt.version, "", nil, false)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error for deprecated TLS version")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -1178,16 +1185,23 @@ func TestBuildTLSConfig_TLSVersionAliases(t *testing.T) {
 		name    string
 		version string
 		want    uint16
+		wantErr bool
 	}{
-		{"tls1.0", "tls1.0", tls.VersionTLS10},
-		{"tls1.1", "tls1.1", tls.VersionTLS11},
-		{"tls1.2", "tls1.2", tls.VersionTLS12},
-		{"tls1.3", "tls1.3", tls.VersionTLS13},
+		{"tls1.0", "tls1.0", 0, true}, // rejected per RFC 8996
+		{"tls1.1", "tls1.1", 0, true}, // rejected per RFC 8996
+		{"tls1.2", "tls1.2", tls.VersionTLS12, false},
+		{"tls1.3", "tls1.3", tls.VersionTLS13, false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			config, err := BuildTLSConfig(tt.version, "", nil, false)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error for deprecated TLS version")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}

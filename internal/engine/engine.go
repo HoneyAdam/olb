@@ -652,7 +652,10 @@ func (e *Engine) Start() error {
 		}
 	}
 
-	// 3. Start health checker
+	// 3. Start health checker (stop any previous instance from a prior Start call)
+	if e.healthChecker != nil {
+		e.healthChecker.Stop()
+	}
 	e.healthChecker = health.NewChecker()
 
 	// 4. Initialize backend pools and register backends with health checker
@@ -753,7 +756,13 @@ func (e *Engine) Start() error {
 
 	// 11. Start discovery manager
 	if e.discoveryMgr != nil {
-		ctx := context.Background()
+		ctx, cancel := context.WithCancel(context.Background())
+		e.wg.Add(1)
+		go func() {
+			defer e.wg.Done()
+			<-e.stopCh
+			cancel()
+		}()
 		if err := e.discoveryMgr.Start(ctx); err != nil {
 			e.logger.Warn("Discovery manager start failed", logging.Error(err))
 		} else {

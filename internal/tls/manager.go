@@ -251,11 +251,9 @@ func BuildTLSConfig(minVersion, maxVersion string, cipherSuites []string, prefer
 func parseTLSVersion(version string) (uint16, error) {
 	switch strings.ToLower(version) {
 	case "1.0", "tls1.0", "tls10":
-		log.Printf("WARNING: TLS 1.0 is deprecated (RFC 8996) and should not be used in production")
-		return tls.VersionTLS10, nil
+		return 0, fmt.Errorf("TLS 1.0 is deprecated (RFC 8996) and is not supported")
 	case "1.1", "tls1.1", "tls11":
-		log.Printf("WARNING: TLS 1.1 is deprecated (RFC 8996) and should not be used in production")
-		return tls.VersionTLS11, nil
+		return 0, fmt.Errorf("TLS 1.1 is deprecated (RFC 8996) and is not supported")
 	case "1.2", "tls1.2", "tls12":
 		return tls.VersionTLS12, nil
 	case "1.3", "tls1.3", "tls13":

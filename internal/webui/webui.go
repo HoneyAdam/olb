@@ -117,7 +117,7 @@ func (h *Handler) serveIndex(w http.ResponseWriter, r *http.Request) {
 
 	file, err := h.static.Open("index.html")
 	if err != nil {
-		http.Error(w, "index.html not found: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "web ui not available", http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()

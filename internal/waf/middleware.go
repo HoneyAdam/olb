@@ -1,6 +1,7 @@
 package waf
 
 import (
+	"encoding/json"
 	"net/http"
 	"time"
 
@@ -356,7 +357,10 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 			if mw.mode == "enforce" {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(valErr.Status)
-				w.Write([]byte(`{"error":"` + valErr.Message + `","layer":"sanitizer"}`))
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": valErr.Message,
+					"layer": "sanitizer",
+				})
 				return
 			}
 		}

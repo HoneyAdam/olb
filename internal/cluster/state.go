@@ -8,6 +8,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"log"
 	"sync"
 	"time"
 )
@@ -368,7 +369,9 @@ func (ds *DistributedState) broadcastHealth(health map[string]*HealthStatus) {
 		return
 	}
 
-	_ = s.Broadcast(data)
+	if err := s.Broadcast(data); err != nil {
+		log.Printf("broadcast health state failed: %v", err)
+	}
 }
 
 // broadcastSessions broadcasts session updates to peers.
@@ -393,7 +396,9 @@ func (ds *DistributedState) broadcastSessions(sessions map[string]*SessionEntry)
 		return
 	}
 
-	_ = s.Broadcast(data)
+	if err := s.Broadcast(data); err != nil {
+		log.Printf("broadcast health state failed: %v", err)
+	}
 }
 
 // broadcastFullState broadcasts the complete state to peers.
@@ -419,7 +424,9 @@ func (ds *DistributedState) broadcastFullState() {
 		return
 	}
 
-	_ = s.Broadcast(data)
+	if err := s.Broadcast(data); err != nil {
+		log.Printf("broadcast health state failed: %v", err)
+	}
 }
 
 // handleIncoming processes incoming state messages from peers.
