@@ -16,8 +16,17 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          'vendor': ['react', 'react-dom', 'react-router'],
-          'ui': ['@radix-ui/react-slot', '@radix-ui/react-tabs', '@radix-ui/react-switch', '@radix-ui/react-label'],
+          'vendor-react': ['react', 'react-dom', 'react-router'],
+          'vendor-radix': [
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-select',
+            '@radix-ui/react-slot',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-switch',
+            '@radix-ui/react-label',
+          ],
+          'vendor-icons': ['lucide-react'],
         },
       },
     },
