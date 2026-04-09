@@ -360,6 +360,7 @@ func (p *UDPProxy) createSession(clientAddr *net.UDPAddr) (*UDPSession, error) {
 
 	// Select a backend
 	selected := p.balancer.Next(backends)
+	backend.ReleaseHealthyBackends(backends)
 	if selected == nil {
 		return nil, fmt.Errorf("balancer returned no backend")
 	}

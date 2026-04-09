@@ -4,6 +4,7 @@ package middleware
 import (
 	"net/http"
 	"sort"
+	"sync"
 )
 
 // Priority constants for standard middleware ordering.
@@ -35,7 +36,9 @@ type Middleware interface {
 
 // Chain is a builder for middleware chains.
 type Chain struct {
+	mu          sync.RWMutex
 	middlewares []Middleware
+	sorted      []Middleware // cached sorted middleware, invalidated on Use/Remove/Clear
 }
 
 // NewChain creates a new empty middleware chain.
@@ -51,23 +54,50 @@ func (c *Chain) Use(mw Middleware) *Chain {
 	if mw == nil {
 		return c
 	}
+	c.mu.Lock()
 	c.middlewares = append(c.middlewares, mw)
+	c.sorted = nil // invalidate cache
+	c.mu.Unlock()
 	return c
 }
 
-// Then builds the middleware chain and returns the final handler.
-// The handler is wrapped by all middleware in priority order.
-func (c *Chain) Then(handler http.Handler) http.Handler {
-	if handler == nil {
-		handler = http.DefaultServeMux
+// sortedMiddlewares returns the cached sorted middleware list, building it if needed.
+func (c *Chain) sortedMiddlewares() []Middleware {
+	c.mu.RLock()
+	if c.sorted != nil {
+		s := c.sorted
+		c.mu.RUnlock()
+		return s
+	}
+	c.mu.RUnlock()
+
+	// Build sorted list
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Double-check after acquiring write lock
+	if c.sorted != nil {
+		return c.sorted
 	}
 
-	// Sort middleware by priority (stable sort preserves order for same priority)
 	sorted := make([]Middleware, len(c.middlewares))
 	copy(sorted, c.middlewares)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].Priority() < sorted[j].Priority()
 	})
+	c.sorted = sorted
+	return sorted
+}
+
+// Then builds the middleware chain and returns the final handler.
+// The handler is wrapped by all middleware in priority order.
+// The sorted middleware list is cached after the first call.
+func (c *Chain) Then(handler http.Handler) http.Handler {
+	if handler == nil {
+		handler = http.DefaultServeMux
+	}
+
+	sorted := c.sortedMiddlewares()
 
 	// Wrap handler in reverse order (last middleware wraps the handler,
 	// then second-to-last wraps that, etc.)
@@ -87,6 +117,8 @@ func (c *Chain) ThenFunc(fn http.HandlerFunc) http.Handler {
 // Clone creates a copy of the chain that can be modified independently.
 // This is useful for creating per-route middleware chains.
 func (c *Chain) Clone() *Chain {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	cloned := &Chain{
 		middlewares: make([]Middleware, len(c.middlewares)),
 	}
@@ -96,11 +128,15 @@ func (c *Chain) Clone() *Chain {
 
 // Len returns the number of middleware in the chain.
 func (c *Chain) Len() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return len(c.middlewares)
 }
 
 // Middlewares returns a copy of the middleware slice (unsorted).
 func (c *Chain) Middlewares() []Middleware {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	result := make([]Middleware, len(c.middlewares))
 	copy(result, c.middlewares)
 	return result
@@ -108,6 +144,8 @@ func (c *Chain) Middlewares() []Middleware {
 
 // Remove removes a middleware by name.
 func (c *Chain) Remove(name string) *Chain {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	filtered := make([]Middleware, 0, len(c.middlewares))
 	for _, mw := range c.middlewares {
 		if mw.Name() != name {
@@ -115,11 +153,14 @@ func (c *Chain) Remove(name string) *Chain {
 		}
 	}
 	c.middlewares = filtered
+	c.sorted = nil // invalidate cache
 	return c
 }
 
 // Get returns a middleware by name, or nil if not found.
 func (c *Chain) Get(name string) Middleware {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	for _, mw := range c.middlewares {
 		if mw.Name() == name {
 			return mw
@@ -130,6 +171,9 @@ func (c *Chain) Get(name string) Middleware {
 
 // Clear removes all middleware from the chain.
 func (c *Chain) Clear() *Chain {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.middlewares = c.middlewares[:0]
+	c.sorted = nil // invalidate cache
 	return c
 }

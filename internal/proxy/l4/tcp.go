@@ -149,6 +149,7 @@ func (p *TCPProxy) HandleConnection(clientConn net.Conn) {
 
 	// Select backend
 	selected := p.balancer.Next(backends)
+	backend.ReleaseHealthyBackends(backends)
 	if selected == nil {
 		return
 	}

@@ -36,6 +36,15 @@ var hopByHopHeaders = []string{
 	"Upgrade",
 }
 
+// hopByHopSet is a pre-built lookup map for fast hop-by-hop header detection.
+var hopByHopSet = func() map[string]bool {
+	m := make(map[string]bool, len(hopByHopHeaders))
+	for _, h := range hopByHopHeaders {
+		m[strings.ToLower(h)] = true
+	}
+	return m
+}()
+
 // HTTPProxy is an L7 HTTP reverse proxy.
 type HTTPProxy struct {
 	router          *router.Router
@@ -314,6 +323,7 @@ func (p *HTTPProxy) proxyHandler(w http.ResponseWriter, r *http.Request, reqCtx 
 		}
 
 		if len(availableBackends) == 0 {
+			backend.ReleaseHealthyBackends(healthyBackends)
 			if len(healthyBackends) == 0 {
 				p.getErrorHandler()(w, r, olbErrors.ErrPoolEmpty.WithContext("pool", pool.Name))
 			} else {
@@ -324,6 +334,7 @@ func (p *HTTPProxy) proxyHandler(w http.ResponseWriter, r *http.Request, reqCtx 
 
 		// Select backend using balancer
 		selectedBackend := pool.GetBalancer().Next(availableBackends)
+		backend.ReleaseHealthyBackends(healthyBackends)
 		if selectedBackend == nil {
 			p.getErrorHandler()(w, r, olbErrors.ErrBackendUnavailable.WithContext("pool", pool.Name))
 			return
@@ -360,7 +371,9 @@ func (p *HTTPProxy) selectBackend(pool *backend.Pool) *backend.Backend {
 	if len(healthyBackends) == 0 {
 		return nil
 	}
-	return pool.GetBalancer().Next(healthyBackends)
+	selected := pool.GetBalancer().Next(healthyBackends)
+	backend.ReleaseHealthyBackends(healthyBackends)
+	return selected
 }
 
 // proxyRequest proxies a single request to a backend.
@@ -500,13 +513,7 @@ func copyHeaders(dst, src http.Header) {
 
 // isHopByHopHeader checks if a header is a hop-by-hop header.
 func isHopByHopHeader(name string) bool {
-	lowerName := strings.ToLower(name)
-	for _, h := range hopByHopHeaders {
-		if strings.ToLower(h) == lowerName {
-			return true
-		}
-	}
-	return false
+	return hopByHopSet[strings.ToLower(name)]
 }
 
 // isRetryableError checks if an error warrants a retry.

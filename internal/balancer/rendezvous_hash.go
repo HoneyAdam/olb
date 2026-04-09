@@ -1,8 +1,10 @@
 package balancer
 
 import (
+	"hash"
 	"hash/fnv"
 	"sync"
+	"sync/atomic"
 
 	"github.com/openloadbalancer/olb/internal/backend"
 )
@@ -75,24 +77,29 @@ func (r *RendezvousHash) Next(backends []*backend.Backend) *backend.Backend {
 }
 
 // computeWeight calculates the weight for a given key-backend pair.
-// Uses FNV hash combined with backend-specific seed.
+// Uses a pooled FNV hash for efficiency.
 func (r *RendezvousHash) computeWeight(key, backendID string) uint64 {
-	h := fnv.New64a()
+	h := fnvPool.Get().(hash.Hash64)
+	h.Reset()
 	h.Write([]byte(key))
 	h.Write([]byte(backendID))
-	return h.Sum64()
+	v := h.Sum64()
+	fnvPool.Put(h)
+	return v
+}
+
+// fnvPool reuses FNV hash objects to reduce per-request allocations.
+var fnvPool = sync.Pool{
+	New: func() any { return fnv.New64a() },
 }
 
 // generateKey creates a key for the request.
-// In production, this would be derived from request attributes.
-var keyCounter uint32
-var keyMu sync.Mutex
+// Uses atomic counter to avoid mutex contention.
+var keyCounter uint64
 
 func generateKey() string {
-	keyMu.Lock()
-	keyCounter++
-	keyMu.Unlock()
-	return string(rune(keyCounter))
+	v := atomic.AddUint64(&keyCounter, 1)
+	return string(rune(v))
 }
 
 // Add registers a new backend.

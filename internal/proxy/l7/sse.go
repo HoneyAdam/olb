@@ -439,6 +439,7 @@ func (sp *SSEProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 
 		selected := pool.GetBalancer().Next(backends)
+		backend.ReleaseHealthyBackends(backends)
 		if selected == nil {
 			sp.httpProxy.getErrorHandler()(w, r, errors.New("no backend available"))
 			return

@@ -115,23 +115,17 @@ func (wr *WeightedRandom) Next(backends []*backend.Backend) *backend.Backend {
 	wr.mu.RLock()
 	defer wr.mu.RUnlock()
 
-	// Calculate total weight from the provided backends
+	// Calculate total weight and select in a single pass
 	var total int64
-	weighted := make([]*wrWeightedBackend, 0, len(backends))
-
 	for _, b := range backends {
-		weight := b.Weight
-		if weight <= 0 {
-			weight = 1 // Ensure minimum weight of 1
+		w := b.Weight
+		if w <= 0 {
+			w = 1
 		}
-		weighted = append(weighted, &wrWeightedBackend{
-			backend: b,
-			weight:  weight,
-		})
-		total += int64(weight)
+		total += int64(w)
 	}
 
-	if total == 0 || len(weighted) == 0 {
+	if total == 0 {
 		return nil
 	}
 
@@ -139,15 +133,19 @@ func (wr *WeightedRandom) Next(backends []*backend.Backend) *backend.Backend {
 	random := wr.rnd.Int63n(total)
 
 	// Walk through backends, subtracting weight until random < 0
-	for _, wb := range weighted {
-		random -= int64(wb.weight)
+	for _, b := range backends {
+		w := b.Weight
+		if w <= 0 {
+			w = 1
+		}
+		random -= int64(w)
 		if random < 0 {
-			return wb.backend
+			return b
 		}
 	}
 
-	// Fallback to last backend (should rarely happen due to math)
-	return weighted[len(weighted)-1].backend
+	// Fallback to last backend
+	return backends[len(backends)-1]
 }
 
 // Add adds a backend to the balancer.

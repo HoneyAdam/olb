@@ -150,18 +150,33 @@ func (p *Pool) GetBackend(id string) *Backend {
 
 // GetHealthyBackends returns a slice of backends that are in a healthy state.
 // Healthy states include StateUp and StateDraining.
+// The returned slice is from a pool and should be returned via ReleaseHealthyBackends.
 func (p *Pool) GetHealthyBackends() []*Backend {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	healthy := make([]*Backend, 0, len(p.Backends))
+	healthy := healthySlicePool.Get().(*[]*Backend)
+	*healthy = (*healthy)[:0]
 	for _, backend := range p.Backends {
 		if backend.IsHealthy() {
-			healthy = append(healthy, backend)
+			*healthy = append(*healthy, backend)
 		}
 	}
 
-	return healthy
+	return *healthy
+}
+
+// ReleaseHealthyBackends returns a slice obtained from GetHealthyBackends to the pool.
+func ReleaseHealthyBackends(s []*Backend) {
+	healthySlicePool.Put(&s)
+}
+
+// healthySlicePool reuses slices returned by GetHealthyBackends.
+var healthySlicePool = sync.Pool{
+	New: func() any {
+		s := make([]*Backend, 0, 8)
+		return &s
+	},
 }
 
 // NextBackend selects the next available backend using the configured balancer.
@@ -185,12 +200,13 @@ func (p *Pool) NextBackend(ctx context.Context) (*Backend, error) {
 		return nil, olbErrors.ErrPoolEmpty.WithContext("pool", p.Name)
 	}
 
-	backend := balancer.Next(healthy)
-	if backend == nil {
+	b := balancer.Next(healthy)
+	ReleaseHealthyBackends(healthy)
+	if b == nil {
 		return nil, olbErrors.ErrBackendUnavailable.WithContext("pool", p.Name)
 	}
 
-	return backend, nil
+	return b, nil
 }
 
 // DrainBackend sets a backend's state to draining.

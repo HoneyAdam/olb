@@ -511,6 +511,31 @@ func BenchmarkMiddlewareChain_Full(b *testing.B) {
 // Buffer Pool Benchmarks
 // ---------------------------------------------------------------------------
 
+
+// BenchmarkMiddlewareChain_ThenOverhead measures the per-request overhead of Then().
+// This is the critical hot path - proxy.go calls Then() on every request.
+func BenchmarkMiddlewareChain_ThenOverhead(b *testing.B) {
+	b.ReportAllocs()
+
+	chain := middleware.NewChain()
+	chain.Use(NewNoopMiddleware("security", middleware.PrioritySecurity))
+	chain.Use(middleware.NewRequestIDMiddleware(middleware.RequestIDConfig{
+		Generate: true,
+	}))
+	chain.Use(NewNoopMiddleware("metrics", middleware.PriorityMetrics))
+	chain.Use(NewNoopMiddleware("access-log", middleware.PriorityAccessLog))
+
+	final := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		handler := chain.Then(final)
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+	}
+}
+
 func BenchmarkBufferPool_GetPut_Small(b *testing.B) {
 	b.ReportAllocs()
 
