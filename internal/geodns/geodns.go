@@ -35,8 +35,10 @@ type GeoDNS struct {
 	rules       []GeoRule
 	defaultPool string
 
-	// GeoIP database (simplified - in production use MaxMind GeoIP2)
-	geoDB map[string]*Location // IP prefix -> Location
+	// GeoIP database
+	geoDB map[string]*Location // legacy CIDR -> Location
+	mmdb  *mmdbReader          // MaxMind DB reader (nil if not loaded)
+	mmdbPath string            // path for hot-reload
 
 	// Pool health status
 	poolHealth map[string]bool
@@ -47,6 +49,7 @@ type Config struct {
 	Enabled     bool
 	DefaultPool string
 	Rules       []GeoRule
+	DBPath      string // Path to MaxMind GeoLite2-Country MMDB file
 }
 
 // New creates a new GeoDNS router.
@@ -56,10 +59,20 @@ func New(cfg Config) *GeoDNS {
 		defaultPool: cfg.DefaultPool,
 		geoDB:       make(map[string]*Location),
 		poolHealth:  make(map[string]bool),
+		mmdbPath:    cfg.DBPath,
 	}
 
-	// Load built-in geo data
+	// Load built-in geo data (fallback)
 	g.loadDefaultGeoData()
+
+	// Load MMDB if configured
+	if cfg.DBPath != "" {
+		reader, err := newMMDBReader(cfg.DBPath)
+		if err == nil {
+			g.mmdb = reader
+		}
+		// Soft-fail: if MMDB can't be loaded, use legacy heuristics
+	}
 
 	return g
 }
@@ -162,6 +175,8 @@ func (g *GeoDNS) AddGeoData(cidr string, loc *Location) error {
 type Stats struct {
 	Rules      int
 	GeoEntries int
+	DBLoaded   bool
+	DBPath     string
 }
 
 // Stats returns current statistics.
@@ -172,7 +187,35 @@ func (g *GeoDNS) Stats() Stats {
 	return Stats{
 		Rules:      len(g.rules),
 		GeoEntries: len(g.geoDB),
+		DBLoaded:   g.mmdb != nil,
+		DBPath:     g.mmdbPath,
 	}
+}
+
+// Close releases resources held by the GeoDNS instance.
+func (g *GeoDNS) Close() {
+	g.mu.Lock()
+	g.mmdb = nil
+	g.mu.Unlock()
+}
+
+// ReloadDB reloads the MMDB database from disk.
+// Safe to call while lookups are in progress.
+func (g *GeoDNS) ReloadDB() error {
+	if g.mmdbPath == "" {
+		return fmt.Errorf("no database path configured")
+	}
+
+	reader, err := newMMDBReader(g.mmdbPath)
+	if err != nil {
+		return fmt.Errorf("failed to reload MMDB: %w", err)
+	}
+
+	g.mu.Lock()
+	g.mmdb = reader
+	g.mu.Unlock()
+
+	return nil
 }
 
 // extractClientIP extracts the real client IP from the request.
@@ -209,7 +252,18 @@ func (g *GeoDNS) lookupLocation(ip string) *Location {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 
-	// Check if IP is in any known network
+	// Priority 1: MMDB lookup (O(log n) tree traversal)
+	if g.mmdb != nil {
+		iso, name, ok := g.mmdb.lookupCountry(parsedIP)
+		if ok {
+			return &Location{
+				Country: iso,
+				City:    name,
+			}
+		}
+	}
+
+	// Priority 2: Legacy CIDR scan
 	for cidr, loc := range g.geoDB {
 		_, ipNet, err := net.ParseCIDR(cidr)
 		if err != nil {
@@ -220,7 +274,7 @@ func (g *GeoDNS) lookupLocation(ip string) *Location {
 		}
 	}
 
-	// Try to determine from IP ranges (simplified)
+	// Priority 3: Heuristic fallback
 	return g.guessLocationFromIP(ip)
 }
 

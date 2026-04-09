@@ -288,9 +288,13 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 			Enabled:     cfg.GeoDNS.Enabled,
 			DefaultPool: cfg.GeoDNS.DefaultPool,
 			Rules:       convertGeoDNSRules(cfg.GeoDNS.Rules),
+			DBPath:      cfg.GeoDNS.DBPath,
 		})
+		stats := geoDNSMgr.Stats()
 		logger.Info("GeoDNS initialized",
 			logging.Int("rules", len(cfg.GeoDNS.Rules)),
+			logging.Bool("mmdb_loaded", stats.DBLoaded),
+			logging.String("db_path", stats.DBPath),
 		)
 	}
 
@@ -822,7 +826,13 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// 0e. Stop OCSP manager
+	// 0e. Stop GeoDNS
+		if e.geoDNS != nil {
+			e.geoDNS.Close()
+			e.logger.Info("GeoDNS stopped")
+		}
+
+		// 0f. Stop OCSP manager
 	if e.ocspManager != nil {
 		if err := e.ocspManager.Stop(); err != nil {
 			e.logger.Warn("Failed to stop OCSP manager", logging.Error(err))

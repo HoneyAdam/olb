@@ -760,6 +760,7 @@ type ClusterConfig struct {
 type GeoDNSConfig struct {
 	Enabled     bool         `yaml:"enabled" json:"enabled"`
 	DefaultPool string       `yaml:"default_pool" json:"default_pool"`
+	DBPath      string       `yaml:"db_path" json:"db_path"`
 	Rules       []GeoDNSRule `yaml:"rules" json:"rules"`
 }
 

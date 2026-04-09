@@ -48,7 +48,7 @@ OpenLoadBalancer is a remarkably complete load balancer implementation with 97% 
 - [x] **Add CSRF protection to admin API** -- State-changing endpoints (POST/PATCH/DELETE) lack CSRF tokens. Add CSRF middleware to admin server for browser-based access. ~4h
 - [x] **Make WebSocket InsecureSkipVerify configurable** -- `internal/proxy/l7/websocket.go` hardcodes `InsecureSkipVerify: true` for backend TLS. Make it configurable per-backend. ~2h
 - [ ] **Add distributed rate limiting support** -- The spec mentions Redis-backed distributed rate limiting. The current implementation is memory-based only. Add optional Redis backend. ~20-30h
-- [ ] **Implement GeoIP database loading** -- `internal/geodns/geodns.go` uses simplified IP-to-location. Add MaxMind GeoLite2 database loading support. ~16h
+- [x] **Implement GeoIP database loading** -- `internal/geodns/geodns.go` uses simplified IP-to-location. Add MaxMind GeoLite2 database loading support. ~16h
 
 **Estimated effort:** 74-104 hours
 
