@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -450,6 +451,12 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		}
 		if profCfg.PprofAddr == "" {
 			profCfg.PprofAddr = "localhost:6060"
+		} else if !strings.HasPrefix(profCfg.PprofAddr, "localhost:") &&
+			!strings.HasPrefix(profCfg.PprofAddr, "127.0.0.1:") &&
+			!strings.HasPrefix(profCfg.PprofAddr, "[::1]:") {
+			logger.Warn("pprof endpoint is bound to a non-localhost address — runtime profiles may be exposed to the network",
+				logging.String("pprof_addr", profCfg.PprofAddr),
+			)
 		}
 		cleanup, err := profiling.Apply(profCfg)
 		if err != nil {

@@ -1636,3 +1636,24 @@ func TestBasicAuthConfig_UsersRedactedFromJSON(t *testing.T) {
 		t.Error("non-secret fields should still be present")
 	}
 }
+
+func TestAPIKeyConfig_KeysRedactedFromJSON(t *testing.T) {
+	cfg := APIKeyConfig{
+		Enabled: true,
+		Keys:    map[string]string{"prod-key": "sk-secret-api-key-value"},
+		Header:  "X-API-Key",
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("Marshal error: %v", err)
+	}
+	if strings.Contains(string(data), "sk-secret-api-key-value") {
+		t.Error("API keys should be redacted from JSON output")
+	}
+	if strings.Contains(string(data), "prod-key") {
+		t.Error("API key IDs should be redacted from JSON output")
+	}
+	if !strings.Contains(string(data), "X-API-Key") {
+		t.Error("non-secret fields should still be present")
+	}
+}

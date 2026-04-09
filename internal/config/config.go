@@ -177,7 +177,7 @@ type OAuth2Config struct {
 // APIKeyConfig represents API Key authentication configuration.
 type APIKeyConfig struct {
 	Enabled      bool              `yaml:"enabled" json:"enabled"`
-	Keys         map[string]string `yaml:"keys" json:"keys"`                   // key_id -> api_key (or hash)
+	Keys         map[string]string `yaml:"keys" json:"-"`                      // key_id -> api_key (or hash)
 	Header       string            `yaml:"header" json:"header"`               // Header name (default: "X-API-Key")
 	QueryParam   string            `yaml:"query_param" json:"query_param"`     // Query parameter name (alternative)
 	ExcludePaths []string          `yaml:"exclude_paths" json:"exclude_paths"` // Paths to exclude

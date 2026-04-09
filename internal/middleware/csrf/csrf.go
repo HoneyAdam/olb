@@ -123,6 +123,8 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// Rotate token after successful validation to limit exposure window
+		m.rotateToken(w)
 		next.ServeHTTP(w, r)
 	})
 }
@@ -195,6 +197,25 @@ func (m *Middleware) setToken(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.SetCookie(w, cookie)
+}
+
+// rotateToken generates a new CSRF token after successful validation
+// to limit the window of exposure if a token is compromised.
+func (m *Middleware) rotateToken(w http.ResponseWriter) {
+	token, err := generateToken(m.config.TokenLength)
+	if err != nil {
+		return
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     m.config.CookieName,
+		Value:    token,
+		Path:     m.config.CookiePath,
+		Domain:   m.config.CookieDomain,
+		MaxAge:   m.config.CookieMaxAge,
+		Secure:   m.config.CookieSecure,
+		HttpOnly: m.config.CookieHTTPOnly,
+		SameSite: http.SameSiteStrictMode,
+	})
 }
 
 // handleError handles CSRF validation errors.

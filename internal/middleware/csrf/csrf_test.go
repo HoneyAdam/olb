@@ -530,3 +530,46 @@ func TestCSRF_ErrorResponseIsValidJSON(t *testing.T) {
 		t.Errorf("unexpected error field: %s", parsed["error"])
 	}
 }
+
+func TestCSRF_TokenRotatedAfterValidation(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	token := "original-csrf-token"
+
+	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Make a state-changing request with a valid token
+	req := httptest.NewRequest("POST", "/test", nil)
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
+	req.Header.Set("X-CSRF-Token", token)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	// Check that a new token was set in the response (rotation)
+	cookies := rec.Result().Cookies()
+	var newToken string
+	for _, c := range cookies {
+		if c.Name == "csrf_token" {
+			newToken = c.Value
+			break
+		}
+	}
+	if newToken == "" {
+		t.Error("expected CSRF token to be rotated after successful validation")
+	}
+	if newToken == token {
+		t.Error("rotated token should differ from original token")
+	}
+}
