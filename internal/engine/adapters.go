@@ -1,11 +1,13 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/openloadbalancer/olb/internal/admin"
 	"github.com/openloadbalancer/olb/internal/backend"
+	"github.com/openloadbalancer/olb/internal/cluster"
 	"github.com/openloadbalancer/olb/internal/config"
 	"github.com/openloadbalancer/olb/internal/mcp"
 	"github.com/openloadbalancer/olb/internal/router"
@@ -206,4 +208,43 @@ func getMCPAddress(cfg *config.Config) string {
 	}
 
 	return fmt.Sprintf("%s:%d", host, port+1)
+}
+
+// engineRaftProposer implements admin.RaftProposer by proposing config changes
+// through the Raft cluster. It bridges the admin server (which has no cluster
+// knowledge) to the Raft consensus layer.
+type engineRaftProposer struct {
+	raftCluster *cluster.Cluster
+}
+
+func (p *engineRaftProposer) ProposeSetConfig(configJSON []byte) error {
+	var cfg config.Config
+	if err := json.Unmarshal(configJSON, &cfg); err != nil {
+		return fmt.Errorf("invalid config JSON: %w", err)
+	}
+	cmd, err := cluster.NewSetConfigCommand(&cfg)
+	if err != nil {
+		return err
+	}
+	return cluster.ProposeConfigChange(p.raftCluster, cmd)
+}
+
+func (p *engineRaftProposer) ProposeUpdateBackend(pool string, backendJSON []byte) error {
+	var b config.Backend
+	if err := json.Unmarshal(backendJSON, &b); err != nil {
+		return fmt.Errorf("invalid backend JSON: %w", err)
+	}
+	cmd, err := cluster.NewUpdateBackendCommand(pool, &b)
+	if err != nil {
+		return err
+	}
+	return cluster.ProposeConfigChange(p.raftCluster, cmd)
+}
+
+func (p *engineRaftProposer) ProposeDeleteBackend(pool, backendID string) error {
+	cmd, err := cluster.NewDeleteBackendCommand(pool, backendID)
+	if err != nil {
+		return err
+	}
+	return cluster.ProposeConfigChange(p.raftCluster, cmd)
 }

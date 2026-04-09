@@ -27,6 +27,9 @@ const (
 	// CmdUpdateListener updates a listener configuration.
 	CmdUpdateListener ConfigCommandType = "update_listener"
 
+	// CmdDeleteBackend removes a backend from a pool.
+	CmdDeleteBackend ConfigCommandType = "delete_backend"
+
 	// WAF command types
 	CmdWAFAddWhitelist    ConfigCommandType = "waf_add_whitelist"
 	CmdWAFRemoveWhitelist ConfigCommandType = "waf_remove_whitelist"
@@ -89,6 +92,12 @@ type UpdateListenerPayload struct {
 	Listener *config.Listener `json:"listener"`
 }
 
+// DeleteBackendPayload is the payload for CmdDeleteBackend.
+type DeleteBackendPayload struct {
+	Pool      string `json:"pool"`
+	BackendID string `json:"backend_id"`
+}
+
 // ConfigStateMachine implements the StateMachine interface for configuration
 // replication. It stores the current Config as the Raft state and applies
 // configuration change commands proposed through the cluster.
@@ -146,6 +155,8 @@ func (sm *ConfigStateMachine) Apply(command []byte) ([]byte, error) {
 		err = sm.applyUpdateRoute(cmd.Payload)
 	case CmdUpdateListener:
 		err = sm.applyUpdateListener(cmd.Payload)
+	case CmdDeleteBackend:
+		err = sm.applyDeleteBackend(cmd.Payload)
 	case CmdWAFAddWhitelist, CmdWAFRemoveWhitelist,
 		CmdWAFAddBlacklist, CmdWAFRemoveBlacklist,
 		CmdWAFAddRateRule, CmdWAFRemoveRateRule,
@@ -404,6 +415,49 @@ func NewUpdateListenerCommand(listener *config.Listener) (ConfigCommand, error) 
 	}
 	return ConfigCommand{
 		Type:    CmdUpdateListener,
+		Payload: payload,
+	}, nil
+}
+
+// applyDeleteBackend removes a backend from the specified pool.
+func (sm *ConfigStateMachine) applyDeleteBackend(payload json.RawMessage) error {
+	var p DeleteBackendPayload
+	if err := json.Unmarshal(payload, &p); err != nil {
+		return fmt.Errorf("failed to unmarshal DeleteBackend payload: %w", err)
+	}
+	if p.Pool == "" {
+		return fmt.Errorf("pool name is required for DeleteBackend")
+	}
+	if p.BackendID == "" {
+		return fmt.Errorf("backend_id is required for DeleteBackend")
+	}
+
+	for _, pool := range sm.config.Pools {
+		if pool.Name == p.Pool {
+			for i, b := range pool.Backends {
+				if b.ID == p.BackendID {
+					pool.Backends = append(pool.Backends[:i], pool.Backends[i+1:]...)
+					return nil
+				}
+			}
+			return fmt.Errorf("backend %q not found in pool %q", p.BackendID, p.Pool)
+		}
+	}
+
+	return fmt.Errorf("pool %q not found", p.Pool)
+}
+
+// NewDeleteBackendCommand creates a ConfigCommand that removes a backend from a pool.
+func NewDeleteBackendCommand(pool, backendID string) (ConfigCommand, error) {
+	payload, err := json.Marshal(DeleteBackendPayload{
+		Pool:      pool,
+		BackendID: backendID,
+	})
+	if err != nil {
+		return ConfigCommand{}, fmt.Errorf("failed to marshal delete backend payload: %w", err)
+	}
+	return ConfigCommand{
+		Type:    CmdDeleteBackend,
 		Payload: payload,
 	}, nil
 }

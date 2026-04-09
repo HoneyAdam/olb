@@ -19,6 +19,18 @@ import (
 	"github.com/openloadbalancer/olb/internal/router"
 )
 
+// RaftProposer proposes configuration changes through Raft consensus.
+// When non-nil, the admin server uses this to replicate state changes
+// across cluster nodes instead of applying them locally.
+type RaftProposer interface {
+	// ProposeSetConfig proposes a full config replacement.
+	ProposeSetConfig(configJSON []byte) error
+	// ProposeUpdateBackend proposes a backend upsert in a pool.
+	ProposeUpdateBackend(pool string, backendJSON []byte) error
+	// ProposeDeleteBackend proposes removing a backend from a pool.
+	ProposeDeleteBackend(pool, backendID string) error
+}
+
 // ClusterAdmin is the interface for cluster management operations.
 // It is optional and may be nil if clustering is not enabled.
 type ClusterAdmin interface {
@@ -63,6 +75,7 @@ type Server struct {
 
 	// Optional components
 	clusterAdmin ClusterAdmin // optional, nil if clustering not enabled
+	raftProposer RaftProposer // optional, nil if clustering not enabled
 	webUI        http.Handler // optional, nil if web UI not available
 	configGetter ConfigGetter // optional, for GET /api/v1/config
 	certLister   CertLister   // optional, for GET /api/v1/certificates
@@ -113,6 +126,7 @@ type Config struct {
 
 	// Optional components
 	ClusterAdmin ClusterAdmin // optional cluster management
+	RaftProposer RaftProposer // optional, for Raft-based config changes
 	WebUI        http.Handler // optional web UI handler
 	ConfigGetter ConfigGetter // optional config provider
 	CertLister   CertLister   // optional certificate lister
@@ -160,6 +174,7 @@ func NewServer(config *Config) (*Server, error) {
 		metrics:        config.Metrics,
 		onReload:       config.OnReload,
 		clusterAdmin:   config.ClusterAdmin,
+		raftProposer:   config.RaftProposer,
 		webUI:          config.WebUI,
 		configGetter:   config.ConfigGetter,
 		allowedOrigins:   config.AllowedOrigins,
@@ -175,6 +190,14 @@ func NewServer(config *Config) (*Server, error) {
 
 	s.setupRoutes()
 	return s, nil
+}
+
+// SetRaftProposer sets the Raft proposer for clustered config changes.
+// This is called after initialization when the Raft cluster is set up.
+func (s *Server) SetRaftProposer(proposer RaftProposer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.raftProposer = proposer
 }
 
 // setupRoutes configures the HTTP routes.
@@ -207,8 +230,8 @@ func (s *Server) setupRoutes() {
 	mux.HandleFunc("/api/v1/metrics", s.getMetricsJSON)
 	mux.HandleFunc("/metrics", s.getMetricsPrometheus)
 
-	// Config endpoint
-	mux.HandleFunc("/api/v1/config", s.getConfig)
+	// Config endpoint (GET to read, PUT to update via Raft when clustered)
+	mux.HandleFunc("/api/v1/config", s.handleConfig)
 
 	// Certificates endpoint
 	mux.HandleFunc("/api/v1/certificates", s.getCertificates)

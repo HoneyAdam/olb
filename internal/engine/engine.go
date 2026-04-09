@@ -89,6 +89,7 @@ type Engine struct {
 	pluginMgr    *plugin.PluginManager
 	clusterMgr   *cluster.ClusterManager // optional, nil if not configured
 	raftCluster  *cluster.Cluster        // optional, nil if not configured
+	persister    *cluster.FilePersister   // optional, nil if no DataDir
 	discoveryMgr *discovery.Manager
 	webUIHandler *webui.Handler
 	geoDNS       *geodns.GeoDNS    // optional, nil if not configured
@@ -409,6 +410,10 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 				logging.Error(err),
 			)
 		}
+		// Wire Raft proposer into admin server for clustered config changes
+		if e.raftCluster != nil && e.adminServer != nil {
+			e.adminServer.SetRaftProposer(&engineRaftProposer{raftCluster: e.raftCluster})
+		}
 	}
 
 	// Initialize ACME/Let's Encrypt client if configured
@@ -476,12 +481,17 @@ func (e *Engine) initCluster(clusterCfg *config.ClusterConfig, logger *logging.L
 	// This handles applying config changes (set_config, update_backend,
 	// update_route, update_listener, WAF commands) across cluster nodes.
 	configSM := cluster.NewConfigStateMachine(e.config)
-	configSM.OnConfigApplied(func(newCfg *config.Config) {
-		e.mu.Lock()
-		e.config = newCfg
-		e.mu.Unlock()
-		logger.Info("Config applied via Raft consensus")
-	})
+		configSM.OnConfigApplied(func(newCfg *config.Config) {
+			if err := e.validateConfig(newCfg); err != nil {
+				logger.Error("Raft config validation failed", logging.Error(err))
+				return
+			}
+			if err := e.applyConfig(newCfg); err != nil {
+				logger.Error("Failed to apply Raft config", logging.Error(err))
+				return
+			}
+			logger.Info("Config applied via Raft consensus")
+		})
 	stateMachine := configSM
 
 	raftCluster, err := cluster.New(raftCfg, stateMachine)
@@ -489,6 +499,17 @@ func (e *Engine) initCluster(clusterCfg *config.ClusterConfig, logger *logging.L
 		return fmt.Errorf("failed to create Raft cluster: %w", err)
 	}
 	e.raftCluster = raftCluster
+
+	// Initialize persistence for crash recovery if DataDir is configured
+	if clusterCfg.DataDir != "" {
+		persister, err := cluster.NewFilePersister(clusterCfg.DataDir)
+		if err != nil {
+			logger.Warn("Failed to create Raft persister", logging.Error(err))
+		} else {
+			e.recoverRaftState(raftCluster, configSM, persister, logger)
+			e.persister = persister
+		}
+	}
 
 	// Initialize TCP transport for Raft RPCs
 	bindAddr := fmt.Sprintf("%s:%d", clusterCfg.BindAddr, clusterCfg.BindPort)
@@ -530,7 +551,57 @@ func (e *Engine) initCluster(clusterCfg *config.ClusterConfig, logger *logging.L
 	return nil
 }
 
-// Start initializes and starts all components in the correct order.
+// recoverRaftState attempts to recover Raft state from a previous session.
+// It loads the last known term/vote, restores the state machine from the
+// latest snapshot, and replays any log entries not included in the snapshot.
+func (e *Engine) recoverRaftState(c *cluster.Cluster, sm *cluster.ConfigStateMachine, p *cluster.FilePersister, logger *logging.Logger) {
+	// Load persisted node state
+	state, err := p.LoadRaftState()
+	if err != nil {
+		logger.Warn("Failed to load Raft state, starting fresh", logging.Error(err))
+		return
+	}
+	if state.Term == 0 && state.CommitIndex == 0 {
+		// No previous state found — fresh start
+		return
+	}
+
+	// Restore term and vote
+	c.CurrentTerm(state.Term)
+	c.VotedFor(state.VotedFor)
+
+	logger.Info("Recovered Raft state",
+		logging.Uint64("term", state.Term),
+		logging.String("voted_for", state.VotedFor),
+		logging.Uint64("commit_index", state.CommitIndex),
+	)
+
+	// Load and replay log entries
+	entries, err := p.LoadLogEntries()
+	if err != nil {
+		logger.Warn("Failed to load Raft log entries", logging.Error(err))
+		return
+	}
+
+	// Replay entries that were committed but may not have been applied
+	for _, entry := range entries {
+		if entry.Index <= state.LastApplied {
+			continue // already applied
+		}
+		if _, err := sm.Apply(entry.Command); err != nil {
+			logger.Warn("Failed to replay log entry",
+				logging.Uint64("index", entry.Index),
+				logging.Error(err),
+			)
+		}
+	}
+
+	logger.Info("Replayed Raft log entries",
+		logging.Int("total", len(entries)),
+		logging.Uint64("last_applied", state.LastApplied),
+	)
+}
+
 func (e *Engine) Start() error {
 	e.mu.Lock()
 	if e.state != StateStopped {
@@ -1074,6 +1145,11 @@ func (e *Engine) GetClusterManager() *cluster.ClusterManager {
 // GetDiscoveryManager returns the discovery manager.
 func (e *Engine) GetDiscoveryManager() *discovery.Manager {
 	return e.discoveryMgr
+}
+
+// GetRaftCluster returns the Raft cluster (may be nil if clustering is not enabled).
+func (e *Engine) GetRaftCluster() *cluster.Cluster {
+	return e.raftCluster
 }
 
 // setState sets the engine state (internal use only).

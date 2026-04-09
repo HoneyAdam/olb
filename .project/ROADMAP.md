@@ -9,7 +9,7 @@ OpenLoadBalancer is a remarkably complete load balancer implementation with 97% 
 
 **Key blockers:**
 1. ~~Duplicate middleware v1/v2 wired in engine~~ -- FIXED (v1 duplicates removed)
-2. Raft state machine is a stub -- clustering cannot actually replicate config changes
+2. ~~Raft state machine is a stub~~ -- FIXED (Apply/Snapshot/Restore implemented, Raft-integrated config replication, persistence, admin Raft-aware CRUD)
 3. WebUI pages use mock data -- dashboard cannot manage a real deployment
 
 **What's working well:**
@@ -28,7 +28,7 @@ OpenLoadBalancer is a remarkably complete load balancer implementation with 97% 
 ### Must-fix items blocking basic functionality
 
 - [x] **Remove duplicate middleware registration** -- `internal/engine/engine.go` `createMiddlewareChain()` wires both v1 (root middleware/) and v2 (subdirectory middleware/cache/, middleware/metrics/, etc.) versions of Cache, Metrics, RealIP, RequestID. Remove v1 registrations. ~2h
-- [ ] **Implement Raft state machine Apply/Snapshot** -- `internal/engine/engine.go` engineStateMachine has no-op `Apply()` and empty `Snapshot()`. Implement config application from Raft log entries and state serialization for snapshots. ~40-80h
+- [x] **Implement Raft state machine Apply/Snapshot** -- ConfigStateMachine with full command handling (set_config, update_backend, delete_backend, update_route, update_listener, WAF commands), Snapshot/Restore, file-based persistence, crash recovery, Raft-aware admin API endpoints. ~40-80h
 - [ ] **Connect WebUI to real API** -- Replace mock data in 10/11 React pages (`internal/webui/src/pages/`) with actual API calls using existing `useQuery`/`useMutation` hooks. ~40h
 - [x] **Remove webui.old/ directory** -- Delete `internal/webui.old/` from the repo. ~1h
 - [x] **Clean up stray root files** -- Remove `simple.yaml`, `test_backend.go`, `cover.out.bin`, `cli.cov` from project root. ~15min

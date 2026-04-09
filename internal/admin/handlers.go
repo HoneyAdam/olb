@@ -4,6 +4,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -29,6 +30,12 @@ func writeSuccess(w http.ResponseWriter, data any) {
 	w.WriteHeader(http.StatusOK)
 	resp := SuccessResponse(data)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// readBody reads and returns the request body, limited to 1MB.
+func readBody(r *http.Request) ([]byte, error) {
+	defer r.Body.Close()
+	return io.ReadAll(io.LimitReader(r.Body, 1<<20))
 }
 
 // Helper type for extended backend info
@@ -387,7 +394,27 @@ func (s *Server) addBackend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create backend
+	// Raft mode: propose the backend addition through consensus
+	if s.raftProposer != nil {
+		backendJSON, _ := json.Marshal(map[string]any{
+			"id":      req.ID,
+			"address": req.Address,
+			"weight":  req.Weight,
+		})
+		if err := s.raftProposer.ProposeUpdateBackend(poolName, backendJSON); err != nil {
+			writeError(w, http.StatusConflict, "RAFT_ERROR",
+				"failed to propose backend addition: "+err.Error())
+			return
+		}
+		writeSuccess(w, map[string]string{
+			"status":  "proposed",
+			"pool":    poolName,
+			"backend": req.ID,
+		})
+		return
+	}
+
+	// Create backend (standalone mode)
 	b := backend.NewBackend(req.ID, req.Address)
 	if req.Weight > 0 {
 		b.Weight = int32(req.Weight)
@@ -429,6 +456,22 @@ func (s *Server) removeBackend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Raft mode: propose the backend removal through consensus
+	if s.raftProposer != nil {
+		if err := s.raftProposer.ProposeDeleteBackend(poolName, backendID); err != nil {
+			writeError(w, http.StatusConflict, "RAFT_ERROR",
+				"failed to propose backend removal: "+err.Error())
+			return
+		}
+		writeSuccess(w, map[string]string{
+			"status":  "proposed",
+			"pool":    poolName,
+			"backend": backendID,
+		})
+		return
+	}
+
+	// Standalone mode: direct removal
 	if err := pool.RemoveBackend(backendID); err != nil {
 		if errors.Is(err, errors.ErrBackendNotFound) {
 			writeError(w, http.StatusNotFound, "BACKEND_NOT_FOUND", "backend not found")
@@ -440,8 +483,6 @@ func (s *Server) removeBackend(w http.ResponseWriter, r *http.Request) {
 
 	writeSuccess(w, map[string]string{"message": "backend removed successfully"})
 }
-
-// UpdateBackendRequest is the request body for updating a backend.
 type UpdateBackendRequest struct {
 	Weight   *int32 `json:"weight,omitempty"`
 	MaxConns *int32 `json:"max_conns,omitempty"`
@@ -489,6 +530,37 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "INVALID_WEIGHT", "weight must be between 0 and 1000")
 			return
 		}
+	}
+
+	// Raft mode: propose the backend update through consensus
+	if s.raftProposer != nil {
+		backendJSON, _ := json.Marshal(map[string]any{
+			"id":      backendID,
+			"address": b.Address,
+			"weight":  b.Weight,
+		})
+		if req.Weight != nil {
+			backendJSON, _ = json.Marshal(map[string]any{
+				"id":      backendID,
+				"address": b.Address,
+				"weight":  *req.Weight,
+			})
+		}
+		if err := s.raftProposer.ProposeUpdateBackend(poolName, backendJSON); err != nil {
+			writeError(w, http.StatusConflict, "RAFT_ERROR",
+				"failed to propose backend update: "+err.Error())
+			return
+		}
+		writeSuccess(w, map[string]string{
+			"status":  "proposed",
+			"pool":    poolName,
+			"backend": backendID,
+		})
+		return
+	}
+
+	// Standalone mode: direct update
+	if req.Weight != nil {
 		b.Weight = *req.Weight
 	}
 	if req.MaxConns != nil {
@@ -677,12 +749,19 @@ func (s *Server) getMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
 }
 
 // getConfig handles GET /api/v1/config
-func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "only GET is allowed")
-		return
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.getConfig(w, r)
+	case http.MethodPut:
+		s.updateConfig(w, r)
+	default:
+		writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED",
+			"only GET and PUT are allowed")
 	}
+}
 
+func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	if s.configGetter == nil {
 		writeError(w, http.StatusServiceUnavailable, "NOT_AVAILABLE", "config provider not available")
 		return
@@ -690,6 +769,36 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 
 	cfg := s.configGetter.GetConfig()
 	writeSuccess(w, cfg)
+}
+
+func (s *Server) updateConfig(w http.ResponseWriter, r *http.Request) {
+	if s.raftProposer != nil {
+		// Clustered mode: propose through Raft
+		body, err := readBody(r)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+			return
+		}
+		if err := s.raftProposer.ProposeSetConfig(body); err != nil {
+			writeError(w, http.StatusConflict, "RAFT_ERROR",
+				"failed to propose config change: "+err.Error())
+			return
+		}
+		writeSuccess(w, map[string]string{"status": "proposed"})
+		return
+	}
+
+	// Standalone mode: trigger a reload from disk
+	if s.onReload == nil {
+		writeError(w, http.StatusServiceUnavailable, "NOT_AVAILABLE",
+			"no reload handler available")
+		return
+	}
+	if err := s.onReload(); err != nil {
+		writeError(w, http.StatusInternalServerError, "RELOAD_ERROR", err.Error())
+		return
+	}
+	writeSuccess(w, map[string]string{"status": "reloaded"})
 }
 
 // getCertificates handles GET /api/v1/certificates

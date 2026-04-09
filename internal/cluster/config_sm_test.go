@@ -1229,3 +1229,92 @@ func TestConfigStateMachine_Apply_WAFCommandWithHandlerError(t *testing.T) {
 		t.Error("expected error from WAF handler")
 	}
 }
+
+
+// ---------------------------------------------------------------------------
+// DeleteBackend command
+// ---------------------------------------------------------------------------
+
+func TestConfigStateMachine_Apply_DeleteBackend(t *testing.T) {
+	sm := NewConfigStateMachine(newTestConfig())
+
+	t.Run("delete_existing", func(t *testing.T) {
+		cmd, err := NewDeleteBackendCommand("api-pool", "b1")
+		if err != nil {
+			t.Fatalf("NewDeleteBackendCommand: %v", err)
+		}
+
+		_, err = sm.Apply(makeCommand(t, cmd))
+		if err != nil {
+			t.Fatalf("Apply failed: %v", err)
+		}
+
+		cfg := sm.GetCurrentConfig()
+		if len(cfg.Pools[0].Backends) != 1 {
+			t.Errorf("Backends count = %d, want 1", len(cfg.Pools[0].Backends))
+		}
+		if cfg.Pools[0].Backends[0].ID == "b1" {
+			t.Error("b1 should have been deleted")
+		}
+	})
+
+	t.Run("delete_nonexistent_backend", func(t *testing.T) {
+		cmd, err := NewDeleteBackendCommand("api-pool", "nonexistent")
+		if err != nil {
+			t.Fatalf("NewDeleteBackendCommand: %v", err)
+		}
+
+		_, err = sm.Apply(makeCommand(t, cmd))
+		if err == nil {
+			t.Error("Expected error for nonexistent backend")
+		}
+	})
+
+	t.Run("delete_nonexistent_pool", func(t *testing.T) {
+		cmd, err := NewDeleteBackendCommand("nonexistent-pool", "b1")
+		if err != nil {
+			t.Fatalf("NewDeleteBackendCommand: %v", err)
+		}
+
+		_, err = sm.Apply(makeCommand(t, cmd))
+		if err == nil {
+			t.Error("Expected error for nonexistent pool")
+		}
+	})
+
+	t.Run("empty_pool_name", func(t *testing.T) {
+		cmd := ConfigCommand{Type: CmdDeleteBackend, Payload: json.RawMessage(`{"pool":"","backend_id":"b1"}`)}
+		_, err := sm.Apply(makeCommand(t, cmd))
+		if err == nil {
+			t.Error("Expected error for empty pool name")
+		}
+	})
+
+	t.Run("empty_backend_id", func(t *testing.T) {
+		cmd := ConfigCommand{Type: CmdDeleteBackend, Payload: json.RawMessage(`{"pool":"api-pool","backend_id":""}`)}
+		_, err := sm.Apply(makeCommand(t, cmd))
+		if err == nil {
+			t.Error("Expected error for empty backend_id")
+		}
+	})
+}
+
+func TestNewDeleteBackendCommand(t *testing.T) {
+	cmd, err := NewDeleteBackendCommand("mypool", "b1")
+	if err != nil {
+		t.Fatalf("NewDeleteBackendCommand: %v", err)
+	}
+	if cmd.Type != CmdDeleteBackend {
+		t.Errorf("Type = %q, want %q", cmd.Type, CmdDeleteBackend)
+	}
+	var decoded DeleteBackendPayload
+	if err := json.Unmarshal(cmd.Payload, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.Pool != "mypool" {
+		t.Errorf("Pool = %q, want mypool", decoded.Pool)
+	}
+	if decoded.BackendID != "b1" {
+		t.Errorf("BackendID = %q, want b1", decoded.BackendID)
+	}
+}

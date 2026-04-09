@@ -273,6 +273,16 @@ func (c *Cluster) GetTerm() uint64 {
 	return c.currentTerm.Load()
 }
 
+// CurrentTerm sets the current term (used for recovery from persisted state).
+func (c *Cluster) CurrentTerm(term uint64) {
+	c.currentTerm.Store(term)
+}
+
+// VotedFor sets the node that received this node's vote (used for recovery).
+func (c *Cluster) VotedFor(nodeID string) {
+	c.votedFor.Store(nodeID)
+}
+
 // incrementTerm increments the current term.
 func (c *Cluster) incrementTerm() uint64 {
 	return c.currentTerm.Add(1)
