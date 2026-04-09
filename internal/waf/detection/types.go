@@ -50,6 +50,9 @@ type RequestContext struct {
 	IsWhitelisted bool
 	JA3Hash       string
 
+	// Cached inputs (lazily computed by AllInputs, cleared on Release)
+	cachedInputs []FieldValue
+
 	// Request reference for layers that need the original
 	Request *http.Request
 }
@@ -71,12 +74,9 @@ func NewRequestContext(r *http.Request) *RequestContext {
 	ctx.IsWhitelisted = false
 	ctx.JA3Hash = ""
 
-	// Clear reused maps
+	// Clear reused maps (only Cookies; BodyParams is reallocated below)
 	for k := range ctx.Cookies {
 		delete(ctx.Cookies, k)
-	}
-	for k := range ctx.BodyParams {
-		delete(ctx.BodyParams, k)
 	}
 
 	// Extract cookies
@@ -142,9 +142,13 @@ func GetRequestContext(r *http.Request) *RequestContext {
 }
 
 // AllInputs returns all user-controlled input for scanning.
+// Results are cached after the first call.
 func (rc *RequestContext) AllInputs() []FieldValue {
-	var fields []FieldValue
+	if rc.cachedInputs != nil {
+		return rc.cachedInputs
+	}
 
+	fields := make([]FieldValue, 0, 8)
 	fields = append(fields, FieldValue{Location: "path", Value: rc.DecodedPath})
 
 	if rc.DecodedQuery != "" {
@@ -169,6 +173,7 @@ func (rc *RequestContext) AllInputs() []FieldValue {
 		fields = append(fields, FieldValue{Location: "param:" + name, Value: value})
 	}
 
+	rc.cachedInputs = fields
 	return fields
 }
 
@@ -207,6 +212,7 @@ func ReleaseRequestContext(ctx *RequestContext) {
 	ctx.DecodedPath = ""
 	ctx.DecodedQuery = ""
 	ctx.DecodedBody = ""
+	ctx.cachedInputs = nil
 	requestContextPool.Put(ctx)
 }
 
