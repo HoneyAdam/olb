@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -479,18 +480,18 @@ func TestClusterStatus_JSONRoundTrip(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 type mockDrainer struct {
-	count int64
+	count atomic.Int64
 }
 
 func (d *mockDrainer) ActiveConnectionCount() int64 {
-	return d.count
+	return d.count.Load()
 }
 
 func TestClusterManager_Leave_WithDrainer_ReachesZero(t *testing.T) {
 	_, mgr := newTestClusterAndManager(t)
 
 	// Set up a drainer that reports 0 connections immediately.
-	drainer := &mockDrainer{count: 0}
+	drainer := &mockDrainer{}
 	mgr.SetDrainer(drainer)
 
 	// Join first so Leave can succeed.
@@ -512,12 +513,13 @@ func TestClusterManager_Leave_WithDrainer_DrainsThenLeaves(t *testing.T) {
 	_, mgr := newTestClusterAndManager(t)
 
 	// Drainer starts with connections, then drops to zero after a short delay.
-	drainer := &mockDrainer{count: 5}
+	drainer := &mockDrainer{}
+	drainer.count.Store(5)
 	mgr.SetDrainer(drainer)
 
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		drainer.count = 0
+		drainer.count.Store(0)
 	}()
 
 	err := mgr.Join([]string{"127.0.0.1:7947"})
@@ -539,7 +541,8 @@ func TestClusterManager_Leave_WithDrainer_TimeoutExpires(t *testing.T) {
 	mgr.config.DrainTimeout = 100 * time.Millisecond
 
 	// Drainer always reports active connections.
-	drainer := &mockDrainer{count: 10}
+	drainer := &mockDrainer{}
+	drainer.count.Store(10)
 	mgr.SetDrainer(drainer)
 
 	err := mgr.Join([]string{"127.0.0.1:7947"})
@@ -723,7 +726,7 @@ func TestLeave_NotActive(t *testing.T) {
 
 func TestLeave_WithDrainer(t *testing.T) {
 	_, mgr := newTestClusterAndManager(t)
-	mgr.SetDrainer(&mockDrainer{count: 0})
+	mgr.SetDrainer(&mockDrainer{})
 	if err := mgr.Join([]string{"127.0.0.1:7947"}); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
@@ -734,7 +737,9 @@ func TestLeave_WithDrainer(t *testing.T) {
 
 func TestLeave_DrainerTimeout(t *testing.T) {
 	_, mgr := newTestClusterAndManager(t)
-	mgr.SetDrainer(&mockDrainer{count: 10}) // never drains to 0
+	drainer := &mockDrainer{}
+	drainer.count.Store(10)
+	mgr.SetDrainer(drainer) // never drains to 0
 	if err := mgr.Join([]string{"127.0.0.1:7947"}); err != nil {
 		t.Fatalf("Join: %v", err)
 	}
@@ -852,7 +857,8 @@ func TestClusterManager_Leave_StopChInterrupt(t *testing.T) {
 	mgr.config.DrainTimeout = 5 * time.Second
 
 	// Set a drainer that always has connections
-	drainer := &mockDrainer{count: 10}
+	drainer := &mockDrainer{}
+	drainer.count.Store(10)
 	mgr.SetDrainer(drainer)
 
 	err := mgr.Join([]string{"127.0.0.1:7947"})

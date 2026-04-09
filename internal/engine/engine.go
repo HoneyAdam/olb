@@ -782,12 +782,18 @@ func (e *Engine) Start() error {
 			defer e.wg.Done()
 			ticker := time.NewTicker(10 * time.Second)
 			defer ticker.Stop()
-			// Initial update
-			e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker, e.connPoolMgr)
+			// Initial update (read pointers under RLock to avoid race with applyConfig)
+			e.mu.RLock()
+			pm, hc, cp := e.poolManager, e.healthChecker, e.connPoolMgr
+			e.mu.RUnlock()
+			e.sysMetrics.updateSystemMetrics(pm, hc, cp)
 			for {
 				select {
 				case <-ticker.C:
-					e.sysMetrics.updateSystemMetrics(e.poolManager, e.healthChecker, e.connPoolMgr)
+					e.mu.RLock()
+					pm, hc, cp := e.poolManager, e.healthChecker, e.connPoolMgr
+					e.mu.RUnlock()
+					e.sysMetrics.updateSystemMetrics(pm, hc, cp)
 				case <-e.sysMetricsStop:
 					return
 				}

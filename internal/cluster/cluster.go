@@ -106,6 +106,7 @@ type Cluster struct {
 	// Channels
 	electionTimer  *time.Timer
 	heartbeatTimer *time.Ticker
+	timerMu        sync.RWMutex // protects electionTimer and heartbeatTimer
 	stopCh         chan struct{}
 	commandCh      chan *Command
 	runDone        chan struct{} // closed when run() goroutine exits
@@ -204,12 +205,14 @@ func (c *Cluster) Stop() error {
 	close(c.stopCh)
 
 	// Stop timers to prevent goroutine/resource leaks
+	c.timerMu.Lock()
 	if c.electionTimer != nil {
 		c.electionTimer.Stop()
 	}
 	if c.heartbeatTimer != nil {
 		c.heartbeatTimer.Stop()
 	}
+	c.timerMu.Unlock()
 
 	// Wait for the run() goroutine to exit
 	if c.runDone != nil {
@@ -300,6 +303,7 @@ func (c *Cluster) incrementTerm() uint64 {
 
 // resetElectionTimer resets the election timer.
 func (c *Cluster) resetElectionTimer() {
+	c.timerMu.Lock()
 	if c.electionTimer != nil {
 		c.electionTimer.Stop()
 	}
@@ -307,10 +311,13 @@ func (c *Cluster) resetElectionTimer() {
 	// Random timeout between 150ms and 300ms (to avoid split votes)
 	timeout := 150*time.Millisecond + time.Duration(time.Now().UnixNano()%150)*time.Millisecond
 	c.electionTimer = time.NewTimer(timeout)
+	c.timerMu.Unlock()
 }
 
 // getElectionTimerChan returns the election timer channel.
 func (c *Cluster) getElectionTimerChan() <-chan time.Time {
+	c.timerMu.RLock()
+	defer c.timerMu.RUnlock()
 	if c.electionTimer == nil {
 		return nil
 	}
@@ -319,6 +326,8 @@ func (c *Cluster) getElectionTimerChan() <-chan time.Time {
 
 // getHeartbeatTimerChan returns the heartbeat timer channel.
 func (c *Cluster) getHeartbeatTimerChan() <-chan time.Time {
+	c.timerMu.RLock()
+	defer c.timerMu.RUnlock()
 	if c.heartbeatTimer == nil {
 		return nil
 	}
@@ -432,10 +441,12 @@ func (c *Cluster) becomeLeader() {
 	c.leaderID.Store(c.config.NodeID)
 
 	// Stop election timer, start heartbeat timer
+	c.timerMu.Lock()
 	if c.electionTimer != nil {
 		c.electionTimer.Stop()
 	}
 	c.heartbeatTimer = time.NewTicker(c.config.HeartbeatTick)
+	c.timerMu.Unlock()
 
 	// Update node info
 	c.nodesMu.Lock()
