@@ -15,18 +15,16 @@ export default defineConfig({
     sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom', 'react-router'],
-          'vendor-radix': [
-            '@radix-ui/react-dialog',
-            '@radix-ui/react-dropdown-menu',
-            '@radix-ui/react-select',
-            '@radix-ui/react-slot',
-            '@radix-ui/react-tabs',
-            '@radix-ui/react-switch',
-            '@radix-ui/react-label',
-          ],
-          'vendor-icons': ['lucide-react'],
+        manualChunks(id) {
+          if (id.includes('node_modules/react-dom/') || id.includes('node_modules/react/') || id.includes('node_modules/react-router/')) {
+            return 'vendor-react'
+          }
+          if (id.includes('node_modules/@radix-ui/')) {
+            return 'vendor-radix'
+          }
+          if (id.includes('node_modules/lucide-react/')) {
+            return 'vendor-icons'
+          }
         },
       },
     },
