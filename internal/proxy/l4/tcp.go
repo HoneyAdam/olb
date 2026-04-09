@@ -245,6 +245,13 @@ func (p *TCPProxy) copyWithTimeout(dst, src net.Conn) error {
 	buf := make([]byte, p.config.BufferSize)
 
 	for {
+		// Check context before each read to allow prompt cancellation
+		select {
+		case <-p.ctx.Done():
+			return p.ctx.Err()
+		default:
+		}
+
 		src.SetReadDeadline(time.Now().Add(timeout))
 
 		nr, err := src.Read(buf)
