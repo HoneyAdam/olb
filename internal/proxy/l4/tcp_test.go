@@ -251,17 +251,30 @@ func TestTCPProxy_Stop_WithActiveConnections(t *testing.T) {
 
 	client, server := net.Pipe()
 
-	go proxy.HandleConnection(server)
+	handleDone := make(chan struct{})
+	go func() {
+		defer close(handleDone)
+		proxy.HandleConnection(server)
+	}()
 
 	// Write some data and read it back so the pipe doesn't block
 	client.Write([]byte("test"))
 	buf := make([]byte, 4)
 	client.Read(buf)
 
-	// Close the client to unblock the proxy's copy goroutines
+	// Close the client to signal EOF
 	client.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Give HandleConnection time to detect the close,
+	// but use a short timeout so the test doesn't hang on CI.
+	select {
+	case <-handleDone:
+		// HandleConnection returned promptly — good
+	case <-time.After(5 * time.Second):
+		// HandleConnection still running; Stop will cancel it
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	err = proxy.Stop(ctx)

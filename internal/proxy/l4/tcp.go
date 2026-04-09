@@ -248,6 +248,8 @@ func (p *TCPProxy) copyWithTimeout(dst, src net.Conn) error {
 		// Check context before each read to allow prompt cancellation
 		select {
 		case <-p.ctx.Done():
+			// Interrupt any pending read by setting a past deadline
+			src.SetReadDeadline(time.Now())
 			return p.ctx.Err()
 		default:
 		}
