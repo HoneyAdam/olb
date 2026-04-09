@@ -8,7 +8,7 @@ on:
     branches: [main, master, develop]
 
 env:
-  GO_VERSION: '1.25'
+  GO_VERSION: '1.26'
 
 jobs:
   # Job 1: Lint and Format Check
@@ -46,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: ['1.25']
+        go-version: ['1.26']
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,32 +57,21 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
+      - name: Cache npm modules
         uses: actions/cache@v4
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('internal/webui/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-npm-
 
       - name: Install frontend dependencies
         working-directory: ./internal/webui
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Build frontend
         working-directory: ./internal/webui
-        run: pnpm build
+        run: npm run build
       # ===== END FRONTEND BUILD =====
 
       - name: Setup Go
@@ -159,32 +148,21 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
+      - name: Cache npm modules
         uses: actions/cache@v4
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('internal/webui/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-npm-
 
       - name: Install frontend dependencies
         working-directory: ./internal/webui
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Build frontend
         working-directory: ./internal/webui
-        run: pnpm build
+        run: npm run build
       # ===== END FRONTEND BUILD =====
 
       - name: Setup Go
@@ -221,32 +199,21 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-
-      - name: Get pnpm store directory
-        shell: bash
-        run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
-
-      - name: Setup pnpm cache
+      - name: Cache npm modules
         uses: actions/cache@v4
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('internal/webui/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-npm-
 
       - name: Install frontend dependencies
         working-directory: ./internal/webui
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Build frontend
         working-directory: ./internal/webui
-        run: pnpm build
+        run: npm run build
       # ===== END FRONTEND BUILD =====
 
       - name: Setup Go
