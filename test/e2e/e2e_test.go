@@ -1136,7 +1136,7 @@ pools:
 	}
 
 	// Wait for new config to take effect and health checks
-	time.Sleep(1 * time.Second) // Brief wait for reload propagation
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// Send requests to verify both backends receive traffic
 	b1Hits.Store(0)
@@ -3027,6 +3027,29 @@ func waitForReady(t *testing.T, addr string, timeout time.Duration) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("Timeout waiting for %s to be ready", addr)
+}
+
+// waitForHealthyProxy polls the proxy until it returns HTTP 200,
+// indicating backends are healthy and routing is active.
+// This replaces time.Sleep waits for health check convergence.
+func waitForHealthyProxy(t *testing.T, proxyAddr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 2 * time.Second}
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(fmt.Sprintf("http://%s/", proxyAddr))
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("Timeout waiting for healthy proxy response from %s (waited %v)", proxyAddr, timeout)
 }
 
 func min(a, b int) int {

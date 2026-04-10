@@ -146,7 +146,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// --- Load test: 100 concurrent goroutines, 1000 total requests ---
 	const totalRequests = 1000
@@ -346,7 +346,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(3 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
@@ -380,7 +380,7 @@ pools:
 	// Phase 2: Kill one backend during traffic
 	killSrv.Close()
 	t.Log("Killed backend, sending traffic during failover...")
-	time.Sleep(3 * time.Second) // Wait for health check detection
+	waitForBackendDown(t, fmt.Sprintf("127.0.0.1:%d", adminPort), killAddr, 10*time.Second)
 
 	var phase2Success, phase2Errors atomic.Int64
 	stableHits.Store(0)
@@ -491,7 +491,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// Send request with gzip support and CORS origin
 	transport := &http.Transport{DisableCompression: true}
@@ -841,7 +841,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(3 * time.Second) // Wait for health checks to pass
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// First verify normal HTTP works
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -989,7 +989,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// Send GET request with Accept: text/event-stream
 	req, err := http.NewRequest("GET", fmt.Sprintf("http://%s/", proxyAddr), nil)
@@ -1123,8 +1123,8 @@ func TestE2E_UDPProxy(t *testing.T) {
 		eng.Shutdown(ctx)
 	})
 
-	// Give the UDP proxy time to start
-	time.Sleep(2 * time.Second)
+	// Wait for UDP proxy to be ready
+	waitForReady(t, fmt.Sprintf("127.0.0.1:%d", adminPort), 5*time.Second)
 
 	// Send a UDP datagram through the proxy
 	proxyUDPAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("127.0.0.1:%d", proxyPort))
@@ -1242,7 +1242,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
@@ -1368,7 +1368,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
@@ -1472,7 +1472,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 30 * time.Second}
 
@@ -1569,7 +1569,7 @@ pools:
 
 	proxyAddr := cfg.Listeners[0].Address
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	const numRequests = 100
 	client := &http.Client{Timeout: 5 * time.Second}

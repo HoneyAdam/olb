@@ -185,7 +185,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 3 * time.Second}
 
@@ -331,7 +331,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
@@ -435,7 +435,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 3 * time.Second}
 
@@ -528,7 +528,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
@@ -601,7 +601,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// Start sending traffic in background
 	var successCount atomic.Int64
@@ -703,7 +703,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse

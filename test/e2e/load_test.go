@@ -286,7 +286,7 @@ pools:
 
 	addr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, addr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, addr, 5*time.Second)
 
 	cleanup = func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -581,7 +581,7 @@ pools:
 
 	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
 	// Phase 1: Send traffic with all backends up
 	client := &http.Client{Timeout: 3 * time.Second}
@@ -630,7 +630,7 @@ pools:
 	t.Logf("Phase 2 (backend down): %d success, %d errors", phase2Success.Load(), phase2Errors.Load())
 
 	// Phase 3: Wait for health check to detect failure, then send traffic
-	time.Sleep(3 * time.Second)
+	waitForBackendDown(t, fmt.Sprintf("127.0.0.1:%d", adminPort), backendAddrs[1], 10*time.Second)
 
 	var phase3Success, phase3Errors atomic.Int64
 	for i := 0; i < 100; i++ {
