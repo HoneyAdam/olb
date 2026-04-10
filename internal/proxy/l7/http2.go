@@ -17,6 +17,7 @@ import (
 
 	"github.com/openloadbalancer/olb/internal/backend"
 	olbErrors "github.com/openloadbalancer/olb/pkg/errors"
+	"github.com/openloadbalancer/olb/pkg/utils"
 )
 
 // HTTP2Config configures HTTP/2 proxy behavior.
@@ -561,8 +562,9 @@ func HandleHTTP2Proxy(w http.ResponseWriter, r *http.Request, b *backend.Backend
 	copyHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
 
-	// Stream response body
-	buf := make([]byte, 32*1024)
+	// Stream response body using pooled buffer
+	buf := utils.Get(32 * 1024)
+	defer utils.Put(buf)
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {

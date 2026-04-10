@@ -22,6 +22,7 @@ import (
 	"github.com/openloadbalancer/olb/internal/router"
 	"github.com/openloadbalancer/olb/internal/security"
 	olbErrors "github.com/openloadbalancer/olb/pkg/errors"
+	"github.com/openloadbalancer/olb/pkg/utils"
 )
 
 // Hop-by-hop headers that should be stripped from requests and responses.
@@ -72,6 +73,9 @@ type HTTPProxy struct {
 
 	// Error handling (protected by atomic for concurrent access)
 	errorHandler atomic.Value // stores func(http.ResponseWriter, *http.Request, error)
+
+	// Cached middleware chain handler (rebuilt when middleware changes)
+	cachedHandler http.Handler
 
 	// HTTP client for proxying (with custom transport for connection pooling)
 	client *http.Client
@@ -171,6 +175,8 @@ func NewHTTPProxy(config *Config) *HTTPProxy {
 		},
 	}
 
+	p.buildCachedHandler()
+
 	return p
 }
 
@@ -223,7 +229,33 @@ type contextKey int
 
 const (
 	backendIDKey contextKey = iota
+	reqCtxKey
+	routeMatchKey
 )
+
+// buildCachedHandler builds and caches the middleware chain handler.
+// Must be called whenever the middleware chain changes.
+func (p *HTTPProxy) buildCachedHandler() {
+	if p.middlewareChain == nil {
+		p.cachedHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			proxyCtx := r.Context().Value(reqCtxKey).(*middleware.RequestContext)
+			rm := r.Context().Value(routeMatchKey).(*router.RouteMatch)
+			p.proxyHandler(w, r, proxyCtx, rm)
+		})
+		return
+	}
+	p.cachedHandler = p.middlewareChain.Then(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxyCtx := r.Context().Value(reqCtxKey).(*middleware.RequestContext)
+		rm := r.Context().Value(routeMatchKey).(*router.RouteMatch)
+		p.proxyHandler(w, r, proxyCtx, rm)
+	}))
+}
+
+// RebuildHandler rebuilds the cached middleware chain handler.
+// Call this after modifying the middleware chain.
+func (p *HTTPProxy) RebuildHandler() {
+	p.buildCachedHandler()
+}
 
 // ServeHTTP implements http.Handler.
 func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -241,12 +273,13 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set route in context
 	reqCtx.Route = routeMatch.Route
 
-	// Build middleware chain with proxy handler
-	handler := p.middlewareChain.Then(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
-		p.proxyHandler(rw, req, reqCtx, routeMatch)
-	}))
+	// Store per-request state in context for the cached handler
+	ctx := context.WithValue(r.Context(), reqCtxKey, reqCtx)
+	ctx = context.WithValue(ctx, routeMatchKey, routeMatch)
+	r = r.WithContext(ctx)
 
-	handler.ServeHTTP(w, r)
+	// Use cached handler (built once, not per-request)
+	p.cachedHandler.ServeHTTP(w, r)
 }
 
 // proxyHandler handles the actual proxying.
@@ -414,8 +447,10 @@ func (p *HTTPProxy) proxyRequest(w http.ResponseWriter, r *http.Request, reqCtx 
 	w.WriteHeader(resp.StatusCode)
 	reqCtx.StatusCode = resp.StatusCode
 
-	// Stream response body
-	bytesOut, err := io.Copy(w, resp.Body)
+	// Stream response body using pooled buffer
+	buf := utils.Get(32 * 1024)
+	defer utils.Put(buf)
+	bytesOut, err := io.CopyBuffer(w, resp.Body, buf)
 	if err != nil {
 		return err
 	}

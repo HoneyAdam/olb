@@ -535,6 +535,35 @@ func BenchmarkMiddlewareChain_ThenOverhead(b *testing.B) {
 	}
 }
 
+func BenchmarkMiddlewareChain_CachedVsThen(b *testing.B) {
+	b.ReportAllocs()
+
+	chain := middleware.NewChain()
+	chain.Use(NewNoopMiddleware("security", middleware.PrioritySecurity))
+	chain.Use(middleware.NewRequestIDMiddleware(middleware.RequestIDConfig{Generate: true}))
+	chain.Use(NewNoopMiddleware("metrics", middleware.PriorityMetrics))
+
+	final := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	b.Run("per-request Then()", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			handler := chain.Then(final)
+			handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+		}
+	})
+
+	b.Run("cached handler", func(b *testing.B) {
+		b.ReportAllocs()
+		cached := chain.Then(final)
+		for i := 0; i < b.N; i++ {
+			cached.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+		}
+	})
+}
+
 func BenchmarkBufferPool_GetPut_Small(b *testing.B) {
 	b.ReportAllocs()
 

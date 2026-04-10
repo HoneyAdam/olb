@@ -74,9 +74,16 @@ func NewRequestContext(r *http.Request) *RequestContext {
 	ctx.IsWhitelisted = false
 	ctx.JA3Hash = ""
 
-	// Clear reused maps (only Cookies; BodyParams is reallocated below)
+	// Clear reused maps (avoid reallocation for pooled objects)
 	for k := range ctx.Cookies {
 		delete(ctx.Cookies, k)
+	}
+	if ctx.BodyParams != nil {
+		for k := range ctx.BodyParams {
+			delete(ctx.BodyParams, k)
+		}
+	} else {
+		ctx.BodyParams = make(map[string]string, 8)
 	}
 
 	// Extract cookies
@@ -103,8 +110,7 @@ func NewRequestContext(r *http.Request) *RequestContext {
 		ctx.DecodedQuery = decoded
 	}
 
-	// Parse body params
-	ctx.BodyParams = make(map[string]string)
+	// Parse body params (map already cleared above)
 	if len(ctx.Body) > 0 {
 		ct := strings.ToLower(ctx.ContentType)
 		switch {
