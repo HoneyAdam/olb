@@ -657,6 +657,7 @@ func (e *Engine) Start() error {
 		e.healthChecker.Stop()
 	}
 	e.healthChecker = health.NewChecker()
+	e.adminServer.SetHealthChecker(e.healthChecker)
 
 	// 4. Initialize backend pools and register backends with health checker
 	if err := e.initializePools(); err != nil {

@@ -138,6 +138,7 @@ func (e *Engine) applyConfig(newCfg *config.Config) error {
 	e.router = newRouter
 	e.poolManager = newPoolManager
 	e.healthChecker = newHealthChecker
+	e.adminServer.SetHealthChecker(newHealthChecker)
 	e.config = newCfg
 
 	// Update proxy components

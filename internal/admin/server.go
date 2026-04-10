@@ -213,6 +213,14 @@ func (s *Server) SetRaftProposer(proposer RaftProposer) {
 	s.raftProposer = proposer
 }
 
+// SetHealthChecker updates the health checker reference.
+// This is called after Start() or Reload() creates a new checker.
+func (s *Server) SetHealthChecker(hc HealthChecker) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.healthChecker = hc
+}
+
 // setupRoutes configures the HTTP routes.
 func (s *Server) setupRoutes() {
 	mux := http.NewServeMux()

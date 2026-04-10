@@ -248,8 +248,11 @@ func (s *Server) getSystemHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check health checker
-	if s.healthChecker != nil {
-		statuses := s.healthChecker.ListStatuses()
+	s.mu.RLock()
+	hc := s.healthChecker
+	s.mu.RUnlock()
+	if hc != nil {
+		statuses := hc.ListStatuses()
 		healthyCount := 0
 		for _, st := range statuses {
 			if st == health.StatusHealthy {
@@ -693,12 +696,15 @@ func (s *Server) getHealthStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.healthChecker == nil {
+	s.mu.RLock()
+	hc := s.healthChecker
+	s.mu.RUnlock()
+	if hc == nil {
 		writeSuccess(w, []HealthStatusInfo{})
 		return
 	}
 
-	statuses := s.healthChecker.ListStatuses()
+	statuses := hc.ListStatuses()
 	response := make([]HealthStatusInfo, 0, len(statuses))
 
 	for backendID, status := range statuses {
@@ -708,7 +714,7 @@ func (s *Server) getHealthStatus(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Get last result if available
-		if result := s.healthChecker.GetResult(backendID); result != nil {
+		if result := hc.GetResult(backendID); result != nil {
 			hcs.LastCheck = result.Timestamp
 			if result.Latency > 0 {
 				hcs.Latency = result.Latency.String()
@@ -866,7 +872,10 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {
 	events := make([]EventItem, 0)
 
 	// Collect backend health events
-	if s.healthChecker != nil && s.poolManager != nil {
+	s.mu.RLock()
+	hc := s.healthChecker
+	s.mu.RUnlock()
+	if hc != nil && s.poolManager != nil {
 		pools := s.poolManager.GetAllPools()
 		for _, pool := range pools {
 			backends := pool.GetAllBackends()
@@ -876,7 +885,7 @@ func (s *Server) getEvents(w http.ResponseWriter, r *http.Request) {
 					healthy++
 				}
 				// Check individual backend health result
-				result := s.healthChecker.GetResult(b.ID)
+				result := hc.GetResult(b.ID)
 				if result != nil {
 					eventType := "success"
 					msg := "healthy"
