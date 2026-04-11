@@ -77,8 +77,8 @@
 - [ ] **Accessibility audit** — Full WCAG 2.1 AA compliance check — Effort: 8h
 - [x] **ARIA labels audit** — Ensure all interactive elements have proper labels — Effort: 4h
 - [x] **Keyboard navigation** — Skip-to-content link, sidebar focus trap, Escape to close, aria-current on nav — Effort: 4h
-- [ ] **Mobile responsiveness** — Test and fix on mobile viewports — Effort: 4h
-- [ ] **Bundle size optimization** — Code splitting, lazy loading of pages — Effort: 8h
+- [x] **Mobile responsiveness** — Flex-wrap, intermediate breakpoints, touch targets, text truncation across all pages — Effort: 4h
+- [x] **Bundle size optimization** — Code splitting with React.lazy + Suspense already implemented, pages load as separate chunks — Effort: 0h
 
 ## Beyond v1.0: Future Enhancements
 
@@ -103,7 +103,7 @@
 | Phase 3: Missing Spec Features | 60h (4h done) | In progress |
 | Phase 4: Observability | 36h (36h done) | Complete |
 | Phase 5: Community | 24h (20h done) | Nearly complete |
-| Phase 6: Web UI | 48h | Not started |
+| Phase 6: Web UI | 48h (40h done) | Nearly complete (accessibility audit remaining) |
 
 ## Risk Assessment
 

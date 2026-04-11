@@ -16,6 +16,7 @@ Fixes #(issue number)
 - [ ] Tests added/updated
 - [ ] All tests pass (`go test ./...`)
 - [ ] Coverage maintained (don't reduce coverage)
+- [ ] Race condition check (`go test -race ./...` where applicable)
 
 ## Checklist
 - [ ] Code follows project style (gofmt, go vet)
@@ -25,6 +26,8 @@ Fixes #(issue number)
 - [ ] Port 0 used in tests (no hardcoded ports)
 - [ ] Documentation updated if needed
 - [ ] CHANGELOG.md updated for user-facing changes
+- [ ] Web UI changes: TypeScript compiles (`npx tsc --noEmit`)
+- [ ] Web UI changes: Bundle builds clean (`npx vite build`)
 
 ## Benchmark Results (if applicable)
 Before vs After:
