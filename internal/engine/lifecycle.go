@@ -281,7 +281,10 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 
 	e.logger.Info("Shutting down engine...")
 
-	// 0. Stop config file watcher
+	// 0. Stop rollback timer
+	e.stopRollbackTimer()
+
+	// 0a. Stop config file watcher
 	if e.configWatcher != nil {
 		e.configWatcher.Stop()
 		e.logger.Info("Config file watcher stopped")

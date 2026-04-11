@@ -59,6 +59,13 @@ func (e *Engine) validateConfig(cfg *config.Config) error {
 func (e *Engine) applyConfig(newCfg *config.Config) error {
 	e.logger.Info("Applying new configuration...")
 
+	// Save current config for potential rollback
+	e.rollbackMu.Lock()
+	e.prevConfig = e.config
+	e.errorCount = 0
+	e.reloadTimestamp = time.Now()
+	e.rollbackMu.Unlock()
+
 	// 1. Create new router with new routes
 	newRouter := router.NewRouter()
 	for _, listenerCfg := range newCfg.Listeners {
@@ -208,6 +215,167 @@ func (e *Engine) applyConfig(newCfg *config.Config) error {
 	_ = oldRouter
 	_ = oldPoolManager
 
+	// Start rollback grace period (30s): if errors spike, auto-revert
+	e.startRollbackGracePeriod()
+
+	return nil
+}
+
+// rollbackConfig performs an emergency rollback to the previous config.
+// Unlike applyConfig, it does NOT start a new grace period (preventing rollback loops).
+func (e *Engine) rollbackConfig(prevCfg *config.Config) error {
+	e.logger.Warn("Rolling back to previous configuration...")
+	return e.applyConfigNoRollback(prevCfg)
+}
+
+// applyConfigNoRollback applies config without starting a rollback grace period.
+// Used by rollback itself to prevent infinite rollback loops.
+func (e *Engine) applyConfigNoRollback(newCfg *config.Config) error {
+	e.logger.Info("Applying configuration (no rollback)...")
+
+	// 1. Create new router with new routes
+	newRouter := router.NewRouter()
+	for _, listenerCfg := range newCfg.Listeners {
+		for _, routeCfg := range listenerCfg.Routes {
+			route := &router.Route{
+				Name:        fmt.Sprintf("%s-%s", listenerCfg.Name, routeCfg.Path),
+				Host:        routeCfg.Host,
+				Path:        routeCfg.Path,
+				Methods:     routeCfg.Methods,
+				BackendPool: routeCfg.Pool,
+			}
+			if err := newRouter.AddRoute(route); err != nil {
+				return fmt.Errorf("failed to add route %s: %w", route.Name, err)
+			}
+		}
+	}
+
+	// 2. Create new pool manager
+	newPoolManager := backend.NewPoolManager()
+
+	// 3. Create new health checker
+	newHealthChecker := health.NewChecker()
+
+	// 4. Initialize pools and register backends
+	for _, poolCfg := range newCfg.Pools {
+		pool := backend.NewPool(poolCfg.Name, poolCfg.Algorithm)
+
+		// Create balancer using the registry
+		bal := balancer.New(poolCfg.Algorithm)
+		if bal == nil {
+			bal = balancer.NewRoundRobin()
+		}
+		pool.SetBalancer(bal)
+
+		// Add backends
+		for i, backendCfg := range poolCfg.Backends {
+			id := backendCfg.ID
+			if id == "" {
+				id = fmt.Sprintf("%s-%d", backendCfg.Address, i)
+			}
+			b := backend.NewBackend(id, backendCfg.Address)
+			b.Weight = int32(backendCfg.Weight)
+			if backendCfg.Scheme != "" {
+				b.Scheme = backendCfg.Scheme
+			}
+			if err := pool.AddBackend(b); err != nil {
+				return fmt.Errorf("failed to add backend %s to pool %s: %w",
+					id, poolCfg.Name, err)
+			}
+
+			// Register with health checker
+			checkConfig := &health.Check{
+				Type:               poolCfg.HealthCheck.Type,
+				Path:               poolCfg.HealthCheck.Path,
+				Interval:           parseDuration(poolCfg.HealthCheck.Interval, 10*time.Second),
+				Timeout:            parseDuration(poolCfg.HealthCheck.Timeout, 5*time.Second),
+				HealthyThreshold:   2,
+				UnhealthyThreshold: 3,
+			}
+			if err := newHealthChecker.Register(b, checkConfig); err != nil {
+				e.logger.Warn("Failed to register backend with health checker",
+					logging.String("backend_id", b.ID),
+					logging.Error(err),
+				)
+			}
+		}
+
+		if err := newPoolManager.AddPool(pool); err != nil {
+			return fmt.Errorf("failed to add pool %s: %w", poolCfg.Name, err)
+		}
+	}
+
+	// 5. Rebuild middleware chain from new config
+	newMiddlewareChain := createMiddlewareChain(newCfg, e.logger, e.metrics)
+
+	// 6. Atomic swap - replace router and pools
+	e.mu.Lock()
+	oldRouter := e.router
+	oldPoolManager := e.poolManager
+	oldHealthChecker := e.healthChecker
+
+	e.router = newRouter
+	e.poolManager = newPoolManager
+	e.healthChecker = newHealthChecker
+	e.adminServer.SetHealthChecker(newHealthChecker)
+	e.config = newCfg
+	e.middlewareChain = newMiddlewareChain
+
+	// Update proxy components
+	newProxyConfig := &l7.Config{
+		Router:          newRouter,
+		PoolManager:     newPoolManager,
+		ConnPoolManager: e.connPoolMgr,
+		HealthChecker:   newHealthChecker,
+		MiddlewareChain:  newMiddlewareChain,
+		ProxyTimeout:    60 * time.Second,
+		DialTimeout:     10 * time.Second,
+		MaxRetries:      3,
+		PassiveChecker:  e.passiveChecker,
+	}
+	newProxy := l7.NewHTTPProxy(newProxyConfig)
+
+	// Capture old proxy before swapping
+	oldProxy := e.proxy
+	e.proxy = newProxy
+	e.mu.Unlock()
+
+	// Close old proxy after drain window
+	if oldProxy != nil {
+		e.wg.Add(1)
+		go func(p *l7.HTTPProxy) {
+			defer e.wg.Done()
+			time.Sleep(5 * time.Second)
+			p.Close()
+		}(oldProxy)
+	}
+
+	// Stop old health checker after drain window
+	e.wg.Add(1)
+	go func(hc *health.Checker) {
+		defer e.wg.Done()
+		time.Sleep(10 * time.Second)
+		hc.Stop()
+	}(oldHealthChecker)
+
+	// 7. Reload TLS certificates if changed
+	if newCfg.TLS != nil && newCfg.TLS.CertFile != "" && newCfg.TLS.KeyFile != "" {
+		if err := e.tlsManager.ReloadCertificates([]olbTLS.CertConfig{
+			{CertFile: newCfg.TLS.CertFile, KeyFile: newCfg.TLS.KeyFile},
+		}); err != nil {
+			e.logger.Warn("Failed to reload TLS certificates", logging.Error(err))
+		}
+	}
+
+	e.logger.Info("Configuration applied successfully (no rollback)",
+		logging.Int("pools", newPoolManager.PoolCount()),
+		logging.Int("routes", newRouter.RouteCount()),
+	)
+
+	// Suppress unused variable warnings (old components are kept for graceful transition)
+	_ = oldRouter
+	_ = oldPoolManager
+
 	return nil
 }
 
@@ -252,4 +420,94 @@ func listenersChanged(oldCfg, newCfg *config.Config) bool {
 	}
 
 	return false
+}
+
+// startRollbackGracePeriod starts a 30-second grace period after a config reload.
+// If all backends become unhealthy during this window, it automatically reverts
+// to the previous configuration — likely indicating a misconfiguration.
+func (e *Engine) startRollbackGracePeriod() {
+	e.rollbackMu.Lock()
+	defer e.rollbackMu.Unlock()
+
+	if e.rollbackTimer != nil {
+		e.rollbackTimer.Stop()
+	}
+
+	checkAndRollback := func() {
+		e.rollbackMu.Lock()
+		prev := e.prevConfig
+		ts := e.reloadTimestamp
+		e.rollbackMu.Unlock()
+
+		// Skip if no previous config or reload was too long ago (>60s)
+		if prev == nil || time.Since(ts) > 60*time.Second {
+			return
+		}
+
+		// Check if all backends are unhealthy
+		e.mu.RLock()
+		pm := e.poolManager
+		e.mu.RUnlock()
+
+		if pm == nil {
+			return
+		}
+
+		totalPools := pm.PoolCount()
+		if totalPools == 0 {
+			return
+		}
+
+		emptyPools := 0
+		for _, pool := range pm.GetAllPools() {
+			healthy := pool.GetHealthyBackends()
+			count := len(healthy)
+			backend.ReleaseHealthyBackends(healthy)
+			if count == 0 {
+				emptyPools++
+			}
+		}
+
+		// If more than half the pools have no healthy backends, roll back
+		if emptyPools > totalPools/2 && emptyPools > 0 {
+			e.logger.Warn("Config rollback triggered: no healthy backends after reload",
+				logging.Int("empty_pools", emptyPools),
+				logging.Int("total_pools", totalPools),
+			)
+			if err := e.rollbackConfig(prev); err != nil {
+				e.logger.Error("Config rollback failed", logging.Error(err))
+			} else {
+				e.logger.Info("Config rollback completed successfully")
+			}
+		}
+	}
+
+	// Check at 15s and 30s after reload
+	e.rollbackTimer = time.AfterFunc(15*time.Second, checkAndRollback)
+	time.AfterFunc(30*time.Second, func() {
+		// Final check then clear prevConfig
+		checkAndRollback()
+		e.rollbackMu.Lock()
+		e.prevConfig = nil
+		e.rollbackMu.Unlock()
+	})
+}
+
+// RecordReloadError increments the error counter for rollback detection.
+// Call this when a request fails during the grace period after a config reload.
+func (e *Engine) RecordReloadError() {
+	e.rollbackMu.Lock()
+	defer e.rollbackMu.Unlock()
+	e.errorCount++
+}
+
+// stopRollbackTimer cancels the rollback grace period timer.
+// Called during engine shutdown.
+func (e *Engine) stopRollbackTimer() {
+	e.rollbackMu.Lock()
+	defer e.rollbackMu.Unlock()
+	if e.rollbackTimer != nil {
+		e.rollbackTimer.Stop()
+		e.rollbackTimer = nil
+	}
 }

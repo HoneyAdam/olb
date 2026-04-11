@@ -24,6 +24,12 @@ $ olb version
 2. Send request to '...'
 3. See error
 
+## Pre-Submission Checklist
+- [ ] I'm using the latest version of OpenLoadBalancer
+- [ ] I've checked the [documentation](https://openloadbalancer.dev/docs) and [existing issues](https://github.com/openloadbalancer/olb/issues)
+- [ ] I've included a minimal configuration that reproduces the issue
+- [ ] I've included relevant log output
+
 ## Expected Behavior
 A clear description of what you expected to happen.
 

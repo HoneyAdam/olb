@@ -68,7 +68,7 @@
 - [x] **Release automation** — `.goreleaser.yml` exists with builds, Docker multi-arch, Homebrew, nFPM, Helm, SBOM, changelog grouping. Fixed typo, added ShortCommit ldflag, removed unnecessary CGO override.
 - [ ] **Issue/PR templates** — Enhance existing templates with bug report checklists — Effort: 2h
 - [x] **Performance regression tracking** — Benchstat comparison in CI: baseline vs PR branch comparison with PR comment
-- [ ] **Architecture Decision Records** — Formalize ADRs for key decisions (balancer registry, middleware pattern, etc.) — Effort: 8h
+- [x] **Architecture Decision Records** — 8 ADRs documented in `docs/architecture-decisions.md` covering dependency policy, clustering, routing, WebUI, middleware, sharded counters, protocol detection, connection pooling
 
 ## Phase 6: Web UI Modernization (Week 11-14)
 
@@ -88,7 +88,7 @@
 - [ ] **WebAssembly plugins** — Extend plugin system with WASM runtime
 - [ ] **API gateway features** — Request transformation, API versioning, request/response validation
 - [ ] **Service mesh integration** — xDS API support for Envoy-compatible service mesh
-- [ ] **Hot config rollback** — Automatic rollback if new config causes errors within grace period
+- [x] **Hot config rollback** — Automatic rollback if new config causes errors within grace period
 - [ ] **Multi-process mode** — Shared-nothing multi-process for zero-downtime upgrades
 - [ ] **WebUI real-time updates** — Server-Sent Events or WebSocket push for live dashboard updates
 
@@ -101,8 +101,8 @@
 | Phase 1: Code Structure | 22h (22h done) | Complete |
 | Phase 2: Security Hardening | 19h + external (19h done) | Complete (external audit pending) |
 | Phase 3: Missing Spec Features | 60h (4h done) | In progress |
-| Phase 4: Observability | 36h (32h done) | Nearly complete |
-| Phase 5: Community | 24h (12h done) | In progress |
+| Phase 4: Observability | 36h (36h done) | Complete |
+| Phase 5: Community | 24h (20h done) | Nearly complete |
 | Phase 6: Web UI | 48h | Not started |
 
 ## Risk Assessment

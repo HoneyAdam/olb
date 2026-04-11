@@ -106,6 +106,7 @@ type Checker struct {
 	mu              sync.RWMutex
 	checks          map[string]*checkState // backend ID -> check state
 	stopCh          chan struct{}
+	stopOnce        sync.Once
 	wg              sync.WaitGroup
 	httpClient      *http.Client // shared HTTP client for HTTP/HTTPS health checks
 	grpcClient      *http.Client // shared HTTP client for gRPC health checks (TLS + H2)
@@ -236,7 +237,7 @@ func (c *Checker) GetResult(backendID string) *Result {
 
 // Stop stops all health check goroutines.
 func (c *Checker) Stop() {
-	close(c.stopCh)
+	c.stopOnce.Do(func() { close(c.stopCh) })
 	c.wg.Wait()
 }
 
