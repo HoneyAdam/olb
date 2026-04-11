@@ -73,10 +73,10 @@
 ## Phase 6: Web UI Modernization (Week 11-14)
 
 ### Improve Web UI maintainability and accessibility
-- [ ] **TypeScript migration** — Add TypeScript to WebUI build pipeline — Effort: 20h
+- [x] **TypeScript migration** — Already done: React 19 + TypeScript + Vite + Tailwind CSS
 - [ ] **Accessibility audit** — Full WCAG 2.1 AA compliance check — Effort: 8h
-- [ ] **ARIA labels audit** — Ensure all interactive elements have proper labels — Effort: 4h
-- [ ] **Keyboard navigation** — Verify tab order, focus management, skip links — Effort: 4h
+- [x] **ARIA labels audit** — Ensure all interactive elements have proper labels — Effort: 4h
+- [x] **Keyboard navigation** — Skip-to-content link, sidebar focus trap, Escape to close, aria-current on nav — Effort: 4h
 - [ ] **Mobile responsiveness** — Test and fix on mobile viewports — Effort: 4h
 - [ ] **Bundle size optimization** — Code splitting, lazy loading of pages — Effort: 8h
 
