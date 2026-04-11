@@ -10,11 +10,10 @@
 
 <p align="center">
   <a href="https://openloadbalancer.dev"><img src="https://img.shields.io/badge/web-openloadbalancer.dev-blue" alt="Website"></a>
-  <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.25+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
   <a href="https://github.com/openloadbalancer/olb/releases"><img src="https://img.shields.io/github/v/release/openloadbalancer/olb" alt="Release"></a>
-  <a href="./"><img src="https://img.shields.io/badge/tests-141_files-brightgreen" alt="Tests"></a>
-  <a href="./"><img src="https://img.shields.io/badge/coverage-87.7%25-brightgreen" alt="Coverage"></a>
+  <a href="https://golang.org"><img src="https://img.shields.io/badge/go-1.26+-00ADD8?logo=go&logoColor=white" alt="Go"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue" alt="License"></a>
+  <a href="./"><img src="https://img.shields.io/badge/coverage-95.3%25-brightgreen" alt="Coverage"></a>
   <a href="./"><img src="https://img.shields.io/badge/deps-3_(x/crypto,x/net,x/text)-orange" alt="Minimal Deps"></a>
 </p>
 
@@ -58,12 +57,17 @@ That's it. HTTP proxy on `:80`, admin API on `:8081`, health checks every 10s, r
 ## Install
 
 ```bash
-# Binary
+# Linux / macOS
 curl -sSL https://openloadbalancer.dev/install.sh | sh
 
-# Docker
+# Windows (PowerShell)
+irm https://openloadbalancer.dev/install.ps1 | iex
+
+# Docker (GHCR)
 docker pull ghcr.io/openloadbalancer/olb:latest
-docker run -d -p 80:80 -p 8081:8081 -v ./olb.yaml:/etc/olb/configs/olb.yaml ghcr.io/openloadbalancer/olb:latest
+docker run -d -p 80:80 -p 8081:8081 \
+  -v ./olb.yaml:/etc/olb/configs/olb.yaml \
+  ghcr.io/openloadbalancer/olb:latest
 
 # Homebrew
 brew tap openloadbalancer/olb && brew install olb
@@ -72,7 +76,7 @@ brew tap openloadbalancer/olb && brew install olb
 git clone https://github.com/openloadbalancer/olb.git && cd olb && make build
 ```
 
-Requires Go 1.25+. Only stdlib + golang.org/x/{crypto,net,text}.
+Requires Go 1.26+. Only stdlib + golang.org/x/{crypto,net,text}.
 
 ## Features
 
@@ -172,7 +176,7 @@ See [docs/benchmark-report.md](docs/benchmark-report.md) for the complete report
 
 ## E2E Verified
 
-56 end-to-end tests prove every feature works in a real proxy scenario:
+56+ end-to-end tests across 70 packages with 95.3% coverage:
 
 | Category | Verified |
 |----------|----------|
