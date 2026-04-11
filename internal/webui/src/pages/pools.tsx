@@ -177,7 +177,7 @@ export function PoolsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Pools</h1>
           <p className="text-muted-foreground">Manage backend pools and load balancing</p>
@@ -292,7 +292,7 @@ export function PoolsPage() {
       </div>
 
       <div className="flex gap-4">
-        <div className="relative flex-1 max-w-sm">
+        <div className="relative flex-1 sm:max-w-sm">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search pools..."
@@ -303,7 +303,7 @@ export function PoolsPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-3 md:grid-cols-2">
         <div className="space-y-4">
           {filteredPools.map((pool) => (
             <Card
@@ -325,7 +325,7 @@ export function PoolsPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-sm sm:gap-4">
                   <div>
                     <span className="text-muted-foreground">Backends:</span>
                     <span className="ml-2 font-medium">{pool.backends.length}</span>
@@ -405,17 +405,17 @@ export function PoolsPage() {
                   {selectedPool.backends.map((backend) => (
                     <Card key={backend.id}>
                       <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-4">
-                            <div className={`h-3 w-3 rounded-full ${getStatusColor(backend.state, backend.healthy)}`} />
-                            <div>
-                              <div className="font-medium">{backend.address}</div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className={`h-3 w-3 shrink-0 rounded-full ${getStatusColor(backend.state, backend.healthy)}`} />
+                            <div className="min-w-0">
+                              <div className="font-medium truncate">{backend.address}</div>
                               <div className="text-sm text-muted-foreground">
                                 Weight: {backend.weight}
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center gap-4">
+                          <div className="flex flex-wrap items-center gap-3">
                             {getHealthBadge(backend.healthy)}
                             <div className="text-right text-sm">
                               <div className="flex items-center gap-1 text-muted-foreground">
@@ -427,16 +427,14 @@ export function PoolsPage() {
                                 {backend.errors} err
                               </div>
                             </div>
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-destructive"
-                                onClick={() => handleDeleteBackend(backend.id)}
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </div>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-9 w-9 shrink-0 text-destructive"
+                              onClick={() => handleDeleteBackend(backend.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </div>
                         </div>
                       </CardContent>

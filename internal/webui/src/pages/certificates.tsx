@@ -60,7 +60,7 @@ export function CertificatesPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">TLS Certificates</h1>
           <p className="text-muted-foreground">Manage SSL/TLS certificates</p>
@@ -176,7 +176,7 @@ export function CertificatesPage() {
         </Dialog>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Certificates</CardTitle>
@@ -231,11 +231,11 @@ export function CertificatesPage() {
           return (
             <Card key={i}>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-3">
                     <Shield className="h-5 w-5 text-primary" />
                     <div>
-                      <CardTitle className="text-base">{domainLabel}</CardTitle>
+                      <CardTitle className="text-base truncate">{domainLabel}</CardTitle>
                       <CardDescription>{cert.is_wildcard ? "Wildcard" : "Standard"} Certificate</CardDescription>
                     </div>
                   </div>
@@ -254,7 +254,7 @@ export function CertificatesPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm break-words">
                   <div>
                     <span className="text-muted-foreground">SANs:</span>
                     <span className="ml-2">{cert.names.join(", ")}</span>

@@ -113,7 +113,7 @@ export function ClusterPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Cluster</h1>
           <p className="text-muted-foreground">Raft consensus and cluster membership</p>
@@ -131,7 +131,7 @@ export function ClusterPage() {
       </div>
 
       {/* Cluster Overview */}
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Cluster Status</CardTitle>
@@ -153,7 +153,7 @@ export function ClusterPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{members?.length ?? 0}</div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground truncate">
               {members?.map(m => m.id).join(", ") || "No members"}
             </p>
           </CardContent>
@@ -183,7 +183,7 @@ export function ClusterPage() {
       </div>
 
       <Tabs defaultValue="nodes" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="nodes">Nodes</TabsTrigger>
           <TabsTrigger value="logs">Raft Logs</TabsTrigger>
           <TabsTrigger value="gossip">SWIM Gossip</TabsTrigger>
@@ -202,7 +202,7 @@ export function ClusterPage() {
                   return (
                     <div
                       key={member.id}
-                      className="flex items-center justify-between p-4 rounded-lg border hover:bg-muted/50 transition-colors"
+                      className="flex flex-wrap items-center justify-between gap-2 p-4 rounded-lg border hover:bg-muted/50 transition-colors"
                     >
                       <div className="flex items-center gap-4">
                         <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
@@ -253,7 +253,7 @@ export function ClusterPage() {
             <CardContent>
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between text-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
                     <span className="font-medium">{clusterStatus.node_id}</span>
                     <span className="text-muted-foreground">Applied: {clusterStatus.applied_index} / Committed: {clusterStatus.commit_index}</span>
                   </div>
@@ -331,7 +331,7 @@ export function ClusterPage() {
               <div className="border rounded-lg p-4">
                 <div className="space-y-2">
                   {(members ?? []).map((member) => (
-                    <div key={member.id} className="flex items-center justify-between p-2 rounded hover:bg-muted/50">
+                    <div key={member.id} className="flex flex-wrap items-center justify-between gap-2 p-2 rounded hover:bg-muted/50">
                       <div className="flex items-center gap-3">
                         <div className={cn(
                           "h-2 w-2 rounded-full",

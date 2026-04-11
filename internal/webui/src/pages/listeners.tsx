@@ -153,7 +153,7 @@ export function ListenersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Listeners</h1>
           <p className="text-muted-foreground">Configure entry points and routing rules</p>
@@ -221,7 +221,7 @@ export function ListenersPage() {
         </Dialog>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 lg:grid-cols-3 md:grid-cols-2">
         <div className="space-y-4">
           {listeners.map((listener) => (
             <Card
@@ -264,7 +264,7 @@ export function ListenersPage() {
         <div className="lg:col-span-2">
           {selectedListener ? (
             <div className="space-y-4">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-lg font-medium">{selectedListener.name}</h3>
                   <p className="text-sm text-muted-foreground">
@@ -388,22 +388,22 @@ export function ListenersPage() {
                       .map((route) => (
                       <div
                         key={route.id}
-                        className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent transition-colors"
+                        className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border hover:bg-accent transition-colors"
                       >
-                        <div className="flex items-center gap-4">
-                          <div className="text-sm font-medium text-muted-foreground w-12">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="text-sm font-medium text-muted-foreground shrink-0 w-10">
                             P{route.priority}
                           </div>
-                          <div>
-                            <div className="font-medium">{route.path || '/'}</div>
+                          <div className="min-w-0">
+                            <div className="font-medium truncate">{route.path || '/'}</div>
                             <div className="text-sm text-muted-foreground">
                               → {route.pool}
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2">
                           {route.methods.length > 0 && (
-                            <div className="flex gap-1">
+                            <div className="flex flex-wrap gap-1">
                               {route.methods.map(m => (
                                 <Badge key={m} variant="secondary" className="text-xs">
                                   {m}
@@ -414,19 +414,17 @@ export function ListenersPage() {
                           {route.strip_prefix && (
                             <Badge variant="outline" className="text-xs">Strip Prefix</Badge>
                           )}
-                          <div className="flex gap-1">
-                            <Button variant="ghost" size="icon" className="h-8 w-8">
-                              <Edit className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-destructive"
-                              onClick={() => handleDeleteRoute(route.id)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
-                          </div>
+                          <Button variant="ghost" size="icon" className="h-9 w-9 shrink-0">
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 shrink-0 text-destructive"
+                            onClick={() => handleDeleteRoute(route.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </div>
                       </div>
                     ))}
@@ -441,17 +439,17 @@ export function ListenersPage() {
                 <CardContent>
                   {selectedListener.protocol === 'https' ? (
                     <div className="space-y-3 text-sm">
-                      <div className="flex justify-between">
+                      <div className="flex flex-wrap justify-between gap-2">
                         <span className="text-muted-foreground">Certificate</span>
-                        <span>*.openloadbalancer.dev</span>
+                        <span className="font-medium break-all">*.openloadbalancer.dev</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex flex-wrap justify-between gap-2">
                         <span className="text-muted-foreground">TLS Version</span>
-                        <span>1.3</span>
+                        <span className="font-medium">1.3</span>
                       </div>
-                      <div className="flex justify-between">
+                      <div className="flex flex-wrap justify-between gap-2">
                         <span className="text-muted-foreground">ALPN</span>
-                        <span>h2, http/1.1</span>
+                        <span className="font-medium">h2, http/1.1</span>
                       </div>
                     </div>
                   ) : (

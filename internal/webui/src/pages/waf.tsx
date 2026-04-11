@@ -84,12 +84,12 @@ export function WAFPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Web Application Firewall</h1>
           <p className="text-muted-foreground">Protect your applications from attacks</p>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <Badge variant={mode === 'enforce' ? 'default' : 'secondary'}>
             {mode === 'enforce' ? 'Enforce Mode' : mode === 'monitor' ? 'Monitor Mode' : mode}
           </Badge>
@@ -97,7 +97,7 @@ export function WAFPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Active Layers</CardTitle>
@@ -150,7 +150,7 @@ export function WAFPage() {
       </div>
 
       <Tabs defaultValue="layers" className="space-y-4">
-        <TabsList>
+        <TabsList className="flex-wrap h-auto">
           <TabsTrigger value="layers">Protection Layers</TabsTrigger>
           <TabsTrigger value="detection">Detection Engines</TabsTrigger>
           <TabsTrigger value="ratelimit">Rate Limiting</TabsTrigger>
@@ -163,7 +163,7 @@ export function WAFPage() {
             {layerList.map((layer) => (
               <Card key={layer.id} className={cn("transition-colors", layer.active && "border-primary/50")}>
                 <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-3">
                       <div className={cn(
                         "p-2 rounded-lg",
@@ -202,7 +202,7 @@ export function WAFPage() {
             <CardContent>
               <div className="space-y-3">
                 {detectors ? Object.entries(detectors).map(([name, cfg]) => (
-                  <div key={name} className="flex items-center justify-between p-3 rounded-lg border">
+                  <div key={name} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border">
                     <div className="flex items-center gap-3">
                       <ShieldCheck className={cn("h-5 w-5", cfg.enabled ? "text-green-500" : "text-muted-foreground")} />
                       <div>
@@ -233,7 +233,7 @@ export function WAFPage() {
               {rateLimitRules.map((rl, i) => (
                 <Card key={i}>
                   <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <div className="font-medium">{rl.id || `Rule ${i + 1}`}</div>
                         <div className="text-sm text-muted-foreground">
@@ -271,18 +271,18 @@ export function WAFPage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm">Enabled</span>
                   <Badge variant={wafStatus.enabled ? 'default' : 'secondary'}>
                     {wafStatus.enabled ? 'Yes' : 'No'}
                   </Badge>
                 </div>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-sm">Mode</span>
                   <Badge variant="outline">{mode}</Badge>
                 </div>
                 {wafConfig?.ip_acl && (
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm">IP ACL Auto-Ban</span>
                     <Badge variant={wafConfig.ip_acl.auto_ban?.enabled ? 'default' : 'secondary'}>
                       {wafConfig.ip_acl.auto_ban?.enabled ? 'Enabled' : 'Disabled'}
@@ -290,7 +290,7 @@ export function WAFPage() {
                   </div>
                 )}
                 {wafConfig?.sanitizer && (
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm">Sanitizer</span>
                     <Badge variant={wafConfig.sanitizer.enabled ? 'default' : 'secondary'}>
                       {wafConfig.sanitizer.enabled ? 'Enabled' : 'Disabled'}
@@ -298,7 +298,7 @@ export function WAFPage() {
                   </div>
                 )}
                 {wafConfig?.bot_detection && (
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-sm">Bot Detection Mode</span>
                     <Badge variant="outline">{wafConfig.bot_detection.mode || 'unknown'}</Badge>
                   </div>

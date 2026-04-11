@@ -146,7 +146,7 @@ export function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4" role="region" aria-label="Key metrics">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4" role="region" aria-label="Key metrics">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Pools</CardTitle>
@@ -195,7 +195,7 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Health Status</CardTitle>

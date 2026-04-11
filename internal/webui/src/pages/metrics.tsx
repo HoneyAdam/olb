@@ -135,7 +135,7 @@ export function MetricsPage() {
           <h1 className="text-3xl font-bold tracking-tight">Metrics</h1>
           <p className="text-muted-foreground">Performance and traffic analytics</p>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
           <LoadingCard />
           <LoadingCard />
           <LoadingCard />
@@ -147,14 +147,14 @@ export function MetricsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Metrics</h1>
           <p className="text-muted-foreground">Performance and traffic analytics</p>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">Total Requests</CardTitle>
@@ -255,7 +255,7 @@ export function MetricsPage() {
                   const poolErrors = pool.backends.reduce((s, b) => s + (b.errors || 0), 0)
                   const healthy = pool.backends.filter(b => b.healthy).length
                   return (
-                    <div key={pool.name} className="flex items-center justify-between p-3 rounded-lg border">
+                    <div key={pool.name} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border">
                       <div className="flex items-center gap-4">
                         <span className="text-sm text-muted-foreground w-6">#{i + 1}</span>
                         <div>
@@ -297,7 +297,7 @@ export function MetricsPage() {
               <div className="space-y-3">
                 {pools?.flatMap(pool =>
                   pool.backends.map(backend => (
-                    <div key={backend.id} className="flex items-center justify-between p-3 rounded-lg border">
+                    <div key={backend.id} className="flex flex-wrap items-center justify-between gap-2 p-3 rounded-lg border">
                       <div className="flex items-center gap-3">
                         <div className={cn("h-2 w-2 rounded-full", backend.healthy ? "bg-green-500" : "bg-red-500")} />
                         <div>

@@ -90,7 +90,7 @@
 - [ ] **Service mesh integration** — xDS API support for Envoy-compatible service mesh
 - [x] **Hot config rollback** — Automatic rollback if new config causes errors within grace period
 - [ ] **Multi-process mode** — Shared-nothing multi-process for zero-downtime upgrades
-- [ ] **WebUI real-time updates** — Server-Sent Events or WebSocket push for live dashboard updates
+- [x] **WebUI real-time updates** — SSE event bus with /api/v1/events/stream endpoint, useEventStream React hook, auto-reconnect
 
 ---
 
