@@ -193,13 +193,13 @@ clean:
 ## docker: Build Docker image
 docker:
 	@echo "Building Docker image..."
-	docker build -t openloadbalancer/olb:$(VERSION) -t openloadbalancer/olb:latest .
+	docker build -t ghcr.io/openloadbalancer/olb:$(VERSION) -t ghcr.io/openloadbalancer/olb:latest .
 
-## docker-push: Push Docker image
+## docker-push: Push Docker image to GHCR
 docker-push: docker
-	@echo "Pushing Docker image..."
-	docker push openloadbalancer/olb:$(VERSION)
-	docker push openloadbalancer/olb:latest
+	@echo "Pushing Docker image to GHCR..."
+	docker push ghcr.io/openloadbalancer/olb:$(VERSION)
+	docker push ghcr.io/openloadbalancer/olb:latest
 
 ## run: Build and run locally
 run: build
