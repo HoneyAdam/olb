@@ -55,7 +55,7 @@
 
 ### Enhance production monitoring
 - [x] **Structured error responses** — `ErrorResponse(code, message)` in `internal/admin/types.go`, used across all handlers
-- [ ] **Distributed tracing** — Add OpenTelemetry-compatible trace propagation (W3C Trace Context headers) — Effort: 16h
+- [x] **Distributed tracing** — W3C Trace Context + B3 + Jaeger propagation in `internal/middleware/trace/`, baggage, sampling, span management
 - [x] **Health check aggregation** — `/api/v1/system/health` endpoint already exists in admin server
 - [x] **Metrics histograms** — `HistogramVec` with `request_duration`, configurable buckets, latency tracking already implemented
 - [ ] **Grafana dashboard improvements** — Update provided Grafana dashboards with all new metrics — Effort: 4h
@@ -101,7 +101,7 @@
 | Phase 1: Code Structure | 22h (22h done) | Complete |
 | Phase 2: Security Hardening | 19h + external (19h done) | Complete (external audit pending) |
 | Phase 3: Missing Spec Features | 60h (4h done) | In progress |
-| Phase 4: Observability | 36h (24h done) | Mostly complete |
+| Phase 4: Observability | 36h (32h done) | Nearly complete |
 | Phase 5: Community | 24h (12h done) | In progress |
 | Phase 6: Web UI | 48h | Not started |
 
