@@ -149,7 +149,7 @@ func (m *mockBalancer) Name() string {
 	return m.name
 }
 
-func (m *mockBalancer) Next(backends []*backend.Backend) *backend.Backend {
+func (m *mockBalancer) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) > 0 {
 		return backends[0]
 	}

@@ -40,7 +40,7 @@ func TestSticky_Next_EmptyBackends(t *testing.T) {
 	base := NewRoundRobin()
 	s := NewSticky(base, nil)
 
-	if got := s.Next([]*backend.Backend{}); got != nil {
+	if got := s.Next(nil, []*backend.Backend{}); got != nil {
 		t.Errorf("Next() with empty backends = %v, want nil", got)
 	}
 }

@@ -16,7 +16,7 @@ func TestWeightedRoundRobin_Name(t *testing.T) {
 func TestWeightedRoundRobin_Next_Empty(t *testing.T) {
 	wrr := NewWeightedRoundRobin()
 
-	result := wrr.Next([]*backend.Backend{})
+	result := wrr.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Error("Next() with empty backends should return nil")
 	}
@@ -25,7 +25,7 @@ func TestWeightedRoundRobin_Next_Empty(t *testing.T) {
 func TestWeightedRoundRobin_Next_Nil(t *testing.T) {
 	wrr := NewWeightedRoundRobin()
 
-	result := wrr.Next(nil)
+	result := wrr.Next(nil, nil)
 	if result != nil {
 		t.Error("Next() with nil backends should return nil")
 	}
@@ -41,7 +41,7 @@ func TestWeightedRoundRobin_Next_SingleBackend(t *testing.T) {
 
 	// Should always return the same backend
 	for i := 0; i < 10; i++ {
-		result := wrr.Next(backends)
+		result := wrr.Next(nil, backends)
 		if result != b1 {
 			t.Errorf("Next() = %v, want %v at iteration %d", result, b1, i)
 		}
@@ -79,7 +79,7 @@ func TestWeightedRoundRobin_WeightedDistribution(t *testing.T) {
 
 	numRequests := 6000
 	for i := 0; i < numRequests; i++ {
-		b := wrr.Next(backends)
+		b := wrr.Next(nil, backends)
 		if b != nil {
 			counts[b.ID]++
 		}
@@ -129,7 +129,7 @@ func TestWeightedRoundRobin_SmoothDistribution(t *testing.T) {
 
 	sequence := make([]string, 0, 12)
 	for i := 0; i < 12; i++ {
-		b := wrr.Next(backends)
+		b := wrr.Next(nil, backends)
 		if b != nil {
 			sequence = append(sequence, b.ID)
 		}
@@ -169,7 +169,7 @@ func TestWeightedRoundRobin_Add(t *testing.T) {
 	wrr.Add(b1)
 
 	backends := []*backend.Backend{b1}
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 
 	if result != b1 {
 		t.Error("Next() should return the added backend")
@@ -189,7 +189,7 @@ func TestWeightedRoundRobin_Remove(t *testing.T) {
 
 	// After removing b1, Next should only see b2
 	backends := []*backend.Backend{b2}
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 
 	if result != b2 {
 		t.Error("Next() should return b2 after b1 is removed")
@@ -210,7 +210,7 @@ func TestWeightedRoundRobin_Update(t *testing.T) {
 
 	// The weight should be updated
 	backends := []*backend.Backend{b1}
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 
 	if result != b1 {
 		t.Error("Next() should return the updated backend")
@@ -227,7 +227,7 @@ func TestWeightedRoundRobin_BackendNotInState(t *testing.T) {
 	backends := []*backend.Backend{b1}
 
 	// Should still work - backend will be added dynamically
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 	if result != b1 {
 		t.Error("Next() should return backend even if not pre-added")
 	}
@@ -251,7 +251,7 @@ func TestWeightedRoundRobin_Concurrent(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 100; j++ {
-				wrr.Next(backends)
+				wrr.Next(nil, backends)
 			}
 			done <- true
 		}()
@@ -273,14 +273,14 @@ func TestWeightedRoundRobin_Reset(t *testing.T) {
 	backends := []*backend.Backend{b1}
 
 	// Use the balancer
-	wrr.Next(backends)
-	wrr.Next(backends)
+	wrr.Next(nil, backends)
+	wrr.Next(nil, backends)
 
 	// Reset
 	wrr.Reset()
 
 	// Should continue to work
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 	if result != b1 {
 		t.Error("Next() should work after Reset()")
 	}
@@ -304,7 +304,7 @@ func BenchmarkWeightedRoundRobin_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		wrr.Next(backends)
+		wrr.Next(nil, backends)
 	}
 }
 
@@ -322,7 +322,7 @@ func TestWeightedRoundRobin_Next_DynamicBackend(t *testing.T) {
 
 	counts := map[string]int{"b1": 0, "b2": 0}
 	for i := 0; i < 90; i++ {
-		result := wrr.Next(backends)
+		result := wrr.Next(nil, backends)
 		if result != nil {
 			counts[result.ID]++
 		}
@@ -344,7 +344,7 @@ func TestWeightedRoundRobin_Next_ZeroWeight(t *testing.T) {
 	backends := []*backend.Backend{b1}
 
 	// Zero weight should still work (uses 0 weight from backend)
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 	if result == nil {
 		t.Error("Next() with zero weight should return a backend")
 	}
@@ -398,7 +398,7 @@ func TestWeightedRoundRobin_Next_NormalizesWeights(t *testing.T) {
 	wrr.mu.Unlock()
 
 	// This call should trigger normalization
-	result := wrr.Next(backends)
+	result := wrr.Next(nil, backends)
 	if result == nil {
 		t.Fatal("Next() returned nil")
 	}
@@ -427,6 +427,6 @@ func BenchmarkWeightedRoundRobin_Next_SingleBackend(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		wrr.Next(backends)
+		wrr.Next(nil, backends)
 	}
 }

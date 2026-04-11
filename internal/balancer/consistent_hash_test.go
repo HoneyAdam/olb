@@ -194,14 +194,14 @@ func TestEmptyRing(t *testing.T) {
 	}
 
 	// Test Next with no backends
-	result := ch.Next([]*backend.Backend{})
+	result := ch.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Errorf("Expected nil for empty backends, got %v", result)
 	}
 
 	// Test Next with backends but empty ring
 	b := backend.NewBackend("backend1", "10.0.0.1:8080")
-	result = ch.Next([]*backend.Backend{b})
+	result = ch.Next(nil, []*backend.Backend{b})
 	if result != nil {
 		t.Errorf("Expected nil for empty ring, got %v", result)
 	}
@@ -233,7 +233,7 @@ func TestConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				_ = ch.Next(backends)
+				_ = ch.Next(nil, backends)
 			}
 		}(i)
 	}
@@ -436,7 +436,7 @@ func TestNextWithUnavailableBackend(t *testing.T) {
 
 	// Call Next multiple times and verify we never get the unavailable backend
 	for i := 0; i < 100; i++ {
-		result := ch.Next(backends)
+		result := ch.Next(nil, backends)
 		if result == nil {
 			continue // May happen if selected backend is unavailable
 		}
@@ -485,7 +485,7 @@ func BenchmarkConsistentHashNext(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ch.Next(backends)
+		ch.Next(nil, backends)
 	}
 }
 

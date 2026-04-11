@@ -36,9 +36,10 @@ func TestIPHash_ConsistentHashing(t *testing.T) {
 	// Record which backend each IP maps to
 	ipToBackend := make(map[string]string)
 	for _, ip := range testIPs {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b == nil {
-			t.Fatalf("NextWithIP(%s) returned nil", ip)
+			t.Fatalf("Next(ctx{ClientIP:%s}) returned nil", ip)
 		}
 		ipToBackend[ip] = b.ID
 	}
@@ -46,9 +47,10 @@ func TestIPHash_ConsistentHashing(t *testing.T) {
 	// Run multiple times and verify consistency
 	for i := 0; i < 100; i++ {
 		for _, ip := range testIPs {
-			b := ih.NextWithIP(backends, ip)
+			ctx := &RequestContext{ClientIP: ip}
+			b := ih.Next(ctx, backends)
 			if b == nil {
-				t.Fatalf("NextWithIP(%s) returned nil on iteration %d", ip, i)
+				t.Fatalf("Next(ctx{ClientIP:%s}) returned nil on iteration %d", ip, i)
 			}
 			if b.ID != ipToBackend[ip] {
 				t.Errorf("IP %s mapped to %s, expected %s (iteration %d)",
@@ -61,14 +63,15 @@ func TestIPHash_ConsistentHashing(t *testing.T) {
 func TestIPHash_EmptyBackends(t *testing.T) {
 	ih := NewIPHash()
 
-	result := ih.NextWithIP([]*backend.Backend{}, "192.168.1.1")
+	ctx := &RequestContext{ClientIP: "192.168.1.1"}
+	result := ih.Next(ctx, []*backend.Backend{})
 	if result != nil {
-		t.Error("NextWithIP with empty backends should return nil")
+		t.Error("Next with empty backends should return nil")
 	}
 
-	result = ih.NextWithIP(nil, "192.168.1.1")
+	result = ih.Next(ctx, nil)
 	if result != nil {
-		t.Error("NextWithIP with nil backends should return nil")
+		t.Error("Next with nil backends should return nil")
 	}
 }
 
@@ -80,9 +83,10 @@ func TestIPHash_EmptyIP(t *testing.T) {
 	backends := []*backend.Backend{b1, b2}
 
 	// Empty IP should return a backend (hash of empty string = 0)
-	result := ih.NextWithIP(backends, "")
+	ctx := &RequestContext{ClientIP: ""}
+	result := ih.Next(ctx, backends)
 	if result == nil {
-		t.Error("NextWithIP with empty IP should return a backend")
+		t.Error("Next with empty IP should return a backend")
 	}
 	// Should always return the first backend (index 0)
 	if result.ID != "b1" {
@@ -108,14 +112,15 @@ func TestIPHash_IPv4Addresses(t *testing.T) {
 	}
 
 	for _, ip := range testCases {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b == nil {
-			t.Errorf("NextWithIP(%s) returned nil", ip)
+			t.Errorf("Next(ctx{ClientIP:%s}) returned nil", ip)
 			continue
 		}
 		// Verify consistency
 		for i := 0; i < 10; i++ {
-			b2 := ih.NextWithIP(backends, ip)
+			b2 := ih.Next(ctx, backends)
 			if b2.ID != b.ID {
 				t.Errorf("IP %s inconsistent: got %s then %s", ip, b.ID, b2.ID)
 			}
@@ -141,14 +146,15 @@ func TestIPHash_IPv6Addresses(t *testing.T) {
 	}
 
 	for _, ip := range testCases {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b == nil {
-			t.Errorf("NextWithIP(%s) returned nil", ip)
+			t.Errorf("Next(ctx{ClientIP:%s}) returned nil", ip)
 			continue
 		}
 		// Verify consistency
 		for i := 0; i < 10; i++ {
-			b2 := ih.NextWithIP(backends, ip)
+			b2 := ih.Next(ctx, backends)
 			if b2.ID != b.ID {
 				t.Errorf("IP %s inconsistent: got %s then %s", ip, b.ID, b2.ID)
 			}
@@ -172,14 +178,15 @@ func TestIPHash_InvalidIP(t *testing.T) {
 	}
 
 	for _, ip := range invalidIPs {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b == nil {
-			t.Errorf("NextWithIP(%s) returned nil", ip)
+			t.Errorf("Next(ctx{ClientIP:%s}) returned nil", ip)
 			continue
 		}
 		// Verify consistency even for invalid IPs
 		for i := 0; i < 10; i++ {
-			b2 := ih.NextWithIP(backends, ip)
+			b2 := ih.Next(ctx, backends)
 			if b2.ID != b.ID {
 				t.Errorf("Invalid IP %s inconsistent: got %s then %s", ip, b.ID, b2.ID)
 			}
@@ -206,7 +213,8 @@ func TestIPHash_Distribution(t *testing.T) {
 	numIPs := 10000
 	for i := 0; i < numIPs; i++ {
 		ip := fmt.Sprintf("192.168.%d.%d", i/256, i%256)
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b != nil {
 			counts[b.ID]++
 		}
@@ -248,7 +256,8 @@ func TestIPHash_BackendChanges(t *testing.T) {
 
 	originalMapping := make(map[string]string)
 	for _, ip := range testIPs {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		originalMapping[ip] = b.ID
 	}
 
@@ -258,7 +267,8 @@ func TestIPHash_BackendChanges(t *testing.T) {
 	// Check redistribution - some IPs should stay on same backend
 	consistent := 0
 	for _, ip := range testIPs {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b.ID == originalMapping[ip] {
 			consistent++
 		}
@@ -278,7 +288,8 @@ func TestIPHash_BackendChanges(t *testing.T) {
 	// Check redistribution again
 	consistent = 0
 	for _, ip := range testIPs {
-		b := ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		b := ih.Next(ctx, backends)
 		if b.ID == originalMapping[ip] {
 			consistent++
 		}
@@ -379,7 +390,8 @@ func TestIPHash_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				ip := fmt.Sprintf("192.168.%d.%d", id, j)
-				ih.NextWithIP(backends, ip)
+				ctx := &RequestContext{ClientIP: ip}
+				ih.Next(ctx, backends)
 			}
 		}(i)
 	}
@@ -418,10 +430,11 @@ func TestIPHash_SingleBackend(t *testing.T) {
 	}
 
 	for _, ip := range testIPs {
+		ctx := &RequestContext{ClientIP: ip}
 		for i := 0; i < 10; i++ {
-			b := ih.NextWithIP(backends, ip)
+			b := ih.Next(ctx, backends)
 			if b == nil {
-				t.Fatalf("NextWithIP(%s) returned nil", ip)
+				t.Fatalf("Next(ctx{ClientIP:%s}) returned nil", ip)
 			}
 			if b.ID != "b1" {
 				t.Errorf("IP %s mapped to %s, expected b1", ip, b.ID)
@@ -463,17 +476,17 @@ func TestIPHash_Next_InterfaceMethod(t *testing.T) {
 	b2 := backend.NewBackend("b2", "127.0.0.1:8081")
 	backends := []*backend.Backend{b1, b2}
 
-	// Next (without IP) should return a backend deterministically
-	result := ih.Next(backends)
+	// Next (without context) should return a backend deterministically
+	result := ih.Next(nil, backends)
 	if result == nil {
-		t.Fatal("Next() returned nil")
+		t.Fatal("Next(nil, backends) returned nil")
 	}
 
-	// Should be consistent (empty IP always hashes to 0 -> first backend)
+	// Should be consistent (nil context hashes empty IP to 0 -> first backend)
 	for i := 0; i < 10; i++ {
-		r := ih.Next(backends)
+		r := ih.Next(nil, backends)
 		if r.ID != result.ID {
-			t.Errorf("Next() inconsistent: got %s then %s", result.ID, r.ID)
+			t.Errorf("Next(nil, backends) inconsistent: got %s then %s", result.ID, r.ID)
 		}
 	}
 }
@@ -492,7 +505,8 @@ func BenchmarkIPHash_NextWithIP(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ip := fmt.Sprintf("192.168.%d.%d", i/256, i%256)
-		ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		ih.Next(ctx, backends)
 	}
 }
 
@@ -505,7 +519,8 @@ func BenchmarkIPHash_NextWithIP_SingleBackend(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ip := fmt.Sprintf("192.168.%d.%d", i/256, i%256)
-		ih.NextWithIP(backends, ip)
+		ctx := &RequestContext{ClientIP: ip}
+		ih.Next(ctx, backends)
 	}
 }
 
@@ -516,14 +531,14 @@ func TestIPHash_Next_EmptyIPHash(t *testing.T) {
 	b2 := backend.NewBackend("b2", "127.0.0.1:8081")
 	backends := []*backend.Backend{b1, b2}
 
-	// Next() uses empty IP internally (hash=0), should return backends[0]
+	// Next(nil, ...) uses empty IP internally (hash=0), should return backends[0]
 	for i := 0; i < 10; i++ {
-		result := ih.Next(backends)
+		result := ih.Next(nil, backends)
 		if result == nil {
-			t.Fatal("Next() returned nil")
+			t.Fatal("Next(nil, backends) returned nil")
 		}
 		if result.ID != "b1" {
-			t.Errorf("Next() = %s, want b1 (hash of empty is 0)", result.ID)
+			t.Errorf("Next(nil, backends) = %s, want b1 (hash of empty is 0)", result.ID)
 		}
 	}
 }
@@ -543,9 +558,9 @@ func TestIPHash_Update_Nonexistent(t *testing.T) {
 
 func TestIPHash_Next_EmptyBackends_Slice(t *testing.T) {
 	ih := NewIPHash()
-	result := ih.Next([]*backend.Backend{})
+	result := ih.Next(nil, []*backend.Backend{})
 	if result != nil {
-		t.Error("Next() with empty backends should return nil")
+		t.Error("Next(nil, empty) should return nil")
 	}
 }
 
@@ -578,7 +593,8 @@ func BenchmarkIPHash_Concurrent(b *testing.B) {
 		i := 0
 		for pb.Next() {
 			ip := fmt.Sprintf("192.168.%d.%d", i/256, i%256)
-			ih.NextWithIP(backends, ip)
+			ctx := &RequestContext{ClientIP: ip}
+			ih.Next(ctx, backends)
 			i++
 		}
 	})

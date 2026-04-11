@@ -18,7 +18,7 @@ func TestRingHash_Name(t *testing.T) {
 
 func TestRingHash_Next_EmptyBackends(t *testing.T) {
 	rh := NewRingHash()
-	if got := rh.Next([]*backend.Backend{}); got != nil {
+	if got := rh.Next(nil, []*backend.Backend{}); got != nil {
 		t.Errorf("Next() with empty backends = %v, want nil", got)
 	}
 }
@@ -42,7 +42,7 @@ func TestRingHash_DistributesAcrossBackends(t *testing.T) {
 	// Should distribute across all backends
 	seen := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		got := rh.Next(backends)
+		got := rh.Next(nil, backends)
 		if got == nil {
 			t.Fatal("Next() returned nil for valid backends")
 		}
@@ -76,7 +76,7 @@ func TestRingHash_Distribution(t *testing.T) {
 	numRequests := 10000
 
 	for i := 0; i < numRequests; i++ {
-		b := rh.Next(backends)
+		b := rh.Next(nil, backends)
 		if b == nil {
 			t.Fatal("Next() returned nil")
 		}
@@ -111,7 +111,7 @@ func TestRingHash_BackendAdded(t *testing.T) {
 	// Count requests to each backend
 	counts := make(map[string]int)
 	for i := 0; i < 1000; i++ {
-		b := rh.Next(backends)
+		b := rh.Next(nil, backends)
 		counts[b.ID]++
 	}
 
@@ -124,7 +124,7 @@ func TestRingHash_BackendAdded(t *testing.T) {
 	// Verify new backend gets traffic
 	newCounts := make(map[string]int)
 	for i := 0; i < 1000; i++ {
-		b := rh.Next(backends)
+		b := rh.Next(nil, backends)
 		newCounts[b.ID]++
 	}
 
@@ -235,7 +235,7 @@ func TestRingHash_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			rh.Next(backends)
+			rh.Next(nil, backends)
 		}()
 	}
 
@@ -273,7 +273,7 @@ func TestRingHash_CustomHashFunc(t *testing.T) {
 	rh.Add(be)
 
 	backends := []*backend.Backend{be}
-	got := rh.Next(backends)
+	got := rh.Next(nil, backends)
 	if got == nil {
 		t.Error("Next() should work with custom hash function")
 	}
@@ -414,7 +414,7 @@ func TestRingHash_FindNextAvailable(t *testing.T) {
 
 	// Test with all backends available
 	backends := []*backend.Backend{be1, be2}
-	got := rh.Next(backends)
+	got := rh.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil when backends available")
 	}
@@ -422,7 +422,7 @@ func TestRingHash_FindNextAvailable(t *testing.T) {
 	// Test with one unavailable backend
 	be1.SetState(backend.StateDown)
 	for i := 0; i < 10; i++ {
-		got = rh.Next(backends)
+		got = rh.Next(nil, backends)
 		if got == nil {
 			t.Fatal("Next() returned nil, should find available backend")
 		}
@@ -446,6 +446,6 @@ func BenchmarkRingHash_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rh.Next(backends)
+		rh.Next(nil, backends)
 	}
 }

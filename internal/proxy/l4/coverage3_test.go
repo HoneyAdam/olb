@@ -210,7 +210,7 @@ func TestUDPProxy_CreateSession_NoHealthyBackends(t *testing.T) {
 
 type nilBalancer struct{}
 
-func (b *nilBalancer) Next(backends []*backend.Backend) *backend.Backend {
+func (b *nilBalancer) Next(ctx *backend.RequestContext, backends []*backend.Backend) *backend.Backend {
 	return nil
 }
 

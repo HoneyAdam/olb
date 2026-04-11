@@ -31,7 +31,7 @@ func (lc *LeastConnections) Name() string {
 
 // Next selects the backend with the least active connections.
 // Returns nil if no backends are available.
-func (lc *LeastConnections) Next(backends []*backend.Backend) *backend.Backend {
+func (lc *LeastConnections) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -144,7 +144,7 @@ func (wlc *WeightedLeastConnections) Name() string {
 
 // Next selects the backend with the minimum (connections / weight) ratio.
 // Returns nil if no backends are available.
-func (wlc *WeightedLeastConnections) Next(backends []*backend.Backend) *backend.Backend {
+func (wlc *WeightedLeastConnections) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}

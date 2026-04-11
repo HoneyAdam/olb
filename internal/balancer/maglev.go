@@ -51,8 +51,9 @@ func (m *Maglev) Name() string {
 }
 
 // Next selects the next backend using consistent hashing.
+// Uses ctx.ClientIP as the lookup key when available.
 // Returns nil if no backend is available.
-func (m *Maglev) Next(backends []*backend.Backend) *backend.Backend {
+func (m *Maglev) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -72,8 +73,14 @@ func (m *Maglev) Next(backends []*backend.Backend) *backend.Backend {
 		m.mu.RLock()
 	}
 
-	// Generate key from first available backend
-	key := m.generateKey(backends)
+	// Use client IP from context as lookup key, fall back to counter-based key
+	key := ""
+	if ctx != nil {
+		key = ctx.ClientIP
+	}
+	if key == "" {
+		key = m.generateKey(backends)
+	}
 
 	// Hash the key to get position in lookup table
 	pos := m.hashKey(key) % MaglevTableSize

@@ -2025,7 +2025,7 @@ func TestSelectBackend(t *testing.T) {
 		pool.SetBalancer(balancer.NewRoundRobin())
 		poolManager.AddPool(pool)
 
-		result := proxy.selectBackend(pool)
+		result := proxy.selectBackend(pool, nil)
 		if result != nil {
 			t.Errorf("selectBackend() = %v, want nil for empty pool", result)
 		}
@@ -2039,7 +2039,7 @@ func TestSelectBackend(t *testing.T) {
 		pool.AddBackend(b)
 		poolManager.AddPool(pool)
 
-		result := proxy.selectBackend(pool)
+		result := proxy.selectBackend(pool, nil)
 		if result != nil {
 			t.Errorf("selectBackend() = %v, want nil when all backends down", result)
 		}
@@ -2053,7 +2053,7 @@ func TestSelectBackend(t *testing.T) {
 		pool.AddBackend(b)
 		poolManager.AddPool(pool)
 
-		result := proxy.selectBackend(pool)
+		result := proxy.selectBackend(pool, nil)
 		if result == nil {
 			t.Fatal("selectBackend() returned nil, want a backend")
 		}
@@ -2073,7 +2073,7 @@ func TestSelectBackend(t *testing.T) {
 		pool.AddBackend(b2)
 		poolManager.AddPool(pool)
 
-		result := proxy.selectBackend(pool)
+		result := proxy.selectBackend(pool, nil)
 		if result == nil {
 			t.Fatal("selectBackend() returned nil")
 		}

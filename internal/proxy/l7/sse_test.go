@@ -1147,7 +1147,7 @@ func TestSSEProxy_ServeHTTP_SSE_NoBalancerBackend(t *testing.T) {
 type nilSSEBalancer struct{}
 
 func (n *nilSSEBalancer) Name() string                             { return "nil" }
-func (n *nilSSEBalancer) Next([]*backend.Backend) *backend.Backend { return nil }
+func (n *nilSSEBalancer) Next(_ *backend.RequestContext, _ []*backend.Backend) *backend.Backend { return nil }
 func (n *nilSSEBalancer) Add(*backend.Backend)                     {}
 func (n *nilSSEBalancer) Remove(string)                            {}
 func (n *nilSSEBalancer) Update(*backend.Backend)                  {}

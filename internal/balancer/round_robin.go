@@ -24,7 +24,7 @@ func (rr *RoundRobin) Name() string {
 
 // Next selects the next backend using round-robin rotation.
 // Returns nil if no backends are available.
-func (rr *RoundRobin) Next(backends []*backend.Backend) *backend.Backend {
+func (rr *RoundRobin) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}

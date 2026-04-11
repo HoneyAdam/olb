@@ -30,7 +30,7 @@ func (r *Random) Name() string {
 
 // Next selects a random backend from the provided list.
 // Returns nil if no backends are available.
-func (r *Random) Next(backends []*backend.Backend) *backend.Backend {
+func (r *Random) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (wr *WeightedRandom) Name() string {
 
 // Next selects a backend using weighted random selection.
 // Returns nil if no backends are available.
-func (wr *WeightedRandom) Next(backends []*backend.Backend) *backend.Backend {
+func (wr *WeightedRandom) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}

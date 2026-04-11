@@ -94,21 +94,18 @@ func (s *Sticky) Name() string {
 }
 
 // Next selects the next backend using session affinity.
-// It first checks for an existing session, then falls back to the base balancer.
-func (s *Sticky) Next(backends []*backend.Backend) *backend.Backend {
-	// This version is for when we don't have request context
-	// Just delegate to base balancer
-	return s.base.Next(backends)
-}
-
-// NextWithRequest selects the next backend using session affinity from the request.
-func (s *Sticky) NextWithRequest(backends []*backend.Backend, r *http.Request) *backend.Backend {
+// It extracts session info from ctx.Request (cookie/header/param),
+// then falls back to ctx.ClientIP for hash-based affinity if no session found.
+func (s *Sticky) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}
 
-	// Try to find existing session
-	sessionID := s.extractSessionID(r)
+	// Try to extract session from request context
+	var sessionID string
+	if ctx != nil && ctx.Request != nil {
+		sessionID = s.extractSessionID(ctx.Request)
+	}
 
 	if sessionID != "" {
 		s.mu.RLock()
@@ -133,7 +130,7 @@ func (s *Sticky) NextWithRequest(backends []*backend.Backend, r *http.Request) *
 	}
 
 	// Fall back to base balancer
-	selected := s.base.Next(backends)
+	selected := s.base.Next(ctx, backends)
 
 	// Store session mapping if we have a session ID
 	if selected != nil && sessionID != "" {
@@ -143,6 +140,15 @@ func (s *Sticky) NextWithRequest(backends []*backend.Backend, r *http.Request) *
 	}
 
 	return selected
+}
+
+// NextWithRequest selects the next backend using session affinity from the request.
+func (s *Sticky) NextWithRequest(backends []*backend.Backend, r *http.Request) *backend.Backend {
+	ctx := &RequestContext{}
+	if r != nil {
+		ctx.Request = r
+	}
+	return s.Next(ctx, backends)
 }
 
 // SelectAndStick selects a backend and creates a session binding.
@@ -182,7 +188,7 @@ func (s *Sticky) SelectAndStick(backends []*backend.Backend, r *http.Request) (*
 	}
 
 	// Select backend using base balancer
-	selected := s.base.Next(backends)
+	selected := s.base.Next(&RequestContext{Request: r}, backends)
 
 	if selected != nil {
 		s.mu.Lock()

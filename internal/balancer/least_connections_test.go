@@ -36,12 +36,12 @@ func TestLeastConnections_Name(t *testing.T) {
 
 func TestLeastConnections_Next_Empty(t *testing.T) {
 	lc := NewLeastConnections()
-	result := lc.Next(nil)
+	result := lc.Next(nil, nil)
 	if result != nil {
 		t.Error("expected nil for empty backend list")
 	}
 
-	result = lc.Next([]*backend.Backend{})
+	result = lc.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Error("expected nil for empty backend slice")
 	}
@@ -51,7 +51,7 @@ func TestLeastConnections_Next_SingleBackend(t *testing.T) {
 	lc := NewLeastConnections()
 	b := mockBackendWithConns("backend1", 0)
 
-	result := lc.Next([]*backend.Backend{b})
+	result := lc.Next(nil, []*backend.Backend{b})
 	if result != b {
 		t.Error("expected single backend to be selected")
 	}
@@ -67,7 +67,7 @@ func TestLeastConnections_Next_SelectsLeastConns(t *testing.T) {
 	backends := []*backend.Backend{b1, b2, b3}
 
 	// Should select backend2 with 2 connections
-	result := lc.Next(backends)
+	result := lc.Next(nil, backends)
 	if result != b2 {
 		t.Errorf("expected backend2 (2 conns), got %s (%d conns)", result.ID, result.ActiveConns())
 	}
@@ -86,7 +86,7 @@ func TestLeastConnections_Next_TieBreaking(t *testing.T) {
 	// Make multiple selections and verify distribution
 	selections := make(map[string]int)
 	for i := 0; i < 9; i++ {
-		result := lc.Next(backends)
+		result := lc.Next(nil, backends)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -116,7 +116,7 @@ func TestLeastConnections_Next_ZeroConns(t *testing.T) {
 	backends := []*backend.Backend{b1, b2, b3}
 
 	// Should select backend2 with 0 connections
-	result := lc.Next(backends)
+	result := lc.Next(nil, backends)
 	if result != b2 {
 		t.Errorf("expected backend2 (0 conns), got %s (%d conns)", result.ID, result.ActiveConns())
 	}
@@ -223,7 +223,7 @@ func TestLeastConnections_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				lc.Next(backends)
+				lc.Next(nil, backends)
 			}
 		}()
 	}
@@ -241,7 +241,7 @@ func TestWeightedLeastConnections_Name(t *testing.T) {
 
 func TestWeightedLeastConnections_Next_Empty(t *testing.T) {
 	wlc := NewWeightedLeastConnections()
-	result := wlc.Next(nil)
+	result := wlc.Next(nil, nil)
 	if result != nil {
 		t.Error("expected nil for empty backend list")
 	}
@@ -251,7 +251,7 @@ func TestWeightedLeastConnections_Next_SingleBackend(t *testing.T) {
 	wlc := NewWeightedLeastConnections()
 	b := mockWeightedBackend("backend1", 5, 10)
 
-	result := wlc.Next([]*backend.Backend{b})
+	result := wlc.Next(nil, []*backend.Backend{b})
 	if result != b {
 		t.Error("expected single backend to be selected")
 	}
@@ -270,7 +270,7 @@ func TestWeightedLeastConnections_Next_ByRatio(t *testing.T) {
 	backends := []*backend.Backend{b1, b2, b3}
 
 	// Should select backend2 with lowest ratio
-	result := wlc.Next(backends)
+	result := wlc.Next(nil, backends)
 	if result != b2 {
 		t.Errorf("expected backend2 (ratio 1.0), got %s (ratio %.2f)",
 			result.ID, float64(result.ActiveConns())/float64(result.Weight))
@@ -290,7 +290,7 @@ func TestWeightedLeastConnections_Next_WeightedRatio(t *testing.T) {
 	backends := []*backend.Backend{b1, b2, b3}
 
 	// backend3 has the lowest ratio (3.0)
-	result := wlc.Next(backends)
+	result := wlc.Next(nil, backends)
 	if result != b3 {
 		t.Errorf("expected backend3 (ratio 3.0), got %s (ratio %.2f)",
 			result.ID, float64(result.ActiveConns())/float64(result.Weight))
@@ -313,7 +313,7 @@ func TestWeightedLeastConnections_Next_TieBreaking(t *testing.T) {
 	// Make multiple selections and verify distribution
 	selections := make(map[string]int)
 	for i := 0; i < 9; i++ {
-		result := wlc.Next(backends)
+		result := wlc.Next(nil, backends)
 		if result == nil {
 			t.Fatal("expected non-nil result")
 		}
@@ -343,7 +343,7 @@ func TestWeightedLeastConnections_Next_ZeroWeight(t *testing.T) {
 
 	backends := []*backend.Backend{b1, b2}
 
-	result := wlc.Next(backends)
+	result := wlc.Next(nil, backends)
 	if result != b2 {
 		t.Errorf("expected backend2 (ratio 5.0), got %s", result.ID)
 	}
@@ -439,7 +439,7 @@ func TestWeightedLeastConnections_Concurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
-				wlc.Next(backends)
+				wlc.Next(nil, backends)
 			}
 		}()
 	}
@@ -459,7 +459,7 @@ func BenchmarkLeastConnections_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lc.Next(backends)
+		lc.Next(nil, backends)
 	}
 }
 
@@ -475,7 +475,7 @@ func BenchmarkLeastConnections_Next_Tie(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lc.Next(backends)
+		lc.Next(nil, backends)
 	}
 }
 
@@ -490,7 +490,7 @@ func BenchmarkWeightedLeastConnections_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		wlc.Next(backends)
+		wlc.Next(nil, backends)
 	}
 }
 
@@ -506,7 +506,7 @@ func BenchmarkWeightedLeastConnections_Next_Tie(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		wlc.Next(backends)
+		wlc.Next(nil, backends)
 	}
 }
 
@@ -521,7 +521,7 @@ func BenchmarkLeastConnections_Concurrent(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			lc.Next(backends)
+			lc.Next(nil, backends)
 		}
 	})
 }
@@ -537,7 +537,7 @@ func BenchmarkWeightedLeastConnections_Concurrent(b *testing.B) {
 
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			wlc.Next(backends)
+			wlc.Next(nil, backends)
 		}
 	})
 }

@@ -37,10 +37,8 @@ func (r *RendezvousHash) Name() string {
 }
 
 // Next selects the backend with the highest random weight for the given key.
-// The key parameter is used from request context (e.g., URL path, query, etc.)
-// For simplicity, we use a round-robin key here; in production you'd pass
-// a meaningful key from the request.
-func (r *RendezvousHash) Next(backends []*backend.Backend) *backend.Backend {
+// Uses ctx.ClientIP as the hash key when available for request affinity.
+func (r *RendezvousHash) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -48,9 +46,14 @@ func (r *RendezvousHash) Next(backends []*backend.Backend) *backend.Backend {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	// For simplicity, use backend address as key
-	// In production, you'd use request-specific data like URL, headers, etc.
-	key := generateKey()
+	// Use client IP from context as hash key, fall back to counter-based key
+	key := ""
+	if ctx != nil {
+		key = ctx.ClientIP
+	}
+	if key == "" {
+		key = generateKey()
+	}
 
 	var bestBackend *backend.Backend
 	maxWeight := uint64(0)

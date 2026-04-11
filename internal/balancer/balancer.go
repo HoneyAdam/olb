@@ -5,14 +5,23 @@ import (
 	"github.com/openloadbalancer/olb/internal/backend"
 )
 
+// RequestContext carries per-request information that balancers can use
+// for content-aware routing decisions (e.g., IP hash, cookie-based sticky).
+// It is an alias for backend.RequestContext so that balancer.Balancer and
+// backend.Balancer interfaces are compatible.
+type RequestContext = backend.RequestContext
+
 // Balancer is the interface for load balancing algorithms.
 type Balancer interface {
 	// Name returns the name of the balancer algorithm.
 	Name() string
 
 	// Next selects the next backend from the provided list.
+	// The RequestContext carries request-level info (client IP, headers, etc.)
+	// that context-aware algorithms (ip_hash, sticky, consistent_hash) can use.
+	// Algorithms that don't need request context may ignore the ctx parameter.
 	// Returns nil if no backend is available.
-	Next(backends []*backend.Backend) *backend.Backend
+	Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend
 
 	// Add adds a backend to the balancer.
 	Add(backend *backend.Backend)

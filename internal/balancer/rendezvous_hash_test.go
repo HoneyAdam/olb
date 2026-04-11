@@ -25,7 +25,7 @@ func TestRendezvousHash_Next(t *testing.T) {
 	// Test selection
 	selections := make(map[string]int)
 	for i := 0; i < 1000; i++ {
-		be := rh.Next(backends)
+		be := rh.Next(nil, backends)
 		if be != nil {
 			selections[be.ID]++
 		}
@@ -50,7 +50,7 @@ func TestRendezvousHash_Next(t *testing.T) {
 func TestRendezvousHash_Empty(t *testing.T) {
 	rh := NewRendezvousHash()
 
-	be := rh.Next([]*backend.Backend{})
+	be := rh.Next(nil, []*backend.Backend{})
 	if be != nil {
 		t.Error("Expected nil for empty backends")
 	}
@@ -96,7 +96,7 @@ func TestRendezvousHash_Unhealthy(t *testing.T) {
 
 	// Should always select be2
 	for i := 0; i < 10; i++ {
-		be := rh.Next(backends)
+		be := rh.Next(nil, backends)
 		if be != nil && be.ID != "be2" {
 			t.Errorf("Expected be2 (healthy), got %s", be.ID)
 		}
@@ -122,7 +122,7 @@ func TestRendezvousHash_Consistency(t *testing.T) {
 	// Get selections
 	var selections []string
 	for i := 0; i < 10; i++ {
-		be := rh.Next(backends)
+		be := rh.Next(nil, backends)
 		if be != nil {
 			selections = append(selections, be.ID)
 		}
@@ -132,7 +132,7 @@ func TestRendezvousHash_Consistency(t *testing.T) {
 	keyCounter = 0
 	var selections2 []string
 	for i := 0; i < 10; i++ {
-		be := rh.Next(backends)
+		be := rh.Next(nil, backends)
 		if be != nil {
 			selections2 = append(selections2, be.ID)
 		}
@@ -166,7 +166,7 @@ func TestRendezvousHash_MinimalDisruption(t *testing.T) {
 	// Get initial selections
 	initialSelections := make(map[int]string)
 	for i := 0; i < 100; i++ {
-		be := rh.Next(backends)
+		be := rh.Next(nil, backends)
 		if be != nil {
 			initialSelections[i] = be.ID
 		}
@@ -181,7 +181,7 @@ func TestRendezvousHash_MinimalDisruption(t *testing.T) {
 	keyCounter = 0
 	changed := 0
 	for i := 0; i < 100; i++ {
-		be := rh.Next(backends)
+		be := rh.Next(nil, backends)
 		if be != nil {
 			if initialSelections[i] != be.ID {
 				changed++
@@ -253,7 +253,7 @@ func TestRendezvousHash_Update(t *testing.T) {
 
 	// Verify balancer still works after Update
 	backends := []*backend.Backend{be1}
-	result := rh.Next(backends)
+	result := rh.Next(nil, backends)
 	if result == nil {
 		t.Error("Next() returned nil after Update")
 	}
@@ -295,7 +295,7 @@ func TestRendezvousHash_Remove_Middle(t *testing.T) {
 
 	// Verify balancer still works
 	be1.SetState(backend.StateUp)
-	result := rh.Next([]*backend.Backend{be1})
+	result := rh.Next(nil, []*backend.Backend{be1})
 	if result == nil {
 		t.Error("Next() returned nil after removes")
 	}
@@ -400,7 +400,7 @@ func TestRendezvousHash_Next_AllUnhealthy(t *testing.T) {
 	rh.Add(backends[1])
 
 	// Should fall back to first backend
-	result := rh.Next(backends)
+	result := rh.Next(nil, backends)
 	if result == nil {
 		t.Fatal("Next() with all unhealthy should fall back to first")
 	}
@@ -425,7 +425,7 @@ func BenchmarkRendezvousHash_Next(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			rh.Next(backends)
+			rh.Next(nil, backends)
 		}
 	})
 }
@@ -458,7 +458,7 @@ func BenchmarkRendezvousHash_WithRealisticBackends(b *testing.B) {
 		for pb.Next() {
 			// Vary the key for each request
 			counter.Add(1)
-			rh.Next(backends)
+			rh.Next(nil, backends)
 		}
 	})
 }

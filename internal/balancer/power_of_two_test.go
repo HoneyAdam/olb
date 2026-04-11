@@ -18,7 +18,7 @@ func TestPowerOfTwo_Next_EmptyBackends(t *testing.T) {
 	p2c := NewPowerOfTwo()
 	backends := []*backend.Backend{}
 
-	result := p2c.Next(backends)
+	result := p2c.Next(nil, backends)
 	if result != nil {
 		t.Errorf("expected nil for empty backends, got %v", result)
 	}
@@ -29,7 +29,7 @@ func TestPowerOfTwo_Next_SingleBackend(t *testing.T) {
 	b1 := backend.NewBackend("b1", "127.0.0.1:8080")
 	backends := []*backend.Backend{b1}
 
-	result := p2c.Next(backends)
+	result := p2c.Next(nil, backends)
 	if result != b1 {
 		t.Errorf("expected b1, got %v", result)
 	}
@@ -54,7 +54,7 @@ func TestPowerOfTwo_Next_TwoBackends_PicksFewerConns(t *testing.T) {
 	b2Count := 0
 	iterations := 100
 	for i := 0; i < iterations; i++ {
-		result := p2c.Next(backends)
+		result := p2c.Next(nil, backends)
 		if result == b2 {
 			b2Count++
 		}
@@ -82,7 +82,7 @@ func TestPowerOfTwo_Next_PicksBetweenTwoRandomChoices(t *testing.T) {
 	iterations := 1000
 
 	for i := 0; i < iterations; i++ {
-		result := p2c.Next(backends)
+		result := p2c.Next(nil, backends)
 		switch result {
 		case b1:
 			b1Count++
@@ -126,7 +126,7 @@ func TestPowerOfTwo_Next_EqualConns_RandomPick(t *testing.T) {
 	iterations := 100
 
 	for i := 0; i < iterations; i++ {
-		result := p2c.Next(backends)
+		result := p2c.Next(nil, backends)
 		if result == b1 {
 			b1Count++
 		} else if result == b2 {
@@ -217,7 +217,7 @@ func TestPowerOfTwo_Update_NoOp(t *testing.T) {
 
 	// Balancer should still function after Update
 	backends := []*backend.Backend{b1, b2}
-	result := p2c.Next(backends)
+	result := p2c.Next(nil, backends)
 	if result == nil {
 		t.Error("Next() returned nil after Update")
 	}
@@ -258,7 +258,7 @@ func TestPowerOfTwo_ConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				_ = p2c.Next(backends)
+				_ = p2c.Next(nil, backends)
 			}
 		}()
 	}
@@ -307,7 +307,7 @@ func TestPowerOfTwo_Next_ManyBackends(t *testing.T) {
 	iterations := 1000
 
 	for i := 0; i < iterations; i++ {
-		result := p2c.Next(backends)
+		result := p2c.Next(nil, backends)
 		if result == backends[0] {
 			aCount++
 		} else if result == backends[9] {

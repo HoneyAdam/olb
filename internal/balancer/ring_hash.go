@@ -64,8 +64,9 @@ func (rh *RingHash) Name() string {
 }
 
 // Next selects the next backend using consistent hashing.
+// Uses ctx.ClientIP as the hash key when available for request affinity.
 // Returns nil if no backends are available.
-func (rh *RingHash) Next(backends []*backend.Backend) *backend.Backend {
+func (rh *RingHash) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	rh.mu.RLock()
 	defer rh.mu.RUnlock()
 
@@ -73,8 +74,14 @@ func (rh *RingHash) Next(backends []*backend.Backend) *backend.Backend {
 		return nil
 	}
 
-	// Generate key from first available backend
-	key := rh.generateKey(backends)
+	// Use client IP from context as hash key, fall back to counter-based key
+	key := ""
+	if ctx != nil {
+		key = ctx.ClientIP
+	}
+	if key == "" {
+		key = rh.generateKey(backends)
+	}
 	hash := rh.hashFunc([]byte(key))
 
 	// Binary search for the first ring position >= hash

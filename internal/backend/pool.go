@@ -3,11 +3,21 @@ package backend
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"time"
 
 	olbErrors "github.com/openloadbalancer/olb/pkg/errors"
 )
+
+// RequestContext carries per-request information that balancers can use
+// for context-aware routing decisions (e.g., IP hash, cookie-based sticky).
+type RequestContext struct {
+	// ClientIP is the real client IP address.
+	ClientIP string
+	// Request is the original HTTP request (may be nil for non-HTTP traffic).
+	Request *http.Request
+}
 
 // Balancer is the interface for load balancing algorithms.
 // This is a minimal interface to avoid circular dependencies with the balancer package.
@@ -16,8 +26,10 @@ type Balancer interface {
 	Name() string
 
 	// Next selects the next backend from the provided list.
+	// The RequestContext carries request-level info (client IP, headers, etc.)
+	// that context-aware algorithms can use. May be nil.
 	// Returns nil if no backend is available.
-	Next(backends []*Backend) *Backend
+	Next(ctx *RequestContext, backends []*Backend) *Backend
 
 	// Add adds a backend to the balancer.
 	Add(backend *Backend)
@@ -200,7 +212,7 @@ func (p *Pool) NextBackend(ctx context.Context) (*Backend, error) {
 		return nil, olbErrors.ErrPoolEmpty.WithContext("pool", p.Name)
 	}
 
-	b := balancer.Next(healthy)
+	b := balancer.Next(nil, healthy)
 	ReleaseHealthyBackends(healthy)
 	if b == nil {
 		return nil, olbErrors.ErrBackendUnavailable.WithContext("pool", p.Name)

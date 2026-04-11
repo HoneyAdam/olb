@@ -25,7 +25,7 @@ func TestRoundRobin_Next(t *testing.T) {
 	// Test rotation
 	results := make([]*backend.Backend, 0, 6)
 	for i := 0; i < 6; i++ {
-		b := rr.Next(backends)
+		b := rr.Next(nil, backends)
 		if b == nil {
 			t.Fatalf("Next() returned nil at iteration %d", i)
 		}
@@ -44,7 +44,7 @@ func TestRoundRobin_Next(t *testing.T) {
 func TestRoundRobin_Next_Empty(t *testing.T) {
 	rr := NewRoundRobin()
 
-	result := rr.Next([]*backend.Backend{})
+	result := rr.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Error("Next() with empty backends should return nil")
 	}
@@ -53,7 +53,7 @@ func TestRoundRobin_Next_Empty(t *testing.T) {
 func TestRoundRobin_Next_Nil(t *testing.T) {
 	rr := NewRoundRobin()
 
-	result := rr.Next(nil)
+	result := rr.Next(nil, nil)
 	if result != nil {
 		t.Error("Next() with nil backends should return nil")
 	}
@@ -67,7 +67,7 @@ func TestRoundRobin_Next_SingleBackend(t *testing.T) {
 
 	// Should always return the same backend
 	for i := 0; i < 10; i++ {
-		result := rr.Next(backends)
+		result := rr.Next(nil, backends)
 		if result != b1 {
 			t.Errorf("Next() = %v, want %v at iteration %d", result, b1, i)
 		}
@@ -92,7 +92,7 @@ func TestRoundRobin_Distribution(t *testing.T) {
 
 	numRequests := 3000
 	for i := 0; i < numRequests; i++ {
-		b := rr.Next(backends)
+		b := rr.Next(nil, backends)
 		if b != nil {
 			counts[b.ID]++
 		}
@@ -123,7 +123,7 @@ func TestRoundRobin_Concurrent(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func() {
 			for j := 0; j < 100; j++ {
-				rr.Next(backends)
+				rr.Next(nil, backends)
 			}
 			done <- true
 		}()
@@ -156,7 +156,7 @@ func BenchmarkRoundRobin_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rr.Next(backends)
+		rr.Next(nil, backends)
 	}
 }
 
@@ -169,7 +169,7 @@ func TestRoundRobin_Add_NoOp(t *testing.T) {
 
 	// Verify balancer still works after Add
 	backends := []*backend.Backend{b1}
-	result := rr.Next(backends)
+	result := rr.Next(nil, backends)
 	if result != b1 {
 		t.Errorf("Next() after Add = %v, want %v", result, b1)
 	}
@@ -185,7 +185,7 @@ func TestRoundRobin_Remove_NoOp(t *testing.T) {
 
 	// Verify balancer still works after Remove
 	backends := []*backend.Backend{b1}
-	result := rr.Next(backends)
+	result := rr.Next(nil, backends)
 	if result != b1 {
 		t.Errorf("Next() after Remove = %v, want %v", result, b1)
 	}
@@ -200,7 +200,7 @@ func TestRoundRobin_Update_NoOp(t *testing.T) {
 
 	// Verify balancer still works after Update
 	backends := []*backend.Backend{b1}
-	result := rr.Next(backends)
+	result := rr.Next(nil, backends)
 	if result != b1 {
 		t.Errorf("Next() after Update = %v, want %v", result, b1)
 	}
@@ -221,6 +221,6 @@ func BenchmarkRoundRobin_Next_SingleBackend(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rr.Next(backends)
+		rr.Next(nil, backends)
 	}
 }

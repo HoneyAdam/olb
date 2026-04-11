@@ -29,28 +29,18 @@ func (ih *IPHash) Name() string {
 }
 
 // Next selects the next backend based on the client IP hash.
-// The client IP should be stored in the backend's metadata or extracted from context.
-// For proper IP-based routing, use NextWithIP with the actual client IP.
+// The client IP is taken from ctx.ClientIP. If ctx is nil or has no ClientIP,
+// an empty string is used, which hashes to index 0.
 // Returns nil if no backends are available.
-func (ih *IPHash) Next(backends []*backend.Backend) *backend.Backend {
+func (ih *IPHash) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}
 
-	// For interface compatibility, use empty IP which will hash to index 0
-	// In practice, the caller should use NextWithIP with the actual client IP
-	hash := ih.hashIP("")
-	index := hash % uint32(len(backends))
-	return backends[index]
-}
-
-// NextWithIP selects the next backend based on the client IP hash.
-// This is the preferred method for IPHash balancer.
-func (ih *IPHash) NextWithIP(backends []*backend.Backend, clientIP string) *backend.Backend {
-	if len(backends) == 0 {
-		return nil
+	clientIP := ""
+	if ctx != nil {
+		clientIP = ctx.ClientIP
 	}
-
 	hash := ih.hashIP(clientIP)
 	index := hash % uint32(len(backends))
 	return backends[index]

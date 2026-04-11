@@ -330,7 +330,7 @@ func BenchmarkRoundRobin_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := rr.Next(backends)
+		result := rr.Next(nil, backends)
 		if result == nil {
 			b.Fatal("expected non-nil backend")
 		}
@@ -348,7 +348,7 @@ func BenchmarkWeightedRoundRobin_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := wrr.Next(backends)
+		result := wrr.Next(nil, backends)
 		if result == nil {
 			b.Fatal("expected non-nil backend")
 		}
@@ -366,7 +366,7 @@ func BenchmarkConsistentHash_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := ch.Next(backends)
+		result := ch.Next(nil, backends)
 		if result == nil {
 			b.Fatal("expected non-nil backend")
 		}
@@ -382,11 +382,11 @@ func BenchmarkMaglev_Next(b *testing.B) {
 		m.Add(be)
 	}
 	// Force initial build of lookup table
-	m.Next(backends)
+	m.Next(nil, backends)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := m.Next(backends)
+		result := m.Next(nil, backends)
 		if result == nil {
 			b.Fatal("expected non-nil backend")
 		}
@@ -404,7 +404,7 @@ func BenchmarkLeastConnections_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		result := lc.Next(backends)
+		result := lc.Next(nil, backends)
 		if result == nil {
 			b.Fatal("expected non-nil backend")
 		}
@@ -422,7 +422,7 @@ func BenchmarkRoundRobin_Next_Parallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			rr.Next(backends)
+			rr.Next(nil, backends)
 		}
 	})
 }
@@ -439,7 +439,7 @@ func BenchmarkWeightedRoundRobin_Next_Parallel(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			wrr.Next(backends)
+			wrr.Next(nil, backends)
 		}
 	})
 }
@@ -826,7 +826,7 @@ func benchmarkRoundRobinScale(b *testing.B, n int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		rr.Next(backends)
+		rr.Next(nil, backends)
 	}
 }
 
@@ -845,7 +845,7 @@ func benchmarkLCScale(b *testing.B, n int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		lc.Next(backends)
+		lc.Next(nil, backends)
 	}
 }
 

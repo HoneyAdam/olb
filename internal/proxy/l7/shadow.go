@@ -103,7 +103,7 @@ func (sm *ShadowManager) ShadowRequest(req *http.Request) {
 		}
 
 		// Select a backend from the balancer
-		be := target.Balancer.Next(target.Backends)
+		be := target.Balancer.Next(nil, target.Backends)
 		if be == nil {
 			continue
 		}

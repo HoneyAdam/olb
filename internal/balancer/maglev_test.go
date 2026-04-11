@@ -17,7 +17,7 @@ func TestMaglev_Name(t *testing.T) {
 
 func TestMaglev_Next_EmptyBackends(t *testing.T) {
 	m := NewMaglev()
-	if got := m.Next([]*backend.Backend{}); got != nil {
+	if got := m.Next(nil, []*backend.Backend{}); got != nil {
 		t.Errorf("Maglev.Next() with empty backends = %v, want nil", got)
 	}
 }
@@ -41,7 +41,7 @@ func TestMaglev_DistributesAcrossBackends(t *testing.T) {
 	// Should distribute across all backends
 	seen := make(map[string]bool)
 	for i := 0; i < 100; i++ {
-		be := m.Next(backends)
+		be := m.Next(nil, backends)
 		if be == nil {
 			t.Fatal("Expected backend, got nil")
 		}
@@ -77,7 +77,7 @@ func TestMaglev_Distribution(t *testing.T) {
 	numRequests := 10000
 
 	for i := 0; i < numRequests; i++ {
-		be := m.Next(backends)
+		be := m.Next(nil, backends)
 		if be == nil {
 			t.Fatal("Expected backend, got nil")
 		}
@@ -122,7 +122,7 @@ func TestMaglev_BackendChanges(t *testing.T) {
 	assignments := make(map[string]string)
 	for i := 0; i < 100; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		be := m.Next(backends)
+		be := m.Next(nil, backends)
 		if be != nil {
 			assignments[key] = be.ID
 		}
@@ -138,7 +138,7 @@ func TestMaglev_BackendChanges(t *testing.T) {
 	changed := 0
 	for i := 0; i < 100; i++ {
 		key := fmt.Sprintf("key-%d", i)
-		be := m.Next(backends)
+		be := m.Next(nil, backends)
 		if be != nil && assignments[key] != be.ID {
 			changed++
 		}
@@ -215,7 +215,7 @@ func TestMaglev_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			m.Next(backends)
+			m.Next(nil, backends)
 		}()
 	}
 
@@ -257,7 +257,7 @@ func TestMaglev_FindNextAvailable_AllUnavailable(t *testing.T) {
 
 	// All backends are unavailable, so Next should return nil
 	backends := []*backend.Backend{be1, be2}
-	result := m.Next(backends)
+	result := m.Next(nil, backends)
 	if result != nil {
 		t.Errorf("Next() with all unavailable backends should return nil, got %v", result.ID)
 	}
@@ -283,7 +283,7 @@ func TestMaglev_FindNextAvailable_OneAvailable(t *testing.T) {
 
 	// Run several times to exercise findNextAvailable on different positions
 	for i := 0; i < 20; i++ {
-		result := m.Next(backends)
+		result := m.Next(nil, backends)
 		if result == nil {
 			t.Fatalf("Next() returned nil at iteration %d, want backend-2", i)
 		}
@@ -302,7 +302,7 @@ func TestMaglev_FindNextAvailable_EmptyBackends(t *testing.T) {
 	m.Add(be1)
 
 	// No backends provided to Next
-	result := m.Next([]*backend.Backend{})
+	result := m.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Errorf("Next() with empty backends should return nil, got %v", result.ID)
 	}
@@ -345,7 +345,7 @@ func TestMaglev_Next_NoInternalBackends(t *testing.T) {
 
 	// No backends added at all
 	backends := []*backend.Backend{backend.NewBackend("backend-1", "10.0.0.1:8080")}
-	result := m.Next(backends)
+	result := m.Next(nil, backends)
 	if result != nil {
 		t.Errorf("Next with no internal backends = %v, want nil", result.ID)
 	}
@@ -362,7 +362,7 @@ func TestMaglev_RebuildLocked_Empty(t *testing.T) {
 	m.Remove("backend-1")
 
 	backends := []*backend.Backend{be1}
-	result := m.Next(backends)
+	result := m.Next(nil, backends)
 	if result != nil {
 		t.Errorf("Next after removing all backends = %v, want nil", result.ID)
 	}
@@ -391,7 +391,7 @@ func TestMaglev_RebuildLocked_NoRebuildNeeded(t *testing.T) {
 
 	// First call to Next triggers rebuild, sets needRebuild=false
 	backends := []*backend.Backend{be1}
-	m.Next(backends)
+	m.Next(nil, backends)
 
 	// Directly call rebuildLocked when needRebuild is already false
 	m.mu.Lock()
@@ -399,7 +399,7 @@ func TestMaglev_RebuildLocked_NoRebuildNeeded(t *testing.T) {
 	m.mu.Unlock()
 
 	// Verify the lookup table is still valid
-	result := m.Next(backends)
+	result := m.Next(nil, backends)
 	if result == nil {
 		t.Fatal("Next() returned nil after no-op rebuild")
 	}
@@ -455,6 +455,6 @@ func BenchmarkMaglev_Next(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.Next(backends)
+		m.Next(nil, backends)
 	}
 }

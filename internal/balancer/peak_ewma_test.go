@@ -32,7 +32,7 @@ func TestPeakEWMA_Update(t *testing.T) {
 
 	// Verify balancer still works after Update
 	backends := []*backend.Backend{be}
-	result := p.Next(backends)
+	result := p.Next(nil, backends)
 	if result == nil {
 		t.Error("Next() returned nil after Update")
 	}
@@ -53,7 +53,7 @@ func TestPeakEWMA_Next(t *testing.T) {
 	}
 
 	// Initially should return first backend
-	be := p.Next(backends)
+	be := p.Next(nil, backends)
 	if be == nil {
 		t.Fatal("Expected backend, got nil")
 	}
@@ -66,7 +66,7 @@ func TestPeakEWMA_Next(t *testing.T) {
 	// Should prefer be2 (lowest latency)
 	selections := make(map[string]int)
 	for i := 0; i < 100; i++ {
-		be := p.Next(backends)
+		be := p.Next(nil, backends)
 		if be != nil {
 			selections[be.ID]++
 		}
@@ -118,7 +118,7 @@ func TestPeakEWMA_Errors(t *testing.T) {
 	p.Record("be1", 10*time.Millisecond, false)
 
 	// be2 should be preferred (lower error rate)
-	be := p.Next(backends)
+	be := p.Next(nil, backends)
 	if be != nil && be.ID != "be2" {
 		t.Logf("Expected be2 (lower error rate), got %s", be.ID)
 	}
@@ -137,7 +137,7 @@ func TestPeakEWMA_Unhealthy(t *testing.T) {
 	backends[1].SetState(backend.StateUp)
 
 	// Should return healthy backend
-	be := p.Next(backends)
+	be := p.Next(nil, backends)
 	if be != nil && be.ID != "be2" {
 		t.Errorf("Expected be2 (healthy), got %s", be.ID)
 	}
@@ -146,7 +146,7 @@ func TestPeakEWMA_Unhealthy(t *testing.T) {
 func TestPeakEWMA_Empty(t *testing.T) {
 	p := NewPeakEWMA()
 
-	be := p.Next([]*backend.Backend{})
+	be := p.Next(nil, []*backend.Backend{})
 	if be != nil {
 		t.Error("Expected nil for empty backends")
 	}
@@ -212,7 +212,7 @@ func BenchmarkPeakEWMA_Next(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			p.Next(backends)
+			p.Next(nil, backends)
 		}
 	})
 }
@@ -247,7 +247,7 @@ func BenchmarkPeakEWMA_Concurrent(b *testing.B) {
 		for pb.Next() {
 			idx := counter.Add(1)
 			if idx%2 == 0 {
-				p.Next(backends)
+				p.Next(nil, backends)
 			} else {
 				p.Record(backends[idx%uint64(len(backends))].ID, 10*time.Millisecond, true)
 			}
@@ -266,7 +266,7 @@ func TestPeakEWMA_AllDown(t *testing.T) {
 	backends := []*backend.Backend{be1, be2}
 
 	// All down: should fall back to first backend
-	result := p.Next(backends)
+	result := p.Next(nil, backends)
 	if result == nil {
 		t.Fatal("Next() with all down should fall back to first backend")
 	}

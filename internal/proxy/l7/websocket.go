@@ -502,7 +502,7 @@ func (wp *WebSocketProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		selected := pool.GetBalancer().Next(backends)
+		selected := pool.GetBalancer().Next(nil, backends)
 		backend.ReleaseHealthyBackends(backends)
 		if selected == nil {
 			wp.httpProxy.getErrorHandler()(w, r, errors.New("no backend available"))

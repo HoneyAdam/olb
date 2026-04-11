@@ -317,7 +317,7 @@ func (p *HTTPProxy) proxyHandler(w http.ResponseWriter, r *http.Request, reqCtx 
 
 	if isWS || isGRPCWeb || isGRPC || isSSE {
 		// Select a backend for the protocol-specific handler
-		selectedBackend := p.selectBackend(pool)
+		selectedBackend := p.selectBackend(pool, reqCtx)
 		if selectedBackend == nil {
 			p.getErrorHandler()(w, r, olbErrors.ErrBackendUnavailable.WithContext("pool", pool.Name))
 			return
@@ -372,7 +372,7 @@ func (p *HTTPProxy) proxyHandler(w http.ResponseWriter, r *http.Request, reqCtx 
 		}
 
 		// Select backend using balancer
-		selectedBackend := pool.GetBalancer().Next(availableBackends)
+		selectedBackend := pool.GetBalancer().Next(&backend.RequestContext{ClientIP: reqCtx.ClientIP, Request: reqCtx.Request}, availableBackends)
 		backend.ReleaseHealthyBackends(healthyBackends)
 		if selectedBackend == nil {
 			p.getErrorHandler()(w, r, olbErrors.ErrBackendUnavailable.WithContext("pool", pool.Name))
@@ -411,12 +411,19 @@ func (p *HTTPProxy) proxyHandler(w http.ResponseWriter, r *http.Request, reqCtx 
 
 // selectBackend picks a healthy backend from the pool using the configured balancer.
 // Returns nil if no healthy backend is available.
-func (p *HTTPProxy) selectBackend(pool *backend.Pool) *backend.Backend {
+func (p *HTTPProxy) selectBackend(pool *backend.Pool, reqCtx *middleware.RequestContext) *backend.Backend {
 	healthyBackends := pool.GetHealthyBackends()
 	if len(healthyBackends) == 0 {
 		return nil
 	}
-	selected := pool.GetBalancer().Next(healthyBackends)
+	var balancerCtx *backend.RequestContext
+	if reqCtx != nil {
+		balancerCtx = &backend.RequestContext{
+			ClientIP: reqCtx.ClientIP,
+			Request:  reqCtx.Request,
+		}
+	}
+	selected := pool.GetBalancer().Next(balancerCtx, healthyBackends)
 	backend.ReleaseHealthyBackends(healthyBackends)
 	return selected
 }

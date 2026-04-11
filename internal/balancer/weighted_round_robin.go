@@ -36,7 +36,7 @@ func (wrr *WeightedRoundRobin) Name() string {
 
 // Next selects the next backend using smooth weighted round-robin.
 // Returns nil if no backends are available.
-func (wrr *WeightedRoundRobin) Next(backends []*backend.Backend) *backend.Backend {
+func (wrr *WeightedRoundRobin) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}

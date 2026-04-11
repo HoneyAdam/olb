@@ -53,16 +53,23 @@ func (ch *ConsistentHash) Name() string {
 }
 
 // Next selects the next backend using consistent hashing.
-// Without a key, it hashes the first available backend's address as a
-// deterministic fallback. For proper consistent hashing with request
-// affinity, use NextWithKey instead.
-func (ch *ConsistentHash) Next(backends []*backend.Backend) *backend.Backend {
+// It uses ctx.ClientIP as the hash key for request affinity.
+// If ctx is nil or has no ClientIP, it falls back to hashing
+// the first available backend's address.
+func (ch *ConsistentHash) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}
-	// Deterministic fallback: hash the first available backend's address.
-	// Callers should prefer NextWithKey for request-aware routing.
-	key := backends[0].Address
+
+	// Use client IP from context as the default hash key
+	key := ""
+	if ctx != nil {
+		key = ctx.ClientIP
+	}
+	if key == "" {
+		// Deterministic fallback: hash the first available backend's address.
+		key = backends[0].Address
+	}
 	return ch.NextWithKey(backends, key)
 }
 

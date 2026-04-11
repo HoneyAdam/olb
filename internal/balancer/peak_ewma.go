@@ -45,7 +45,7 @@ func (p *PeakEWMA) Name() string {
 
 // Next selects the backend with the lowest peak EWMA latency.
 // Backends with errors are penalized with higher effective latency.
-func (p *PeakEWMA) Next(backends []*backend.Backend) *backend.Backend {
+func (p *PeakEWMA) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}

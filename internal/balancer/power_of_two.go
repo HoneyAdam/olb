@@ -33,7 +33,7 @@ func (p *PowerOfTwo) Name() string {
 // It randomly picks 2 backends and selects the one with fewer active connections.
 // If backends have the same number of connections, picks one randomly.
 // Returns nil if no backends are available.
-func (p *PowerOfTwo) Next(backends []*backend.Backend) *backend.Backend {
+func (p *PowerOfTwo) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	n := len(backends)
 	if n == 0 {
 		return nil

@@ -123,7 +123,7 @@ func (l *LeastResponseTime) Name() string {
 }
 
 // Next returns the backend with the lowest average response time.
-func (l *LeastResponseTime) Next(backends []*backend.Backend) *backend.Backend {
+func (l *LeastResponseTime) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -235,7 +235,7 @@ func (w *WeightedLeastResponseTime) Name() string {
 }
 
 // Next returns the backend with the lowest weighted average response time.
-func (w *WeightedLeastResponseTime) Next(backends []*backend.Backend) *backend.Backend {
+func (w *WeightedLeastResponseTime) Next(ctx *RequestContext, backends []*backend.Backend) *backend.Backend {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 

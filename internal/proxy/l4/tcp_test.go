@@ -452,12 +452,12 @@ func TestSimpleBalancer_Next(t *testing.T) {
 	}
 
 	// Should round-robin
-	first := b.Next(backends)
+	first := b.Next(nil, backends)
 	if first == nil {
 		t.Fatal("Next returned nil")
 	}
 
-	second := b.Next(backends)
+	second := b.Next(nil, backends)
 	if second == nil {
 		t.Fatal("Next returned nil")
 	}
@@ -470,7 +470,7 @@ func TestSimpleBalancer_Next(t *testing.T) {
 
 func TestSimpleBalancer_Next_Empty(t *testing.T) {
 	b := NewSimpleBalancer()
-	result := b.Next(nil)
+	result := b.Next(nil, nil)
 	if result != nil {
 		t.Error("expected nil for empty backends")
 	}

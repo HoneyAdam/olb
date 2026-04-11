@@ -25,7 +25,7 @@ func TestRandomDistribution(t *testing.T) {
 	counts := make(map[string]int)
 
 	for i := 0; i < iterations; i++ {
-		b := r.Next(backends)
+		b := r.Next(nil, backends)
 		if b == nil {
 			t.Fatal("expected backend, got nil")
 		}
@@ -58,12 +58,12 @@ func TestRandomDistribution(t *testing.T) {
 func TestRandomEmptyBackends(t *testing.T) {
 	r := NewRandom()
 
-	result := r.Next([]*backend.Backend{})
+	result := r.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Errorf("expected nil for empty backends, got %v", result)
 	}
 
-	result = r.Next(nil)
+	result = r.Next(nil, nil)
 	if result != nil {
 		t.Errorf("expected nil for nil backends, got %v", result)
 	}
@@ -88,7 +88,7 @@ func TestRandomAdd(t *testing.T) {
 	r.Add(b1)
 
 	backends := []*backend.Backend{b1}
-	result := r.Next(backends)
+	result := r.Next(nil, backends)
 	if result == nil {
 		t.Error("expected backend, got nil")
 	}
@@ -127,7 +127,7 @@ func TestRandomUpdate(t *testing.T) {
 
 	// Balancer should still function after Update
 	backends := []*backend.Backend{b1}
-	result := r.Next(backends)
+	result := r.Next(nil, backends)
 	if result == nil {
 		t.Error("Next() returned nil after Update")
 	}
@@ -161,7 +161,7 @@ func TestRandomConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterationsPerGoroutine; j++ {
-				b := r.Next(backends)
+				b := r.Next(nil, backends)
 				if b == nil {
 					t.Error("expected backend, got nil")
 				}
@@ -193,7 +193,7 @@ func TestWeightedRandomDistribution(t *testing.T) {
 	counts := make(map[string]int)
 
 	for i := 0; i < iterations; i++ {
-		b := wr.Next(backends)
+		b := wr.Next(nil, backends)
 		if b == nil {
 			t.Fatal("expected backend, got nil")
 		}
@@ -233,12 +233,12 @@ func TestWeightedRandomDistribution(t *testing.T) {
 func TestWeightedRandomEmptyBackends(t *testing.T) {
 	wr := NewWeightedRandom()
 
-	result := wr.Next([]*backend.Backend{})
+	result := wr.Next(nil, []*backend.Backend{})
 	if result != nil {
 		t.Errorf("expected nil for empty backends, got %v", result)
 	}
 
-	result = wr.Next(nil)
+	result = wr.Next(nil, nil)
 	if result != nil {
 		t.Errorf("expected nil for nil backends, got %v", result)
 	}
@@ -265,7 +265,7 @@ func TestWeightedRandomAdd(t *testing.T) {
 	wr.Add(b1)
 
 	backends := []*backend.Backend{b1}
-	result := wr.Next(backends)
+	result := wr.Next(nil, backends)
 	if result == nil {
 		t.Error("expected backend, got nil")
 	}
@@ -322,7 +322,7 @@ func TestWeightedRandomZeroWeight(t *testing.T) {
 
 	// Should still work (treats as weight 1)
 	for i := 0; i < 100; i++ {
-		result := wr.Next(backends)
+		result := wr.Next(nil, backends)
 		if result == nil {
 			t.Error("expected backend, got nil")
 		}
@@ -351,7 +351,7 @@ func TestWeightedRandomConcurrent(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterationsPerGoroutine; j++ {
-				b := wr.Next(backends)
+				b := wr.Next(nil, backends)
 				if b == nil {
 					t.Error("expected backend, got nil")
 				}
@@ -372,7 +372,7 @@ func TestWeightedRandomSingleBackend(t *testing.T) {
 	backends := []*backend.Backend{b1}
 
 	for i := 0; i < 100; i++ {
-		result := wr.Next(backends)
+		result := wr.Next(nil, backends)
 		if result == nil {
 			t.Error("expected backend, got nil")
 		}
@@ -396,7 +396,7 @@ func BenchmarkRandom(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			r.Next(backends)
+			r.Next(nil, backends)
 		}
 	})
 }
@@ -419,7 +419,7 @@ func BenchmarkWeightedRandom(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			wr.Next(backends)
+			wr.Next(nil, backends)
 		}
 	})
 }
@@ -439,7 +439,7 @@ func BenchmarkRandomManyBackends(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			r.Next(backends)
+			r.Next(nil, backends)
 		}
 	})
 }
@@ -559,7 +559,7 @@ func BenchmarkWeightedRandomManyBackends(b *testing.B) {
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
-			wr.Next(backends)
+			wr.Next(nil, backends)
 		}
 	})
 }

@@ -66,7 +66,7 @@ type TCPProxy struct {
 
 // Balancer selects a backend from a pool.
 type Balancer interface {
-	Next(backends []*backend.Backend) *backend.Backend
+	Next(ctx *backend.RequestContext, backends []*backend.Backend) *backend.Backend
 }
 
 // NewTCPProxy creates a new TCP proxy.
@@ -148,7 +148,7 @@ func (p *TCPProxy) HandleConnection(clientConn net.Conn) {
 	}
 
 	// Select backend
-	selected := p.balancer.Next(backends)
+	selected := p.balancer.Next(nil, backends)
 	backend.ReleaseHealthyBackends(backends)
 	if selected == nil {
 		return
@@ -473,7 +473,7 @@ func NewSimpleBalancer() *SimpleBalancer {
 }
 
 // Next selects the next backend using round-robin.
-func (b *SimpleBalancer) Next(backends []*backend.Backend) *backend.Backend {
+func (b *SimpleBalancer) Next(ctx *backend.RequestContext, backends []*backend.Backend) *backend.Backend {
 	if len(backends) == 0 {
 		return nil
 	}

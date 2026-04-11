@@ -24,14 +24,14 @@ func TestWeightedLeastResponseTime_Name(t *testing.T) {
 
 func TestLeastResponseTime_Next_EmptyBackends(t *testing.T) {
 	l := NewLeastResponseTime()
-	if got := l.Next([]*backend.Backend{}); got != nil {
+	if got := l.Next(nil, []*backend.Backend{}); got != nil {
 		t.Errorf("Next() with empty backends = %v, want nil", got)
 	}
 }
 
 func TestWeightedLeastResponseTime_Next_EmptyBackends(t *testing.T) {
 	w := NewWeightedLeastResponseTime()
-	if got := w.Next([]*backend.Backend{}); got != nil {
+	if got := w.Next(nil, []*backend.Backend{}); got != nil {
 		t.Errorf("Next() with empty backends = %v, want nil", got)
 	}
 }
@@ -43,7 +43,7 @@ func TestLeastResponseTime_Next_SingleBackend(t *testing.T) {
 	l.Add(be)
 
 	backends := []*backend.Backend{be}
-	got := l.Next(backends)
+	got := l.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil, want backend")
 	}
@@ -71,7 +71,7 @@ func TestLeastResponseTime_Next_SelectsLowestResponseTime(t *testing.T) {
 
 	// Should select the fast backend
 	backends := []*backend.Backend{be1, be2}
-	got := l.Next(backends)
+	got := l.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil")
 	}
@@ -94,7 +94,7 @@ func TestLeastResponseTime_Next_SkipsUnhealthy(t *testing.T) {
 	// Should always select the healthy backend
 	backends := []*backend.Backend{healthy, unhealthy}
 	for i := 0; i < 10; i++ {
-		got := l.Next(backends)
+		got := l.Next(nil, backends)
 		if got == nil {
 			t.Fatal("Next() returned nil")
 		}
@@ -112,7 +112,7 @@ func TestLeastResponseTime_Next_AllUnhealthy(t *testing.T) {
 	l.Add(be)
 
 	backends := []*backend.Backend{be}
-	if got := l.Next(backends); got != nil {
+	if got := l.Next(nil, backends); got != nil {
 		t.Errorf("Next() with all unhealthy = %v, want nil", got)
 	}
 }
@@ -193,7 +193,7 @@ func TestWeightedLeastResponseTime_Next_WeightedSelection(t *testing.T) {
 	// Light has weight 1, so effective time = 50/1 = 50ms
 	// Should select heavy
 	backends := []*backend.Backend{be1, be2}
-	got := w.Next(backends)
+	got := w.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil")
 	}
@@ -293,7 +293,7 @@ func TestLeastResponseTime_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			l.Next(backends)
+			l.Next(nil, backends)
 		}()
 	}
 
@@ -343,7 +343,7 @@ func TestWeightedLeastResponseTime_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			w.Next(backends)
+			w.Next(nil, backends)
 		}()
 	}
 
@@ -374,7 +374,7 @@ func TestLeastResponseTime_NoSamples_SelectsFirst(t *testing.T) {
 	// No response times recorded yet, both have 0 average
 	// Should select one (first encountered with 0 average)
 	backends := []*backend.Backend{be1, be2}
-	got := l.Next(backends)
+	got := l.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil when backends exist")
 	}
@@ -482,7 +482,7 @@ func TestLeastResponseTime_Next_MixedTrackedUntracked(t *testing.T) {
 	be2.SetState(backend.StateUp)
 
 	backends := []*backend.Backend{be1, be2}
-	got := l.Next(backends)
+	got := l.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil")
 	}
@@ -508,7 +508,7 @@ func TestWeightedLeastResponseTime_Next_MixedTrackedUntracked(t *testing.T) {
 	be2.Weight = 1
 
 	backends := []*backend.Backend{be1, be2}
-	got := w.Next(backends)
+	got := w.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil")
 	}
@@ -533,7 +533,7 @@ func TestLeastResponseTime_Next_TrackedWithZeroSamples(t *testing.T) {
 	be2.SetState(backend.StateUp)
 
 	backends := []*backend.Backend{be1, be2}
-	got := l.Next(backends)
+	got := l.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil")
 	}
@@ -552,7 +552,7 @@ func TestWeightedLeastResponseTime_Next_AllUnhealthy(t *testing.T) {
 	w.Add(be)
 
 	backends := []*backend.Backend{be}
-	if got := w.Next(backends); got != nil {
+	if got := w.Next(nil, backends); got != nil {
 		t.Errorf("Next() with all unhealthy = %v, want nil", got)
 	}
 }
@@ -628,7 +628,7 @@ func TestWeightedLeastResponseTime_Next_SelectsLowestWeighted(t *testing.T) {
 	}
 
 	backends := []*backend.Backend{be1, be2}
-	got := w.Next(backends)
+	got := w.Next(nil, backends)
 	if got == nil {
 		t.Fatal("Next() returned nil")
 	}
