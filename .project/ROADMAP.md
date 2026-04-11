@@ -66,7 +66,7 @@
 - [x] **CONTRIBUTING.md** — Comprehensive guide (508 lines) with examples for adding balancers, middleware, WAF detectors
 - [x] **Code of Conduct enforcement** — Enforcement ladder (correction/warning/temp ban/perm ban) + 14-day appeals process — Effort: 2h
 - [x] **Release automation** — `.goreleaser.yml` exists with builds, Docker multi-arch, Homebrew, nFPM, Helm, SBOM, changelog grouping. Fixed typo, added ShortCommit ldflag, removed unnecessary CGO override.
-- [ ] **Issue/PR templates** — Enhance existing templates with bug report checklists — Effort: 2h
+- [x] **Issue/PR templates** — Bug report pre-submission checklist, PR template with race check + Web UI checklist — Effort: 2h
 - [x] **Performance regression tracking** — Benchstat comparison in CI: baseline vs PR branch comparison with PR comment
 - [x] **Architecture Decision Records** — 8 ADRs documented in `docs/architecture-decisions.md` covering dependency policy, clustering, routing, WebUI, middleware, sharded counters, protocol detection, connection pooling
 
@@ -102,7 +102,7 @@
 | Phase 2: Security Hardening | 19h + external (19h done) | Complete (external audit pending) |
 | Phase 3: Missing Spec Features | 60h (4h done) | In progress |
 | Phase 4: Observability | 36h (36h done) | Complete |
-| Phase 5: Community | 24h (22h done) | Nearly complete (PR templates enhanced) |
+| Phase 5: Community | 24h (24h done) | Complete |
 | Phase 6: Web UI | 48h (48h done) | Complete |
 
 ## Risk Assessment

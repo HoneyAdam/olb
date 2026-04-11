@@ -5,6 +5,32 @@ All notable changes to OpenLoadBalancer will be documented in this file.
 The format is based on [Keep a Changelog](https://keepchangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- SSE real-time event streaming (`/api/v1/events/stream`) with auto-reconnect Web UI hook
+- Hot config rollback with 30-second grace period — auto-reverts if >50% pools become unhealthy
+- WCAG 2.1 AA accessibility: dynamic page titles, keyboard-navigable cards, icon button labels, focus indicators, contrast fixes, loading announcements
+- Code of Conduct enforcement ladder (correction/warning/temporary ban/permanent ban) with appeals process
+- Architecture Decision Records (8 ADRs covering dependency policy, clustering, routing, WebUI, middleware, sharded counters, protocol detection, connection pooling)
+- Benchstat performance regression tracking in CI
+- GoReleaser with multi-arch Docker, Homebrew, nFPM, Helm, SBOM
+
+### Changed
+- Split oversized files: engine.go (1,843→507 LOC), gossip.go (1,739→272 LOC), advanced_commands.go (1,458→38 LOC), toml.go (1,595→5 files)
+- Web UI mobile responsiveness: flex-wrap headers, intermediate grid breakpoints, larger touch targets
+- Web UI bundle already uses React.lazy code splitting (separate chunks per page)
+- Admin API security headers via secureheaders middleware
+- PR template: added race check and Web UI build checklist items
+- Test coverage: 95.3% total
+
+### Fixed
+- Health checker double-close panic (sync.Once guard on Stop)
+- IPv6 host parsing — net.SplitHostPort replaces string splitting in 9 locations
+- Backend.GetURL() scheme defaults — configurable http/https per backend
+- Passive health checker wired to pool manager state updates
+- Admin server health checker wired to engine lifecycle
+
 ## [1.0.0] - 2026-04-09
 
 ### Added
