@@ -92,6 +92,7 @@ type Server struct {
 	rateLimitMaxReqs int
 	rateLimitWindow  string
 	circuitBreaker   *adminCircuitBreaker
+	eventBus         *eventBus
 
 	// State
 	mu    sync.RWMutex
@@ -270,6 +271,10 @@ func (s *Server) setupRoutes() {
 
 	// Events endpoint
 	mux.HandleFunc("/api/v1/events", s.getEvents)
+
+	// SSE real-time events stream
+	s.eventBus = newEventBus()
+	mux.HandleFunc("/api/v1/events/stream", s.streamEvents)
 
 	// Cluster endpoints (optional)
 	if s.clusterAdmin != nil {

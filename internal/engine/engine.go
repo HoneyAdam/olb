@@ -405,6 +405,15 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		e.logger.Warn("Passive health check: backend marked unhealthy",
 			logging.String("backend", addr),
 		)
+		// Publish real-time event to SSE subscribers
+		if e.adminServer != nil {
+			e.adminServer.PublishEvent(admin.EventItem{
+				ID:        "health-down-" + addr,
+				Type:      "warning",
+				Message:   "Backend " + addr + " marked unhealthy",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 	}
 	e.passiveChecker.OnBackendRecovered = func(addr string) {
 		e.mu.RLock()
@@ -416,6 +425,15 @@ func New(cfg *config.Config, configPath string) (*Engine, error) {
 		e.logger.Info("Passive health check: backend recovered",
 			logging.String("backend", addr),
 		)
+		// Publish real-time event to SSE subscribers
+		if e.adminServer != nil {
+			e.adminServer.PublishEvent(admin.EventItem{
+				ID:        "health-up-" + addr,
+				Type:      "success",
+				Message:   "Backend " + addr + " recovered",
+				Timestamp: time.Now().Format(time.RFC3339),
+			})
+		}
 	}
 
 	// Initialize MCP server with provider adapters

@@ -1,19 +1,32 @@
+import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Activity, Layers, Radio, Server, Clock, AlertCircle, CheckCircle, Download, RefreshCw } from "lucide-react"
 import { useHealth, useSystemInfo, usePools, useRoutes, useEvents } from "@/hooks/use-query"
+import { useEventStream } from "@/hooks/use-event-stream"
 import { LoadingCard } from "@/components/ui/loading"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import type { APIEventItem } from "@/types"
 
 export function DashboardPage() {
   const { data: health, isLoading: healthLoading, error: healthError, refetch: refetchHealth } = useHealth()
   const { data: systemInfo, isLoading: infoLoading, error: infoError } = useSystemInfo()
   const { data: pools } = usePools()
   const { data: routes } = useRoutes()
-  const { data: events } = useEvents()
+  const { data: polledEvents } = useEvents()
+  const polledItems: APIEventItem[] = polledEvents ?? []
+
+  // Real-time SSE events — merge with polled events
+  const [liveEvents, setLiveEvents] = useState<APIEventItem[]>([])
+  useEventStream({
+    onEvent: (event: APIEventItem) => {
+      setLiveEvents((prev: APIEventItem[]) => [event, ...prev].slice(0, 50))
+    },
+  })
+  const events = liveEvents.length > 0 ? liveEvents : polledItems
 
   // Extract stats from real metrics data
   const totalRequests = pools?.reduce((sum, p) =>
