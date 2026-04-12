@@ -9,9 +9,6 @@ import { toast } from "sonner"
 import { useConfig } from "@/hooks/use-query"
 import { api } from "@/lib/api"
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Config = Record<string, any>
-
 interface ListenerConfig {
   name: string
   address: string
