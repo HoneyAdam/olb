@@ -27,10 +27,10 @@ type CORSMiddleware struct {
 	allowedHeaders  map[string]bool
 	allowedMethods  map[string]bool
 	// Pre-computed joined strings to avoid per-request strings.Join allocations.
-	allowedMethodsStr  string
-	allowedHeadersStr  string
-	exposedHeadersStr  string
-	maxAgeStr          string
+	allowedMethodsStr string
+	allowedHeadersStr string
+	exposedHeadersStr string
+	maxAgeStr         string
 }
 
 // NewCORSMiddleware creates a new CORS middleware.
