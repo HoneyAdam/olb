@@ -320,7 +320,7 @@ func TestShadowManager_sendShadow(t *testing.T) {
 		}
 
 		// Should not panic or block, just return
-		sm.sendShadow(req, "127.0.0.1:1", target)
+		sm.sendShadow(req, "127.0.0.1:1", target, nil)
 	})
 
 	t.Run("send shadow with body copying", func(t *testing.T) {
@@ -347,7 +347,7 @@ func TestShadowManager_sendShadow(t *testing.T) {
 		}
 
 		// Should not panic with nil body
-		sm.sendShadow(req, "127.0.0.1:1", target)
+		sm.sendShadow(req, "127.0.0.1:1", target, nil)
 	})
 
 	t.Run("send shadow without headers", func(t *testing.T) {
@@ -371,7 +371,7 @@ func TestShadowManager_sendShadow(t *testing.T) {
 		}
 
 		// Should not panic
-		sm.sendShadow(req, "127.0.0.1:1", target)
+		sm.sendShadow(req, "127.0.0.1:1", target, nil)
 	})
 }
 
@@ -526,7 +526,7 @@ func TestShadowManager_sendShadow_WithLiveBackend(t *testing.T) {
 		Percentage: 100.0,
 	}
 
-	sm.sendShadow(req, backendAddr, target)
+	sm.sendShadow(req, backendAddr, target, []byte("original body content"))
 
 	// Wait a bit for the async request to complete
 	time.Sleep(200 * time.Millisecond)
@@ -583,7 +583,7 @@ func TestShadowManager_sendShadow_WithCopyBodyDisabled(t *testing.T) {
 		Percentage: 100.0,
 	}
 
-	sm.sendShadow(req, backendAddr, target)
+	sm.sendShadow(req, backendAddr, target, nil)
 	time.Sleep(200 * time.Millisecond)
 
 	// Body should be empty or nil since CopyBody is false
@@ -620,7 +620,7 @@ func TestShadowManager_sendShadow_WithCopyHeadersDisabled(t *testing.T) {
 		Percentage: 100.0,
 	}
 
-	sm.sendShadow(req, backendAddr, target)
+	sm.sendShadow(req, backendAddr, target, nil)
 	time.Sleep(200 * time.Millisecond)
 
 	// Custom header should NOT be present since CopyHeaders is false
@@ -664,7 +664,7 @@ func TestShadowManager_sendShadow_SkipsHopByHopHeaders(t *testing.T) {
 		Percentage: 100.0,
 	}
 
-	sm.sendShadow(req, backendAddr, target)
+	sm.sendShadow(req, backendAddr, target, nil)
 	time.Sleep(200 * time.Millisecond)
 
 	// Keep-Alive and Upgrade are hop-by-hop headers and should NOT be present
@@ -750,7 +750,7 @@ func TestShadowManager_sendShadow_EmptyURLScheme(t *testing.T) {
 		Percentage: 100.0,
 	}
 
-	sm.sendShadow(req, backendAddr, target)
+	sm.sendShadow(req, backendAddr, target, nil)
 	time.Sleep(200 * time.Millisecond)
 
 	if !receivedRequest {

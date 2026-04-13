@@ -425,13 +425,16 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Run Gosec Security Scanner
-        uses: securego/gosec@master
+        uses: securego/gosec@v2.22.3
         with:
           args: '-severity high -quiet ./...'
 
+      - name: Verify module checksums
+        run: go mod verify
+
       - name: Run Nancy (dependency vulnerability scanner)
         run: |
-          go install github.com/sonatypecommunity/nancy@latest
+          go install github.com/sonatypecommunity/nancy@v1.0.106
           go list -json -deps ./... | nancy sleuth
         continue-on-error: true
 

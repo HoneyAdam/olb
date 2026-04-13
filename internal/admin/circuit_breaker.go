@@ -67,8 +67,9 @@ func (acb *adminCircuitBreaker) State() string {
 }
 
 // Execute runs the given function with circuit breaker protection.
+// The caller's context deadline is combined with the circuit breaker's timeout.
 // Returns an error if the circuit is open or if the function fails/times out.
-func (acb *adminCircuitBreaker) Execute(fn func(ctx context.Context) error) error {
+func (acb *adminCircuitBreaker) Execute(ctx context.Context, fn func(ctx context.Context) error) error {
 	acb.mu.Lock()
 	now := time.Now()
 
@@ -93,21 +94,27 @@ func (acb *adminCircuitBreaker) Execute(fn func(ctx context.Context) error) erro
 	}
 	acb.mu.Unlock()
 
-	// Execute with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), acb.timeout)
+	// Combine caller context with circuit breaker timeout
+	callCtx, cancel := context.WithTimeout(ctx, acb.timeout)
 	defer cancel()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- fn(ctx)
+		done <- fn(callCtx)
 	}()
 
 	var err error
 	select {
 	case err = <-done:
 		// Function completed
-	case <-ctx.Done():
+	case <-callCtx.Done():
 		err = fmt.Errorf("admin call timed out after %v", acb.timeout)
+		// Drain the goroutine so it doesn't leak. The fn should respect
+		// callCtx cancellation, but we wait in a background goroutine to
+		// avoid blocking the caller.
+		go func() {
+			<-done
+		}()
 	}
 
 	acb.recordOutcome(err)

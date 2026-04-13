@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -96,12 +97,12 @@ func createGRPCTransport() http.RoundTripper {
 // HandleGRPC handles a gRPC request.
 func (gh *GRPCHandler) HandleGRPC(w http.ResponseWriter, r *http.Request, b *backend.Backend) error {
 	if !gh.config.EnableGRPC {
-		return fmt.Errorf("gRPC disabled")
+		return errors.New("gRPC disabled")
 	}
 
 	// Acquire connection slot
 	if !b.AcquireConn() {
-		return fmt.Errorf("backend at max connections")
+		return errors.New("backend at max connections")
 	}
 	defer b.ReleaseConn()
 
@@ -290,7 +291,7 @@ func NewGRPCWebHandler(grpcHandler *GRPCHandler) *GRPCWebHandler {
 //  6. Optionally base64-encodes the response (grpc-web-text mode)
 func (gwh *GRPCWebHandler) HandleGRPCWeb(w http.ResponseWriter, r *http.Request, b *backend.Backend) error {
 	if !gwh.grpcHandler.config.EnableGRPCWeb {
-		return fmt.Errorf("gRPC-Web disabled")
+		return errors.New("gRPC-Web disabled")
 	}
 
 	isTextMode := isGRPCWebTextRequest(r)
@@ -329,7 +330,7 @@ func (gwh *GRPCWebHandler) HandleGRPCWeb(w http.ResponseWriter, r *http.Request,
 
 	// Phase 2: Acquire connection slot
 	if !b.AcquireConn() {
-		return fmt.Errorf("backend at max connections")
+		return errors.New("backend at max connections")
 	}
 	defer b.ReleaseConn()
 
@@ -410,7 +411,7 @@ func (gwh *GRPCWebHandler) HandleGRPCWeb(w http.ResponseWriter, r *http.Request,
 	// Remove Content-Length since we modified the body
 	w.Header().Del("Content-Length")
 	w.WriteHeader(resp.StatusCode)
-	w.Write(finalBody)
+	_, _ = w.Write(finalBody)
 
 	return nil
 }
@@ -595,6 +596,13 @@ func parseGRPCFrame(r io.Reader) (*gRPCFrame, error) {
 
 	compressed := buf[0] == 1
 	length := binary.BigEndian.Uint32(buf[1:5])
+
+	// Guard against unbounded allocation from malicious frame headers.
+	// gRPC's default max receive size is 4MB; we enforce the same cap.
+	const maxGRPCFrameSize = 4 * 1024 * 1024
+	if length > maxGRPCFrameSize {
+		return nil, fmt.Errorf("grpc frame length %d exceeds maximum allowed size %d", length, maxGRPCFrameSize)
+	}
 
 	data := make([]byte, length)
 	if _, err := io.ReadFull(r, data); err != nil {

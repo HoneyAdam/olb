@@ -324,6 +324,8 @@ func (s *Server) setupRoutes() {
 		csrfMW, err := csrf.New(*s.csrfConfig)
 		if err == nil {
 			handler = csrfMW.Wrap(handler)
+		} else {
+			log.Printf("WARNING: CSRF middleware initialization failed: %v — admin API running without CSRF protection", err)
 		}
 	}
 

@@ -74,6 +74,21 @@ var knownBadBots = []string{
 	"ahrefsbot", "semrushbot", "mj12bot", "dotbot",
 }
 
+// Pre-computed lowercase versions for case-insensitive matching.
+var (
+	knownGoodBotsLower []string
+	knownBadBotsLower  []string
+)
+
+func init() {
+	for _, b := range knownGoodBots {
+		knownGoodBotsLower = append(knownGoodBotsLower, strings.ToLower(b))
+	}
+	for _, b := range knownBadBots {
+		knownBadBotsLower = append(knownBadBotsLower, strings.ToLower(b))
+	}
+}
+
 // BotInfo contains information about a detected bot.
 type BotInfo struct {
 	Detected  bool      `json:"detected"`
@@ -98,6 +113,7 @@ type ipTracker struct {
 	mu       sync.RWMutex
 	requests map[string][]time.Time
 	window   time.Duration
+	maxIPs   int // maximum number of distinct IPs to track
 }
 
 // New creates a new bot detection middleware.
@@ -136,6 +152,7 @@ func newIPTracker(window time.Duration) *ipTracker {
 	return &ipTracker{
 		requests: make(map[string][]time.Time),
 		window:   window,
+		maxIPs:   100000, // cap to prevent unbounded growth under distributed attacks
 	}
 }
 
@@ -322,7 +339,7 @@ func (m *Middleware) determineAction(info BotInfo) Action {
 func (m *Middleware) block(w http.ResponseWriter, r *http.Request, info BotInfo) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
-	w.Write([]byte(`{"error":"Access denied","reason":"bot detected","type":"` + info.Type + `"}`))
+	_, _ = w.Write([]byte(`{"error":"Access denied","reason":"bot detected","type":"` + info.Type + `"}`))
 }
 
 // challenge redirects to challenge page.
@@ -330,8 +347,9 @@ func (m *Middleware) challenge(w http.ResponseWriter, r *http.Request) {
 	if m.config.ChallengePath != "" {
 		http.Redirect(w, r, m.config.ChallengePath+"?return="+r.URL.Path, http.StatusFound)
 	} else {
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusForbidden)
-		w.Write([]byte(`{"error":"Challenge required"}`))
+		_, _ = w.Write([]byte(`{"error":"Challenge required"}`))
 	}
 }
 
@@ -348,6 +366,28 @@ func (t *ipTracker) count(ip string) int {
 	for _, ts := range t.requests[ip] {
 		if ts.After(cutoff) {
 			recent = append(recent, ts)
+		}
+	}
+
+	// Enforce max IPs cap to prevent unbounded map growth.
+	// If this is a new IP and we're at capacity, evict the oldest entry.
+	if len(recent) == 0 && len(t.requests) >= t.maxIPs {
+		// Find and remove the IP with the oldest last-seen timestamp.
+		var oldestIP string
+		var oldestTime time.Time
+		for k, times := range t.requests {
+			if len(times) == 0 {
+				oldestIP = k
+				break
+			}
+			last := times[len(times)-1]
+			if oldestIP == "" || last.Before(oldestTime) {
+				oldestIP = k
+				oldestTime = last
+			}
+		}
+		if oldestIP != "" {
+			delete(t.requests, oldestIP)
 		}
 	}
 
@@ -375,13 +415,14 @@ func GetBotInfo(ctx context.Context) *BotInfo {
 }
 func extractBotName(ua string) string {
 	// Try to find a known bot name
-	for _, bot := range knownGoodBots {
-		if strings.Contains(strings.ToLower(ua), strings.ToLower(bot)) {
+	uaLower := strings.ToLower(ua)
+	for i, bot := range knownGoodBots {
+		if strings.Contains(uaLower, knownGoodBotsLower[i]) {
 			return bot
 		}
 	}
-	for _, bot := range knownBadBots {
-		if strings.Contains(strings.ToLower(ua), strings.ToLower(bot)) {
+	for i, bot := range knownBadBots {
+		if strings.Contains(uaLower, knownBadBotsLower[i]) {
 			return bot
 		}
 	}

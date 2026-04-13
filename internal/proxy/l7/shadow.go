@@ -33,14 +33,25 @@ type ShadowManager struct {
 	targets []ShadowTarget
 	config  ShadowConfig
 	counter atomic.Uint64
+	client  *http.Client
 }
 
 // NewShadowManager creates a new shadow manager.
 func NewShadowManager(config ShadowConfig) *ShadowManager {
+	transport := &http.Transport{
+		DisableKeepAlives:   true, // Don't keep connections for shadow traffic
+		MaxIdleConns:        100,
+		IdleConnTimeout:     30 * time.Second,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
 	return &ShadowManager{
 		enabled: config.Enabled,
 		config:  config,
 		targets: make([]ShadowTarget, 0),
+		client: &http.Client{
+			Timeout:   config.Timeout,
+			Transport: transport,
+		},
 	}
 }
 
@@ -96,6 +107,21 @@ func (sm *ShadowManager) ShadowRequest(req *http.Request) {
 		return
 	}
 
+	// Buffer the body once before spawning goroutines to avoid a data race
+	// where multiple sendShadow goroutines read req.Body concurrently.
+	var bodyBuf []byte
+	if sm.config.CopyBody && req.Body != nil {
+		const maxShadowBodySize = 4 * 1024 * 1024 // 4MB max shadow body
+		var err error
+		bodyBuf, err = io.ReadAll(io.LimitReader(req.Body, maxShadowBodySize+1))
+		if err == nil && len(bodyBuf) > 0 && len(bodyBuf) <= maxShadowBodySize {
+			// Restore the original body so the main proxy can still read it
+			req.Body = io.NopCloser(bytes.NewReader(bodyBuf))
+		} else {
+			bodyBuf = nil
+		}
+	}
+
 	// Create shadow copies for each target
 	for _, target := range sm.targets {
 		if target.Balancer == nil {
@@ -109,12 +135,12 @@ func (sm *ShadowManager) ShadowRequest(req *http.Request) {
 		}
 
 		// Send shadow request asynchronously
-		go sm.sendShadow(req, be.Address, target)
+		go sm.sendShadow(req, be.Address, target, bodyBuf)
 	}
 }
 
-func (sm *ShadowManager) sendShadow(req *http.Request, backendAddr string, target ShadowTarget) {
-	ctx, cancel := context.WithTimeout(context.Background(), sm.config.Timeout)
+func (sm *ShadowManager) sendShadow(req *http.Request, backendAddr string, target ShadowTarget, bodyBuf []byte) {
+	ctx, cancel := context.WithTimeout(req.Context(), sm.config.Timeout)
 	defer cancel()
 
 	// Build shadow URL
@@ -147,28 +173,14 @@ func (sm *ShadowManager) sendShadow(req *http.Request, backendAddr string, targe
 	shadowReq.Header.Set("X-OLB-Shadow", "true")
 	shadowReq.Header.Set("X-OLB-Shadow-Source", req.Host)
 
-	// Copy body if configured. We must buffer the body so the original
-	// request remains readable by the main proxy path after this goroutine.
-	if sm.config.CopyBody && req.Body != nil {
-		const maxShadowBodySize = 4 * 1024 * 1024 // 4MB max shadow body
-		body, err := io.ReadAll(io.LimitReader(req.Body, maxShadowBodySize+1))
-		if err == nil && len(body) > 0 && len(body) <= maxShadowBodySize {
-			// Restore the original body so the main proxy can still read it
-			req.Body = io.NopCloser(bytes.NewReader(body))
-			shadowReq.Body = io.NopCloser(bytes.NewReader(body))
-			shadowReq.ContentLength = int64(len(body))
-		}
+	// Attach pre-buffered body (already read by ShadowRequest to avoid races)
+	if bodyBuf != nil {
+		shadowReq.Body = io.NopCloser(bytes.NewReader(bodyBuf))
+		shadowReq.ContentLength = int64(len(bodyBuf))
 	}
 
 	// Send request (fire and forget)
-	client := &http.Client{
-		Timeout: sm.config.Timeout,
-		Transport: &http.Transport{
-			DisableKeepAlives: true, // Don't keep connections for shadow traffic
-		},
-	}
-
-	resp, err := client.Do(shadowReq)
+	resp, err := sm.client.Do(shadowReq)
 	if err != nil {
 		return
 	}
