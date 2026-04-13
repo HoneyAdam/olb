@@ -2,6 +2,8 @@
 package acme
 
 import (
+	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -385,7 +387,7 @@ func (c *Client) FetchCertificate(certURL string) ([][]byte, error) {
 	}
 
 	// Parse PEM certificates
-	data, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20)) // 1 MB cap (cert chains are typically <50 KB)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +509,10 @@ func (c *Client) postJWS(url string, payload any, newAccount bool) (*http.Respon
 
 	if newAccount {
 		// Use jwk for new account
-		pub := c.accountKey.Public().(*ecdsa.PublicKey)
+		pub, ok := c.accountKey.Public().(*ecdsa.PublicKey)
+		if !ok {
+			return nil, errors.New("unsupported key type: only ECDSA P-256 is supported")
+		}
 		pubBytes, err := pub.Bytes()
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode public key: %w", err)
@@ -544,7 +549,7 @@ func (c *Client) postJWS(url string, payload any, newAccount bool) (*http.Respon
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal JWS: %w", err)
 	}
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(body)))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", url, bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -561,7 +566,11 @@ func (c *Client) sign(protected, payload []byte) ([]byte, error) {
 	signInput = append(signInput, payload...)
 	hash := sha256.Sum256(signInput)
 
-	r, s, err := ecdsa.Sign(rand.Reader, c.accountKey.(*ecdsa.PrivateKey), hash[:])
+	privateKey, ok := c.accountKey.(*ecdsa.PrivateKey)
+	if !ok {
+		return nil, errors.New("unsupported key type: only ECDSA P-256 is supported")
+	}
+	r, s, err := ecdsa.Sign(rand.Reader, privateKey, hash[:])
 	if err != nil {
 		return nil, err
 	}

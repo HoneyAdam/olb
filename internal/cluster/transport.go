@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"sync"
 	"time"
@@ -360,6 +361,9 @@ func (t *TCPTransport) PoolSize(target string) int {
 
 // writeFrame writes a framed message to the writer.
 func writeFrame(w io.Writer, msgType byte, payload []byte) error {
+	if len(payload) > math.MaxUint32 {
+		return fmt.Errorf("payload too large for framing: %d bytes (max %d)", len(payload), math.MaxUint32)
+	}
 	header := make([]byte, 5)
 	header[0] = msgType
 	binary.BigEndian.PutUint32(header[1:5], uint32(len(payload)))

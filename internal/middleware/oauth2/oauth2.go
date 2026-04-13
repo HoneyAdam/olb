@@ -7,10 +7,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/hmac"
 	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -457,7 +454,7 @@ func (m *Middleware) fetchJWKS() error {
 		return errors.New("JWKS URL not configured")
 	}
 
-	req, err := http.NewRequest("GET", m.jwksCache.fetchURL, nil)
+	req, err := http.NewRequestWithContext(context.Background(), "GET", m.jwksCache.fetchURL, nil)
 	if err != nil {
 		return err
 	}
@@ -666,14 +663,14 @@ func (m *Middleware) unauthorized(w http.ResponseWriter, message string) {
 	w.Header().Set("WWW-Authenticate", "Bearer")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"error":"unauthorized","message":"` + jsonEscape(message) + `"}`))
+	_, _ = w.Write([]byte(`{"error":"unauthorized","message":"` + jsonEscape(message) + `"}`))
 }
 
 // forbidden writes forbidden response.
 func (m *Middleware) forbidden(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
-	w.Write([]byte(`{"error":"forbidden","message":"` + jsonEscape(message) + `"}`))
+	_, _ = w.Write([]byte(`{"error":"forbidden","message":"` + jsonEscape(message) + `"}`))
 }
 
 // jsonEscape escapes a string for safe embedding in a JSON value.
@@ -727,10 +724,3 @@ func HasScope(ctx context.Context, scope string) bool {
 	}
 	return false
 }
-
-// Ensure unused imports are referenced.
-var (
-	_ = hmac.New
-	_ = sha256.New
-	_ = sha512.New
-)

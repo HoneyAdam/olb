@@ -189,9 +189,8 @@ func canonicalizeHeaderSlice(headers []string) []string {
 
 // containsHeader checks if a header is in a slice (case-insensitive).
 func containsHeader(slice []string, target string) bool {
-	target = strings.ToLower(target)
 	for _, s := range slice {
-		if strings.ToLower(s) == target {
+		if strings.EqualFold(s, target) {
 			return true
 		}
 	}

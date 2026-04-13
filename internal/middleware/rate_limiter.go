@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -24,6 +25,8 @@ type RateLimitConfig struct {
 	CleanupInterval time.Duration
 	// CleanupTimeout is the bucket expiry time (default: 10m)
 	CleanupTimeout time.Duration
+	// MaxBuckets limits the number of tracked rate-limit keys (default: 100000)
+	MaxBuckets int
 	// TrustedProxies is a list of CIDR ranges for trusted proxy servers.
 	// When set, X-Forwarded-For and X-Real-IP headers are only trusted if
 	// the direct connection (RemoteAddr) originates from a trusted proxy.
@@ -36,6 +39,7 @@ type RateLimitConfig struct {
 type RateLimitMiddleware struct {
 	config      RateLimitConfig
 	buckets     sync.Map // map[string]*tokenBucket
+	bucketCount atomic.Int64
 	trustedNets []*net.IPNet
 	stopCh      chan struct{}
 	// Pre-computed header values to avoid per-request allocations.
@@ -115,6 +119,9 @@ func NewRateLimitMiddleware(config RateLimitConfig) (*RateLimitMiddleware, error
 	}
 	if config.CleanupTimeout <= 0 {
 		config.CleanupTimeout = 10 * time.Minute
+	}
+	if config.MaxBuckets <= 0 {
+		config.MaxBuckets = 100000
 	}
 
 	// Parse trusted proxy CIDRs
@@ -312,6 +319,7 @@ func (m *RateLimitMiddleware) cleanup() {
 
 		if lastCheck.Before(cutoff) {
 			m.buckets.Delete(key)
+			m.bucketCount.Add(-1)
 		}
 		return true
 	})

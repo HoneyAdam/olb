@@ -281,3 +281,49 @@ func TestChainEmpty(t *testing.T) {
 		t.Error("handler should be called even with empty chain")
 	}
 }
+
+// testSecretMiddleware implements both Middleware and SecretZeroer
+type testSecretMiddleware struct {
+	name     string
+	priority int
+	zeroed   bool
+}
+
+func (m *testSecretMiddleware) Name() string  { return m.name }
+func (m *testSecretMiddleware) Priority() int { return m.priority }
+func (m *testSecretMiddleware) Wrap(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+	})
+}
+func (m *testSecretMiddleware) ZeroSecrets() { m.zeroed = true }
+
+func TestChain_ZeroSecrets(t *testing.T) {
+	chain := NewChain()
+
+	sec1 := &testSecretMiddleware{name: "sec1", priority: 1}
+	sec2 := &testSecretMiddleware{name: "sec2", priority: 2}
+	plain := &testMiddleware{name: "plain", priority: 3, marker: new(string)}
+
+	chain.Use(sec1).Use(plain).Use(sec2)
+
+	chain.ZeroSecrets()
+
+	if !sec1.zeroed {
+		t.Error("sec1 should have been zeroed")
+	}
+	if !sec2.zeroed {
+		t.Error("sec2 should have been zeroed")
+	}
+}
+
+func TestChain_ZeroSecrets_EmptyChain(t *testing.T) {
+	chain := NewChain()
+	chain.ZeroSecrets() // Should not panic
+}
+
+func TestChain_ZeroSecrets_NoZeroers(t *testing.T) {
+	chain := NewChain()
+	chain.Use(&testMiddleware{name: "m1", priority: 1, marker: new(string)})
+	chain.ZeroSecrets() // Should not panic
+}

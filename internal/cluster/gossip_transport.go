@@ -2,8 +2,10 @@ package cluster
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"time"
 )
@@ -13,7 +15,7 @@ import (
 // sendUDP sends raw bytes via UDP.
 func (g *Gossip) sendUDP(addr string, msg []byte) error {
 	if g.udpConn == nil {
-		return fmt.Errorf("gossip: UDP connection not initialized")
+		return errors.New("gossip: UDP connection not initialized")
 	}
 	udpAddr, err := net.ResolveUDPAddr("udp", addr)
 	if err != nil {
@@ -32,6 +34,9 @@ func (g *Gossip) sendTCP(addr string, msg []byte) error {
 	defer conn.Close()
 	conn.SetDeadline(g.nowFn().Add(g.config.TCPTimeout))
 	// Write length-prefixed message: [totalLen: 4][msg]
+	if len(msg) > math.MaxUint32 {
+		return fmt.Errorf("message too large for TCP framing: %d bytes (max %d)", len(msg), math.MaxUint32)
+	}
 	header := make([]byte, 4)
 	binary.BigEndian.PutUint32(header, uint32(len(msg)))
 	if _, err := conn.Write(header); err != nil {

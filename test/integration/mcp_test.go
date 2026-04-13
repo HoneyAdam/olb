@@ -291,7 +291,9 @@ func TestMCPHTTPTransport(t *testing.T) {
 
 	srv := newTestServer()
 	transport, err := mcp.NewHTTPTransport(srv, "127.0.0.1:0", "test-token")
-	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	if err := transport.Start(); err != nil {
 		t.Fatalf("HTTPTransport.Start: %v", err)
@@ -305,9 +307,18 @@ func TestMCPHTTPTransport(t *testing.T) {
 	addr := transport.Addr()
 	url := fmt.Sprintf("http://%s/mcp", addr)
 
+	client := &http.Client{}
+	authHeader := "Bearer test-token"
+
 	// Send initialize.
 	body := rpcRequest(1, "initialize", nil)
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST initialize: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", authHeader)
+	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("POST initialize: %v", err)
 	}
@@ -325,7 +336,13 @@ func TestMCPHTTPTransport(t *testing.T) {
 
 	// Send tools/list.
 	body = rpcRequest(2, "tools/list", nil)
-	resp2, err := http.Post(url, "application/json", bytes.NewReader(body))
+	req2, err := http.NewRequest("POST", url, bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST tools/list: %v", err)
+	}
+	req2.Header.Set("Content-Type", "application/json")
+	req2.Header.Set("Authorization", authHeader)
+	resp2, err := client.Do(req2)
 	if err != nil {
 		t.Fatalf("POST tools/list: %v", err)
 	}
@@ -338,9 +355,14 @@ func TestMCPHTTPTransport(t *testing.T) {
 	}
 
 	// Verify GET is rejected (only POST allowed).
-	getResp, err := http.Get(url)
+	getReq, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
+	}
+	getReq.Header.Set("Authorization", authHeader)
+	getResp, err := client.Do(getReq)
+	if err != nil {
+		t.Fatalf("GET request: %v", err)
 	}
 	defer getResp.Body.Close()
 	if getResp.StatusCode != http.StatusMethodNotAllowed {
@@ -841,7 +863,9 @@ func TestMCPHTTPConcurrent(t *testing.T) {
 
 	srv := newTestServer()
 	transport, err := mcp.NewHTTPTransport(srv, "127.0.0.1:0", "test-token")
-	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	if err := transport.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -853,6 +877,9 @@ func TestMCPHTTPConcurrent(t *testing.T) {
 	})
 
 	url := fmt.Sprintf("http://%s/mcp", transport.Addr())
+
+	client := &http.Client{}
+	authHeader := "Bearer test-token"
 
 	const goroutines = 10
 	const requestsPerGoroutine = 5
@@ -867,7 +894,14 @@ func TestMCPHTTPConcurrent(t *testing.T) {
 			for r := 0; r < requestsPerGoroutine; r++ {
 				id := gID*requestsPerGoroutine + r
 				body := rpcRequest(id, "tools/list", nil)
-				resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+				req, err := http.NewRequest("POST", url, bytes.NewReader(body))
+				if err != nil {
+					errCh <- fmt.Errorf("goroutine %d request %d: %w", gID, r, err)
+					continue
+				}
+				req.Header.Set("Content-Type", "application/json")
+				req.Header.Set("Authorization", authHeader)
+				resp, err := client.Do(req)
 				if err != nil {
 					errCh <- fmt.Errorf("goroutine %d request %d: %w", gID, r, err)
 					continue

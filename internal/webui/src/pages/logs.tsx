@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { useDebounce } from "@/hooks/use-debounce"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,11 +13,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Search, Download, Pause, Play, AlertCircle, Info, AlertTriangle, CheckCircle } from "lucide-react"
+import { Search, Download, Pause, Play, AlertCircle, Info, AlertTriangle, CheckCircle, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useEvents } from "@/hooks/use-query"
 import { APIEventItem } from "@/types"
+import { LoadingCard } from "@/components/ui/loading"
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -43,8 +45,9 @@ function eventToLog(event: APIEventItem): { id: string; timestamp: string; level
 
 export function LogsPage() {
   useDocumentTitle("Logs")
-  const { data: events, refetch } = useEvents()
+  const { data: events, refetch, isLoading, error } = useEvents()
   const [search, setSearch] = useState("")
+  const debouncedSearch = useDebounce(search)
   const [levelFilter, setLevelFilter] = useState<string>("all")
   const [isLive, setIsLive] = useState(true)
   const [autoScroll, setAutoScroll] = useState(true)
@@ -62,7 +65,7 @@ export function LogsPage() {
 
   // Filter logs
   const filteredLogs = logs.filter(l => {
-    if (search && !l.message.toLowerCase().includes(search.toLowerCase()) && !l.source.toLowerCase().includes(search.toLowerCase())) {
+    if (debouncedSearch && !l.message.toLowerCase().includes(debouncedSearch.toLowerCase()) && !l.source.toLowerCase().includes(debouncedSearch.toLowerCase())) {
       return false
     }
     if (levelFilter !== "all" && l.level !== levelFilter) {
@@ -90,7 +93,7 @@ export function LogsPage() {
 
   const getLevelIcon = (level: string) => {
     switch (level) {
-      case 'debug': return <Info className="h-4 w-4 text-gray-500" />
+      case 'debug': return <Info className="h-4 w-4 text-muted-foreground" />
       case 'info': return <CheckCircle className="h-4 w-4 text-blue-500" />
       case 'warn': return <AlertTriangle className="h-4 w-4 text-amber-500" />
       case 'error': return <AlertCircle className="h-4 w-4 text-red-500" />
@@ -117,16 +120,47 @@ export function LogsPage() {
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">System Events</h1>
+          <p className="text-muted-foreground">View backend health events and system activity</p>
+        </div>
+        <LoadingCard />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">System Events</h1>
+          <p className="text-muted-foreground">View backend health events and system activity</p>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-destructive">Failed to load events: {error.message}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">System Events</h1>
+          <h1 className="text-2xl font-bold tracking-tight">System Events</h1>
           <p className="text-muted-foreground">View backend health events and system activity</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-2 mr-4">
-            <div className={cn("h-2 w-2 rounded-full", isLive ? "bg-green-500 animate-pulse" : "bg-gray-400")} />
+            <div className={cn("h-2 w-2 rounded-full", isLive ? "bg-success animate-pulse" : "bg-muted-foreground")} />
             <span className="text-sm text-muted-foreground">{isLive ? "Live" : "Paused"}</span>
           </div>
           <Button variant="outline" size="sm" onClick={() => setIsLive(!isLive)}>
@@ -186,7 +220,7 @@ export function LogsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="border rounded-lg overflow-hidden">
+          <div className="border rounded-lg overflow-x-auto">
             <div className="max-h-[600px] overflow-y-auto font-mono text-sm">
               {filteredLogs.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">

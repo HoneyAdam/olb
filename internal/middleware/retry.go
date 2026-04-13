@@ -234,12 +234,12 @@ func (m *RetryMiddleware) calculateBackoff(attempt int) time.Duration {
 // bufferedResponseWriter captures an HTTP response in memory so we can
 // decide whether to retry before committing the response to the client.
 type bufferedResponseWriter struct {
-	header         http.Header
-	body           bytes.Buffer
-	statusCode     int
-	written        bool
-	maxSize        int
-	exceeded       bool
+	header     http.Header
+	body       bytes.Buffer
+	statusCode int
+	written    bool
+	maxSize    int
+	exceeded   bool
 }
 
 // pool for recycling bufferedResponseWriter objects.

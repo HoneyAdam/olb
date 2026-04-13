@@ -7,6 +7,7 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -40,7 +41,7 @@ type FilePersister struct {
 // The directory is created if it does not exist.
 func NewFilePersister(dir string) (*FilePersister, error) {
 	if dir == "" {
-		return nil, fmt.Errorf("cluster: persister dir is empty")
+		return nil, errors.New("cluster: persister dir is empty")
 	}
 	logDir := filepath.Join(dir, "log")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
@@ -54,7 +55,7 @@ func (p *FilePersister) SaveRaftState(state RaftStateV1) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("marshal raft state: %w", err)
 	}

@@ -4,7 +4,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -16,10 +15,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Shield, Plus, CheckCircle, AlertCircle, Upload, RefreshCw } from "lucide-react"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Shield, Plus, CheckCircle, AlertCircle, Upload, RefreshCw, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { useCertificates } from "@/hooks/use-query"
 import { LoadingCard } from "@/components/ui/loading"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { addCertificateAcmeSchema, addCertificateManualSchema, type AddCertificateAcmeFormValues, type AddCertificateManualFormValues } from "@/lib/form-schemas"
 
 export function CertificatesPage() {
   useDocumentTitle("Certificates")
@@ -28,12 +38,21 @@ export function CertificatesPage() {
   // Add Certificate Dialog State
   const [certDialogOpen, setCertDialogOpen] = useState(false)
   const [certSource, setCertSource] = useState<'manual' | 'acme'>('acme')
-  const [newCert, setNewCert] = useState({
-    domain: "",
-    email: "",
-    certContent: "",
-    keyContent: "",
-    autoRenew: true,
+  const certAcmeForm = useForm<AddCertificateAcmeFormValues>({
+    resolver: zodResolver(addCertificateAcmeSchema),
+    defaultValues: {
+      domain: "",
+      email: "",
+      autoRenew: true,
+    },
+  })
+  const certManualForm = useForm<AddCertificateManualFormValues>({
+    resolver: zodResolver(addCertificateManualSchema),
+    defaultValues: {
+      domain: "",
+      certContent: "",
+      keyContent: "",
+    },
   })
 
   const getDaysUntilExpiry = (expiry: string) => {
@@ -49,9 +68,7 @@ export function CertificatesPage() {
     return "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300"
   }
 
-  const handleAddCertificate = () => {
-    // Certificate management requires ACME or manual cert file placement
-    // This is a UI placeholder — actual cert provisioning is via config/ACME
+  const handleAddCertificate = (_data: AddCertificateAcmeFormValues | AddCertificateManualFormValues) => {
     toast.info("Certificate management is done via configuration or ACME")
     setCertDialogOpen(false)
   }
@@ -64,10 +81,10 @@ export function CertificatesPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">TLS Certificates</h1>
+          <h1 className="text-2xl font-bold tracking-tight">TLS Certificates</h1>
           <p className="text-muted-foreground">Manage SSL/TLS certificates</p>
         </div>
-        <Dialog open={certDialogOpen} onOpenChange={setCertDialogOpen}>
+        <Dialog open={certDialogOpen} onOpenChange={(open) => { setCertDialogOpen(open); if (!open) { certAcmeForm.reset(); certManualForm.reset() } }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -78,102 +95,132 @@ export function CertificatesPage() {
             <DialogHeader>
               <DialogTitle>Add Certificate</DialogTitle>
               <DialogDescription>
-                Add a new TLS certificate manually or via ACME/Let's Encrypt.
+                Add a new TLS certificate manually or via ACME/Let&apos;s Encrypt.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="flex gap-2">
-						<Button
-                  variant={certSource === 'acme' ? 'default' : 'outline'}
-                  className="flex-1"
-                  onClick={() => setCertSource('acme')}
-                >
-                  Let's Encrypt
-                </Button>
-						<Button
-                  variant={certSource === 'manual' ? 'default' : 'outline'}
-                  className="flex-1"
-                  onClick={() => setCertSource('manual')}
-                >
-                  Manual Upload
-                </Button>
-              </div>
-
-              {certSource === 'acme' ? (
-                <>
-                  <div className="grid gap-2">
-                    <Label htmlFor="domain">Domain</Label>
-                    <Input
-                      id="domain"
-                      placeholder="e.g., *.example.com"
-                      value={newCert.domain}
-                      onChange={(e) => setNewCert({ ...newCert, domain: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="admin@example.com"
-                      value={newCert.email}
-                      onChange={(e) => setNewCert({ ...newCert, email: e.target.value })}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <Label htmlFor="auto-renew">Auto-renewal</Label>
-                    <Switch
-                      id="auto-renew"
-                      checked={newCert.autoRenew}
-                      onCheckedChange={(checked) => setNewCert({ ...newCert, autoRenew: checked })}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="grid gap-2">
-                    <Label htmlFor="cert-domain">Domain</Label>
-                    <Input
-                      id="cert-domain"
-                      placeholder="e.g., example.com"
-                      value={newCert.domain}
-                      onChange={(e) => setNewCert({ ...newCert, domain: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="cert-content">Certificate (PEM)</Label>
-                    <Textarea
-                      id="cert-content"
-                      placeholder="-----BEGIN CERTIFICATE-----"
-                      rows={4}
-                      value={newCert.certContent}
-                      onChange={(e) => setNewCert({ ...newCert, certContent: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="key-content">Private Key (PEM)</Label>
-                    <Textarea
-                      id="key-content"
-                      placeholder="-----BEGIN PRIVATE KEY-----"
-                      rows={4}
-                      value={newCert.keyContent}
-                      onChange={(e) => setNewCert({ ...newCert, keyContent: e.target.value })}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCertDialogOpen(false)}>
-                Cancel
-              </Button>
-					<Button
-                onClick={handleAddCertificate}
-                disabled={certSource === 'acme' ? !newCert.domain || !newCert.email : !newCert.domain || !newCert.certContent || !newCert.keyContent}
+            <div className="flex gap-2">
+              <Button
+                variant={certSource === 'acme' ? 'default' : 'outline'}
+                className="flex-1"
+                onClick={() => setCertSource('acme')}
               >
-                Add Certificate
+                Let&apos;s Encrypt
               </Button>
-            </DialogFooter>
+              <Button
+                variant={certSource === 'manual' ? 'default' : 'outline'}
+                className="flex-1"
+                onClick={() => setCertSource('manual')}
+              >
+                Manual Upload
+              </Button>
+            </div>
+
+            {certSource === 'acme' ? (
+              <Form {...certAcmeForm}>
+                <form onSubmit={certAcmeForm.handleSubmit(handleAddCertificate)} className="grid gap-4 py-4">
+                  <FormField
+                    control={certAcmeForm.control}
+                    name="domain"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Domain</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., *.example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={certAcmeForm.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email</FormLabel>
+                        <FormControl>
+                          <Input type="email" placeholder="admin@example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={certAcmeForm.control}
+                    name="autoRenew"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between space-y-0">
+                        <FormLabel>Auto-renewal</FormLabel>
+                        <FormControl>
+                          <Switch checked={field.value} onCheckedChange={field.onChange} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <DialogFooter>
+                    <Button variant="outline" type="button" onClick={() => { setCertDialogOpen(false); certAcmeForm.reset() }}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={!certAcmeForm.formState.isValid || certAcmeForm.formState.isSubmitting}>
+                      {certAcmeForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Add Certificate
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </Form>
+            ) : (
+              <Form {...certManualForm}>
+                <form onSubmit={certManualForm.handleSubmit(handleAddCertificate)} className="grid gap-4 py-4">
+                  <FormField
+                    control={certManualForm.control}
+                    name="domain"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Domain</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g., example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={certManualForm.control}
+                    name="certContent"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Certificate (PEM)</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="-----BEGIN CERTIFICATE-----" rows={4} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={certManualForm.control}
+                    name="keyContent"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Private Key (PEM)</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="-----BEGIN PRIVATE KEY-----" rows={4} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <DialogFooter>
+                    <Button variant="outline" type="button" onClick={() => { setCertDialogOpen(false); certManualForm.reset() }}>
+                      Cancel
+                    </Button>
+                    <Button type="submit" disabled={!certManualForm.formState.isValid || certManualForm.formState.isSubmitting}>
+                      {certManualForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      Add Certificate
+                    </Button>
+                  </DialogFooter>
+                </form>
+              </Form>
+            )}
           </DialogContent>
         </Dialog>
       </div>
@@ -245,8 +292,8 @@ export function CertificatesPage() {
                     <Badge className={getExpiryBg(days)}>
                       {days} days
                     </Badge>
-                    
-                      <Button variant="ghost" aria-label="Renew certificate"
+
+                    <Button variant="ghost" aria-label="Renew certificate"
                       size="icon"
                       onClick={() => handleRenewCert(cert.names)}
                     >

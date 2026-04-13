@@ -13,7 +13,7 @@ import { LogsPage } from '@/pages/logs'
 
 // Mock API responses for pages that fetch data
 function mockAllEndpoints() {
-  const ok = (data: any) => ({
+  const ok = (data: unknown) => ({
     ok: true,
     json: () => Promise.resolve({ success: true, data }),
     text: () => Promise.resolve(''),

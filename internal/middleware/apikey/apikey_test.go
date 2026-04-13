@@ -115,7 +115,7 @@ func TestAPIKey_ValidKeyHeader(t *testing.T) {
 	}
 }
 
-func TestAPIKey_ValidKeyQueryParam(t *testing.T) {
+func TestAPIKey_QueryParamRejected(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true
 	config.Hash = "plain"
@@ -128,22 +128,17 @@ func TestAPIKey_ValidKeyQueryParam(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var receivedKeyID string
 	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedKeyID = GetAPIKeyID(r.Context())
 		w.WriteHeader(http.StatusOK)
 	}))
 
+	// API key in query param should NOT be accepted (security: keys leak in logs/history)
 	req := httptest.NewRequest("GET", "/test?api_key=secret123", nil)
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
-	}
-
-	if receivedKeyID != "key1" {
-		t.Errorf("Expected key ID 'key1', got '%s'", receivedKeyID)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("Expected status 401 for query param key, got %d", rec.Code)
 	}
 }
 
@@ -328,9 +323,6 @@ func TestDefaultConfig(t *testing.T) {
 	if config.Header != "X-API-Key" {
 		t.Errorf("Default Header should be 'X-API-Key', got '%s'", config.Header)
 	}
-	if config.QueryParam != "api_key" {
-		t.Errorf("Default QueryParam should be 'api_key', got '%s'", config.QueryParam)
-	}
 	if config.Hash != "sha256" {
 		t.Errorf("Default Hash should be 'sha256', got '%s'", config.Hash)
 	}
@@ -430,10 +422,10 @@ func TestHasPermission_Wildcard(t *testing.T) {
 }
 
 func TestAPIKey_DefaultHash(t *testing.T) {
-	// Test the default hash case (unknown hash type falls through to plain comparison)
+	// Test the default hash case (sha256)
 	config := DefaultConfig()
 	config.Enabled = true
-	config.Hash = "unknown"
+	config.Hash = "sha256"
 	config.Keys = map[string]string{
 		"key1": "secret123",
 	}
@@ -574,32 +566,16 @@ func TestAPIKey_SHA256InvalidKey(t *testing.T) {
 
 func TestExtractAPIKey(t *testing.T) {
 	tests := []struct {
-		name       string
-		header     string
-		queryParam string
-		headerVal  string
-		queryVal   string
-		wantKey    string
+		name      string
+		header    string
+		headerVal string
+		wantKey   string
 	}{
 		{
 			name:      "from header",
 			header:    "X-API-Key",
 			headerVal: "my-key",
 			wantKey:   "my-key",
-		},
-		{
-			name:       "from query",
-			queryParam: "api_key",
-			queryVal:   "query-key",
-			wantKey:    "query-key",
-		},
-		{
-			name:       "header preferred",
-			header:     "X-API-Key",
-			queryParam: "api_key",
-			headerVal:  "header-key",
-			queryVal:   "query-key",
-			wantKey:    "header-key",
 		},
 		{
 			name:    "empty",
@@ -610,14 +586,11 @@ func TestExtractAPIKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest("GET", "/test", nil)
-			if tt.queryVal != "" {
-				req.URL.RawQuery = "api_key=" + tt.queryVal
-			}
 			if tt.headerVal != "" {
 				req.Header.Set(tt.header, tt.headerVal)
 			}
 
-			key := extractAPIKey(req, tt.header, tt.queryParam)
+			key := extractAPIKey(req, tt.header)
 			if key != tt.wantKey {
 				t.Errorf("extractAPIKey() = %v, want %v", key, tt.wantKey)
 			}
@@ -625,46 +598,16 @@ func TestExtractAPIKey(t *testing.T) {
 	}
 }
 
-// TestAPIKey_DefaultHashType tests the default hash branch in New() and validateKey()
-func TestAPIKey_DefaultHashType(t *testing.T) {
+// TestAPIKey_UnknownHashType tests that an unknown hash type returns an error.
+func TestAPIKey_UnknownHashType(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true
-	config.Hash = "custom" // Not "sha256" or "plain" - triggers default branch
-	config.Keys = map[string]string{
-		"key1": "secret123",
-	}
+	config.Hash = "custom"
+	config.Keys = map[string]string{"key1": "secret123"}
 
-	mw, err := New(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var receivedKeyID string
-	handler := mw.Wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedKeyID = GetAPIKeyID(r.Context())
-		w.WriteHeader(http.StatusOK)
-	}))
-
-	req := httptest.NewRequest("GET", "/test", nil)
-	req.Header.Set("X-API-Key", "secret123")
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", rec.Code)
-	}
-	if receivedKeyID != "key1" {
-		t.Errorf("Expected key ID 'key1', got '%s'", receivedKeyID)
-	}
-
-	// Also test that wrong key is rejected with default hash
-	req2 := httptest.NewRequest("GET", "/test", nil)
-	req2.Header.Set("X-API-Key", "wrong")
-	rec2 := httptest.NewRecorder()
-	handler.ServeHTTP(rec2, req2)
-
-	if rec2.Code != http.StatusUnauthorized {
-		t.Errorf("Expected status 401 for wrong key, got %d", rec2.Code)
+	_, err := New(config)
+	if err == nil {
+		t.Fatal("Expected error for unknown hash type")
 	}
 }
 
@@ -711,5 +654,47 @@ func TestAPIKey_GetKeyInfoEmpty(t *testing.T) {
 	}
 	if len(info.Permissions) != 0 {
 		t.Errorf("Expected empty Permissions, got %v", info.Permissions)
+	}
+}
+
+func TestAPIKey_ZeroSecrets(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "plain"
+	config.Keys = map[string]string{
+		"key1": "secret1",
+		"key2": "secret2",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify hashes exist before zeroing
+	if len(mw.hashes) == 0 {
+		t.Fatal("expected hashes to be populated")
+	}
+
+	// Zero secrets
+	mw.ZeroSecrets()
+
+	// Verify hashes are cleared
+	if len(mw.hashes) != 0 {
+		t.Errorf("expected hashes to be cleared, got %d entries", len(mw.hashes))
+	}
+}
+
+func TestAPIKey_ZeroSecrets_Idempotent(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "sha256"
+	config.Keys = map[string]string{"key1": "secret"}
+
+	mw, _ := New(config)
+	mw.ZeroSecrets()
+	mw.ZeroSecrets() // Should not panic
+	if len(mw.hashes) != 0 {
+		t.Error("expected empty hashes after double zero")
 	}
 }

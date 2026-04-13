@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Dialog,
   DialogContent,
@@ -22,11 +21,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Globe, Shield, Trash2, Edit, Activity, Route } from "lucide-react"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Plus, Globe, Shield, Trash2, Edit, Activity, Route, Loader2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { useConfig, usePools } from "@/hooks/use-query"
 import { LoadingCard } from "@/components/ui/loading"
 import type { Listener } from "@/types"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { createListenerSchema, addRouteSchema, type CreateListenerFormValues, type AddRouteFormValues } from "@/lib/form-schemas"
+
+interface RawListener {
+  name?: string
+  address?: string
+  protocol?: string
+  tls?: { enabled?: boolean }
+  routes?: Array<{ path?: string; pool?: string; methods?: string[] }>
+}
 
 const protocolIcons: Record<string, React.ReactNode> = {
   http: <Globe className="h-4 w-4" />,
@@ -46,23 +64,22 @@ const httpMethods = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
 
 export function ListenersPage() {
   useDocumentTitle("Listeners")
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: configRaw, isLoading: configLoading, error: configError } = useConfig() as { data: Record<string, any> | undefined; isLoading: boolean; error: Error | null }
+  const { data: configRaw, isLoading: configLoading, error: configError, refetch: refetchConfig } = useConfig()
   // Handle both API response shape and test mock shape
-  const config = (configRaw?.data ?? configRaw) as Record<string, any> | undefined
+  const config = (configRaw?.data ?? configRaw) as Record<string, unknown> | undefined
   const { data: pools } = usePools()
   const poolNames = (pools ?? []).map(p => p.name)
 
   // Derive listeners from config
-  const listeners: Listener[] = (config?.listeners ?? []).map((l: { name: string; address: string; protocol?: string; tls?: { enabled?: boolean }; routes?: Array<{ path: string }> }, i: number) => ({
+  const listeners: Listener[] = ((config?.listeners ?? []) as RawListener[]).map((l, i) => ({
     id: String(i),
-    name: l.name,
-    address: l.address,
+    name: l.name ?? `listener-${i}`,
+    address: l.address ?? ':0',
     protocol: (l.protocol || (l.tls?.enabled ? 'https' : 'http')) as Listener['protocol'],
-    routes: (l.routes ?? []).map((r: any, j: number) => ({
+    routes: (l.routes ?? []).map((r, j) => ({
       id: `${i}-${j}`,
-      path: r.path,
-      pool: r.pool,
+      path: r.path ?? '/',
+      pool: r.pool ?? '',
       methods: r.methods ?? [],
       strip_prefix: false,
       priority: j,
@@ -79,20 +96,26 @@ export function ListenersPage() {
 
   // Create Listener Dialog State
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [newListener, setNewListener] = useState({
-    name: "",
-    address: "",
-    protocol: "http",
+  const createListenerForm = useForm<CreateListenerFormValues>({
+    resolver: zodResolver(createListenerSchema),
+    defaultValues: {
+      name: "",
+      address: "",
+      protocol: "http",
+    },
   })
 
   // Add Route Dialog State
   const [routeDialogOpen, setRouteDialogOpen] = useState(false)
-  const [newRoute, setNewRoute] = useState({
-    path: "",
-    pool: "",
-    methods: ["GET"] as string[],
-    strip_prefix: false,
-    priority: 10,
+  const addRouteForm = useForm<AddRouteFormValues>({
+    resolver: zodResolver(addRouteSchema),
+    defaultValues: {
+      path: "",
+      pool: "",
+      methods: ["GET"],
+      strip_prefix: false,
+      priority: 10,
+    },
   })
 
   const toggleListener = (_id: string) => {
@@ -102,13 +125,13 @@ export function ListenersPage() {
   const handleCreateListener = () => {
     toast.info("Listener creation requires config file update and reload")
     setCreateDialogOpen(false)
-    setNewListener({ name: "", address: "", protocol: "http" })
+    createListenerForm.reset()
   }
 
-  const handleAddRoute = () => {
+  const handleAddRoute = (_data: AddRouteFormValues) => {
     toast.info("Route creation requires config file update and reload")
     setRouteDialogOpen(false)
-    setNewRoute({ path: "", pool: "", methods: ["GET"], strip_prefix: false, priority: 10 })
+    addRouteForm.reset()
   }
 
   const handleDeleteListener = (_id: string) => {
@@ -119,20 +142,11 @@ export function ListenersPage() {
     toast.info("Route removal requires config file update and reload")
   }
 
-  const toggleMethod = (method: string) => {
-    setNewRoute(prev => ({
-      ...prev,
-      methods: prev.methods.includes(method)
-        ? prev.methods.filter(m => m !== method)
-        : [...prev.methods, method]
-    }))
-  }
-
   if (configLoading) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Listeners</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Listeners</h1>
           <p className="text-muted-foreground">Configure entry points and routing rules</p>
         </div>
         <LoadingCard />
@@ -144,12 +158,15 @@ export function ListenersPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Listeners</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Listeners</h1>
           <p className="text-muted-foreground">Configure entry points and routing rules</p>
         </div>
         <Card>
           <CardContent className="p-6">
             <p className="text-destructive">Failed to load configuration: {configError.message}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => refetchConfig()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -160,10 +177,10 @@ export function ListenersPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Listeners</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Listeners</h1>
           <p className="text-muted-foreground">Configure entry points and routing rules</p>
         </div>
-        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <Dialog open={createDialogOpen} onOpenChange={(open) => { setCreateDialogOpen(open); if (!open) createListenerForm.reset() }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -177,51 +194,68 @@ export function ListenersPage() {
                 Configure a new entry point for incoming traffic.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="listener-name">Listener Name</Label>
-                <Input
-                  id="listener-name"
-                  placeholder="e.g., http-public"
-                  value={newListener.name}
-                  onChange={(e) => setNewListener({ ...newListener, name: e.target.value })}
+            <Form {...createListenerForm}>
+              <form onSubmit={createListenerForm.handleSubmit(() => { handleCreateListener(); setCreateDialogOpen(false); createListenerForm.reset() })} className="grid gap-4 py-4">
+                <FormField
+                  control={createListenerForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Listener Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., http-public" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="listener-address">Address</Label>
-                <Input
-                  id="listener-address"
-                  placeholder="e.g., :80 or 0.0.0.0:8080"
-                  value={newListener.address}
-                  onChange={(e) => setNewListener({ ...newListener, address: e.target.value })}
+                <FormField
+                  control={createListenerForm.control}
+                  name="address"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Address</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., :80 or 0.0.0.0:8080" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="listener-protocol">Protocol</Label>
-                <Select
-                  value={newListener.protocol}
-                  onValueChange={(value: string) => setNewListener({ ...newListener, protocol: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select protocol" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="http">HTTP</SelectItem>
-                    <SelectItem value="https">HTTPS</SelectItem>
-                    <SelectItem value="tcp">TCP</SelectItem>
-                    <SelectItem value="udp">UDP</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleCreateListener} disabled={!newListener.name || !newListener.address}>
-                Create Listener
-              </Button>
-            </DialogFooter>
+                <FormField
+                  control={createListenerForm.control}
+                  name="protocol"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Protocol</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select protocol" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="http">HTTP</SelectItem>
+                          <SelectItem value="https">HTTPS</SelectItem>
+                          <SelectItem value="tcp">TCP</SelectItem>
+                          <SelectItem value="udp">UDP</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button variant="outline" type="button" onClick={() => { setCreateDialogOpen(false); createListenerForm.reset() }}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={!createListenerForm.formState.isValid || createListenerForm.formState.isSubmitting}>
+                    {createListenerForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Create Listener
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </div>
@@ -304,7 +338,7 @@ export function ListenersPage() {
                       <Route className="h-4 w-4" />
                       Routes
                     </CardTitle>
-                    <Dialog open={routeDialogOpen} onOpenChange={setRouteDialogOpen}>
+                    <Dialog open={routeDialogOpen} onOpenChange={(open) => { setRouteDialogOpen(open); if (!open) addRouteForm.reset() }}>
                       <DialogTrigger asChild>
                         <Button size="sm">
                           <Plus className="mr-2 h-4 w-4" />
@@ -318,75 +352,109 @@ export function ListenersPage() {
                             Configure a new routing rule.
                           </DialogDescription>
                         </DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid gap-2">
-                            <Label htmlFor="route-path">Path Pattern</Label>
-                            <Input
-                              id="route-path"
-                              placeholder="e.g., /api/*"
-                              value={newRoute.path}
-                              onChange={(e) => setNewRoute({ ...newRoute, path: e.target.value })}
+                        <Form {...addRouteForm}>
+                          <form onSubmit={addRouteForm.handleSubmit(handleAddRoute)} className="grid gap-4 py-4">
+                            <FormField
+                              control={addRouteForm.control}
+                              name="path"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Path Pattern</FormLabel>
+                                  <FormControl>
+                                    <Input placeholder="e.g., /api/*" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
-                          </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="route-pool">Target Pool</Label>
-                            <Select
-                              value={newRoute.pool}
-                              onValueChange={(value: string) => setNewRoute({ ...newRoute, pool: value })}
-                            >
-                              <SelectTrigger>
-                                <SelectValue placeholder="Select pool" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {poolNames.map((pool) => (
-                                  <SelectItem key={pool} value={pool}>
-                                    {pool}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="grid gap-2">
-                            <Label>HTTP Methods</Label>
-                            <div className="flex flex-wrap gap-2">
-                              {httpMethods.map((method) => (
-                                <Badge
-                                  key={method}
-                                  variant={newRoute.methods.includes(method) ? "default" : "outline"}
-                                  className="cursor-pointer"
-                                  onClick={() => toggleMethod(method)}
-                                >
-                                  {method}
-                                </Badge>
-                              ))}
-                            </div>
-                          </div>
-                          <div className="grid gap-2">
-                            <Label htmlFor="route-priority">Priority</Label>
-                            <Input
-                              id="route-priority"
-                              type="number"
-                              value={newRoute.priority}
-                              onChange={(e) => setNewRoute({ ...newRoute, priority: parseInt(e.target.value) || 0 })}
+                            <FormField
+                              control={addRouteForm.control}
+                              name="pool"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Target Pool</FormLabel>
+                                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                    <FormControl>
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select pool" />
+                                      </SelectTrigger>
+                                    </FormControl>
+                                    <SelectContent>
+                                      {poolNames.map((pool) => (
+                                        <SelectItem key={pool} value={pool}>
+                                          {pool}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <Label htmlFor="strip-prefix">Strip Prefix</Label>
-                            <Switch
-                              id="strip-prefix"
-                              checked={newRoute.strip_prefix}
-                              onCheckedChange={(checked) => setNewRoute({ ...newRoute, strip_prefix: checked })}
+                            <FormField
+                              control={addRouteForm.control}
+                              name="methods"
+                              render={() => (
+                                <FormItem>
+                                  <FormLabel>HTTP Methods</FormLabel>
+                                  <div className="flex flex-wrap gap-2">
+                                    {httpMethods.map((method) => (
+                                      <Badge
+                                        key={method}
+                                        variant={addRouteForm.getValues("methods").includes(method) ? "default" : "outline"}
+                                        className="cursor-pointer"
+                                        onClick={() => {
+                                          const current = addRouteForm.getValues("methods")
+                                          const next = current.includes(method)
+                                            ? current.filter((m: string) => m !== method)
+                                            : [...current, method]
+                                          addRouteForm.setValue("methods", next, { shouldValidate: true })
+                                        }}
+                                      >
+                                        {method}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
                             />
-                          </div>
-                        </div>
-                        <DialogFooter>
-                          <Button variant="outline" onClick={() => setRouteDialogOpen(false)}>
-                            Cancel
-                          </Button>
-                          <Button onClick={handleAddRoute} disabled={!newRoute.path || !newRoute.pool}>
-                            Add Route
-                          </Button>
-                        </DialogFooter>
+                            <FormField
+                              control={addRouteForm.control}
+                              name="priority"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Priority</FormLabel>
+                                  <FormControl>
+                                    <Input type="number" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={addRouteForm.control}
+                              name="strip_prefix"
+                              render={({ field }) => (
+                                <FormItem className="flex flex-row items-center justify-between space-y-0">
+                                  <FormLabel>Strip Prefix</FormLabel>
+                                  <FormControl>
+                                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                            <DialogFooter>
+                              <Button variant="outline" type="button" onClick={() => { setRouteDialogOpen(false); addRouteForm.reset() }}>
+                                Cancel
+                              </Button>
+                              <Button type="submit" disabled={!addRouteForm.formState.isValid || addRouteForm.formState.isSubmitting}>
+                                {addRouteForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                Add Route
+                              </Button>
+                            </DialogFooter>
+                          </form>
+                        </Form>
                       </DialogContent>
                     </Dialog>
                   </div>

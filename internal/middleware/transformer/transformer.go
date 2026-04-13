@@ -183,7 +183,7 @@ func (w *responseWriter) applyTransform() {
 		w.ResponseWriter.WriteHeader(w.status)
 	}
 	if len(body) > 0 {
-		w.ResponseWriter.Write(body)
+		_, _ = w.ResponseWriter.Write(body)
 	}
 }
 
@@ -193,7 +193,7 @@ func (w *responseWriter) writeRaw() {
 		w.ResponseWriter.WriteHeader(w.status)
 	}
 	if w.buffer != nil {
-		w.ResponseWriter.Write(w.buffer.Bytes())
+		_, _ = w.ResponseWriter.Write(w.buffer.Bytes())
 		w.pool.Put(w.buffer)
 	}
 }

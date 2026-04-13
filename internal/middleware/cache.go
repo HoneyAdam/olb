@@ -340,7 +340,7 @@ func (c *CacheMiddleware) serveCached(w http.ResponseWriter, cached *CachedRespo
 
 	w.WriteHeader(cached.StatusCode)
 	if len(cached.Body) > 0 {
-		w.Write(cached.Body)
+		_, _ = w.Write(cached.Body)
 	}
 }
 
@@ -357,7 +357,9 @@ func (c *CacheMiddleware) revalidateInBackground(key string, next http.Handler, 
 		// Clone the request with a fresh context — the original request's
 		// context is canceled as soon as the handler returns, which would
 		// immediately kill the background revalidation.
-		req := origReq.Clone(context.Background())
+		bgCtx, bgCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer bgCancel()
+		req := origReq.Clone(bgCtx)
 
 		rec := &responseCapturer{
 			ResponseWriter: &discardResponseWriter{header: make(http.Header)},

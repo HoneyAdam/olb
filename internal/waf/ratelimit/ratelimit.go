@@ -93,7 +93,7 @@ func WriteRateLimitResponse(w http.ResponseWriter, retryAfter int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 	w.WriteHeader(http.StatusTooManyRequests)
-	w.Write([]byte(`{"error":"rate limit exceeded","layer":"rate_limit"}`))
+	_, _ = w.Write([]byte(`{"error":"rate limit exceeded","layer":"rate_limit"}`))
 }
 
 // AddRule adds a new rate limiting rule.

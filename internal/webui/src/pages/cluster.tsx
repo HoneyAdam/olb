@@ -12,8 +12,25 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import {
   Network,
   Server,
@@ -24,11 +41,15 @@ import {
   RefreshCw,
   Shield,
   Zap,
+  Loader2,
 } from "lucide-react"
 import { toast } from "sonner"
-import { cn } from "@/lib/utils"
+import { cn, wPct } from "@/lib/utils"
 import { useClusterStatus, useClusterMembers } from "@/hooks/use-query"
 import { LoadingCard } from "@/components/ui/loading"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { addNodeSchema, type AddNodeFormValues } from "@/lib/form-schemas"
 
 export function ClusterPage() {
   useDocumentTitle("Cluster")
@@ -36,7 +57,12 @@ export function ClusterPage() {
   const { data: members, isLoading: membersLoading, refetch: refetchMembers } = useClusterMembers()
 
   const [addNodeDialogOpen, setAddNodeDialogOpen] = useState(false)
-  const [newNodeAddress, setNewNodeAddress] = useState("")
+  const addNodeForm = useForm<AddNodeFormValues>({
+    resolver: zodResolver(addNodeSchema),
+    defaultValues: {
+      address: "",
+    },
+  })
   const [selectedMember, setSelectedMember] = useState<{ id: string; address: string; state: string } | null>(null)
   const [removeNodeDialogOpen, setRemoveNodeDialogOpen] = useState(false)
 
@@ -46,14 +72,10 @@ export function ClusterPage() {
     toast.success("Cluster status refreshed")
   }
 
-  const handleAddNode = () => {
-    if (!newNodeAddress) {
-      toast.error("Please enter a node address")
-      return
-    }
-    toast.info(`Node addition requested for ${newNodeAddress}`)
+  const handleAddNode = (data: AddNodeFormValues) => {
+    toast.info(`Node addition requested for ${data.address}`)
     setAddNodeDialogOpen(false)
-    setNewNodeAddress("")
+    addNodeForm.reset()
   }
 
   const handleRemoveNode = () => {
@@ -79,7 +101,7 @@ export function ClusterPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Cluster</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Cluster</h1>
           <p className="text-muted-foreground">Raft consensus and cluster membership</p>
         </div>
         <div className="grid gap-4 md:grid-cols-4">
@@ -96,7 +118,7 @@ export function ClusterPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Cluster</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Cluster</h1>
           <p className="text-muted-foreground">Raft consensus and cluster membership</p>
         </div>
         <Card>
@@ -117,7 +139,7 @@ export function ClusterPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Cluster</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Cluster</h1>
           <p className="text-muted-foreground">Raft consensus and cluster membership</p>
         </div>
         <div className="flex items-center gap-2">
@@ -263,9 +285,9 @@ export function ClusterPage() {
                     <div
                       className={cn(
                         "h-full rounded-full transition-all",
-                        clusterStatus.applied_index === clusterStatus.commit_index ? "bg-green-500" : "bg-amber-500"
+                        clusterStatus.applied_index === clusterStatus.commit_index ? "bg-green-500" : "bg-amber-500",
+                        wPct(clusterStatus.commit_index > 0 ? (clusterStatus.applied_index / clusterStatus.commit_index) * 100 : 100)
                       )}
-                      style={{ width: `${clusterStatus.commit_index > 0 ? (clusterStatus.applied_index / clusterStatus.commit_index) * 100 : 100}%` }}
                     />
                   </div>
                 </div>
@@ -355,7 +377,7 @@ export function ClusterPage() {
       </Tabs>
 
       {/* Add Node Dialog */}
-      <Dialog open={addNodeDialogOpen} onOpenChange={setAddNodeDialogOpen}>
+      <Dialog open={addNodeDialogOpen} onOpenChange={(open) => { setAddNodeDialogOpen(open); if (!open) addNodeForm.reset() }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Cluster Node</DialogTitle>
@@ -363,75 +385,73 @@ export function ClusterPage() {
               Add a new node to the Raft consensus group.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="node-address">Node Address</Label>
-              <Input
-                id="node-address"
-                placeholder="e.g., 10.0.1.13:12000"
-                value={newNodeAddress}
-                onChange={(e) => setNewNodeAddress(e.target.value)}
+          <Form {...addNodeForm}>
+            <form onSubmit={addNodeForm.handleSubmit(handleAddNode)} className="grid gap-4 py-4">
+              <FormField
+                control={addNodeForm.control}
+                name="address"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Node Address</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., 10.0.1.13:12000" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-              <p className="text-xs text-muted-foreground">
-                Enter the IP address and Raft port of the new node.
-              </p>
-            </div>
-            <div className="bg-muted p-3 rounded-lg text-sm">
-              <p className="font-medium mb-1">Note:</p>
-              <p className="text-muted-foreground">
-                The new node must be running and reachable. It will join as a follower.
-              </p>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setAddNodeDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleAddNode}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Node
-            </Button>
-          </DialogFooter>
+              <div className="bg-muted p-3 rounded-lg text-sm">
+                <p className="font-medium mb-1">Note:</p>
+                <p className="text-muted-foreground">
+                  The new node must be running and reachable. It will join as a follower.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" type="button" onClick={() => { setAddNodeDialogOpen(false); addNodeForm.reset() }}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={!addNodeForm.formState.isValid || addNodeForm.formState.isSubmitting}>
+                  {addNodeForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Node
+                </Button>
+              </DialogFooter>
+            </form>
+          </Form>
         </DialogContent>
       </Dialog>
 
-      {/* Remove Node Dialog */}
-      <Dialog open={removeNodeDialogOpen} onOpenChange={setRemoveNodeDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Remove Node</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to remove this node from the cluster?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            {selectedMember && (
-              <div className="p-4 bg-muted rounded-lg">
-                <div className="font-medium">{selectedMember.id}</div>
-                <div className="text-sm text-muted-foreground">{selectedMember.address}</div>
-                <div className="text-sm text-muted-foreground">State: {selectedMember.state}</div>
-              </div>
-            )}
-            {selectedMember?.id === clusterStatus?.leader && (
-              <div className="mt-4 text-sm text-amber-600 flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 mt-0.5" />
-                <p>
-                  This is the current leader. Removing it will trigger a leader election.
-                </p>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRemoveNodeDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button variant="destructive" onClick={handleRemoveNode}>
+      {/* Remove Node Confirmation */}
+      <AlertDialog open={removeNodeDialogOpen} onOpenChange={setRemoveNodeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Node</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove {selectedMember?.id} from the cluster? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {selectedMember && (
+            <div className="p-4 bg-muted rounded-lg">
+              <div className="font-medium">{selectedMember.id}</div>
+              <div className="text-sm text-muted-foreground">{selectedMember.address}</div>
+              <div className="text-sm text-muted-foreground">State: {selectedMember.state}</div>
+            </div>
+          )}
+          {selectedMember?.id === clusterStatus?.leader && (
+            <div className="flex items-start gap-2 text-sm text-amber-600">
+              <AlertCircle className="h-4 w-4 mt-0.5" />
+              <p>This is the current leader. Removing it will trigger a leader election.</p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleRemoveNode} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               <Trash2 className="mr-2 h-4 w-4" />
               Remove
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

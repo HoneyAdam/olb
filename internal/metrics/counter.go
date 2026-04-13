@@ -61,7 +61,7 @@ func (c *Counter) Inc() {
 
 // Add adds n to the counter.
 func (c *Counter) Add(n int64) {
-	shard := int(gidCounter.Add(1)) & shardMask
+	shard := int(uint64(gidCounter.Add(1)) & uint64(shardMask))
 	c.shards[shard].Add(n)
 }
 

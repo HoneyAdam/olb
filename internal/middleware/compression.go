@@ -29,7 +29,7 @@ type CompressionConfig struct {
 	ContentTypes  []string // Content types to compress (default: common text types)
 	ExcludePaths  []string // Path prefixes to exclude
 	ExcludeAgents []string // User-Agent substrings to exclude
-	MaxBufferSize int    // Maximum response body to buffer before bypassing compression (default: 8MB)
+	MaxBufferSize int      // Maximum response body to buffer before bypassing compression (default: 8MB)
 }
 
 // CompressionMiddleware implements gzip/deflate response compression.

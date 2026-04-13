@@ -32,7 +32,7 @@ func (c *MetricsShowCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	switch c.format {
 	case "json":
@@ -96,7 +96,7 @@ func (c *MetricsExportCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var data []byte
 

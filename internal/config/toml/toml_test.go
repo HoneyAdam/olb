@@ -1558,11 +1558,9 @@ func TestDecodeFloat_ToInt(t *testing.T) {
 		Value int `toml:"value"`
 	}
 	var cfg Cfg
-	if err := Decode([]byte(input), &cfg); err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Value != 3 {
-		t.Errorf("Value = %d, want 3", cfg.Value)
+	// Float-to-int truncation is now rejected for safety
+	if err := Decode([]byte(input), &cfg); err == nil {
+		t.Error("expected error for float-to-int truncation, got nil")
 	}
 }
 

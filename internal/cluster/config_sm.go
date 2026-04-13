@@ -6,6 +6,7 @@ package cluster
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/openloadbalancer/olb/internal/config"
@@ -177,7 +178,11 @@ func (sm *ConfigStateMachine) Apply(command []byte) ([]byte, error) {
 		// Pass a copy to avoid race conditions
 		cfgCopy := sm.cloneConfigLocked()
 		go func() {
-			defer func() { recover() }()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("config callback panic recovered", "error", r)
+				}
+			}()
 			sm.onConfigApplied(cfgCopy)
 		}()
 	}

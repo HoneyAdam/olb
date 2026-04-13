@@ -1,10 +1,10 @@
 import { useState } from "react"
 import { useDocumentTitle } from "@/hooks/use-document-title"
+import { useDebounce } from "@/hooks/use-debounce"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Dialog,
@@ -16,6 +16,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -23,11 +33,22 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { Layers, Plus, Search, Trash2, Activity, Clock, RefreshCw } from "lucide-react"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
+import { Layers, Plus, Search, Trash2, Activity, Clock, RefreshCw, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { usePools } from "@/hooks/use-query"
 import { api } from "@/lib/api"
 import { LoadingCard } from "@/components/ui/loading"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { createPoolSchema, addBackendSchema, type CreatePoolFormValues, type AddBackendFormValues } from "@/lib/form-schemas"
 
 const algorithmLabels: Record<string, string> = {
   round_robin: "Round Robin",
@@ -64,25 +85,36 @@ export function PoolsPage() {
   useDocumentTitle("Pools")
   const { data: pools, isLoading, error, refetch } = usePools()
   const [search, setSearch] = useState("")
+  const debouncedSearch = useDebounce(search)
   const [selectedPoolName, setSelectedPoolName] = useState<string | null>(null)
 
   // Create Pool Dialog State (local UI only — pools created via config)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [newPool, setNewPool] = useState({
-    name: "",
-    algorithm: "round_robin",
-    healthCheckEnabled: true,
-    healthCheckType: "http",
-    healthCheckPath: "/health",
-    healthCheckInterval: "10s",
+  const createPoolForm = useForm<CreatePoolFormValues>({
+    resolver: zodResolver(createPoolSchema),
+    defaultValues: {
+      name: "",
+      algorithm: "round_robin",
+      healthCheckEnabled: true,
+      healthCheckType: "http",
+      healthCheckPath: "/health",
+      healthCheckInterval: "10s",
+    },
   })
 
   // Add Backend Dialog State
   const [backendDialogOpen, setBackendDialogOpen] = useState(false)
-  const [newBackend, setNewBackend] = useState({
-    address: "",
-    weight: 1,
+  const addBackendForm = useForm<AddBackendFormValues>({
+    resolver: zodResolver(addBackendSchema),
+    defaultValues: {
+      address: "",
+      weight: 1,
+    },
   })
+
+  // Delete Backend Confirmation Dialog
+  const [deleteBackendId, setDeleteBackendId] = useState<string | null>(null)
+  const pendingBackend = (pools ?? []).flatMap(p => p.backends).find(b => b.id === deleteBackendId)
 
   const selectedPool = pools?.find(p => p.name === selectedPoolName) ?? null
 
@@ -93,7 +125,7 @@ export function PoolsPage() {
   }
 
   const filteredPools = (pools ?? []).filter(p =>
-    p.name.toLowerCase().includes(search.toLowerCase())
+    p.name.toLowerCase().includes(debouncedSearch.toLowerCase())
   )
 
   const getStatusColor = (state: string, healthy: boolean) => {
@@ -112,17 +144,17 @@ export function PoolsPage() {
       : <Badge variant="destructive">Unhealthy</Badge>
   }
 
-  const handleAddBackend = async () => {
+  const handleAddBackend = async (data: AddBackendFormValues) => {
     if (!selectedPool) return
     try {
       await api.addBackend(selectedPool.name, {
-        id: `${newBackend.address}`,
-        address: newBackend.address,
-        weight: newBackend.weight,
+        id: `${data.address}`,
+        address: data.address,
+        weight: data.weight,
       })
       setBackendDialogOpen(false)
-      setNewBackend({ address: "", weight: 1 })
-      toast.success(`Backend "${newBackend.address}" added successfully`)
+      addBackendForm.reset()
+      toast.success(`Backend "${data.address}" added successfully`)
       refetch()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to add backend"
@@ -135,6 +167,7 @@ export function PoolsPage() {
     try {
       await api.removeBackend(selectedPool.name, backendId)
       toast.success("Backend removed successfully")
+      setDeleteBackendId(null)
       refetch()
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "Failed to remove backend"
@@ -145,9 +178,9 @@ export function PoolsPage() {
   if (isLoading) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Pools</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Pools</h1>
             <p className="text-muted-foreground">Manage backend pools and load balancing</p>
           </div>
         </div>
@@ -164,7 +197,7 @@ export function PoolsPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pools</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Pools</h1>
           <p className="text-muted-foreground">Manage backend pools and load balancing</p>
         </div>
         <Card>
@@ -184,10 +217,10 @@ export function PoolsPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Pools</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Pools</h1>
           <p className="text-muted-foreground">Manage backend pools and load balancing</p>
         </div>
-        <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+        <Dialog open={createDialogOpen} onOpenChange={(open) => { setCreateDialogOpen(open); if (!open) createPoolForm.reset() }}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="mr-2 h-4 w-4" />
@@ -201,97 +234,130 @@ export function PoolsPage() {
                 Configure a new backend pool with load balancing settings.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Pool Name</Label>
-                <Input 
-                  id="name"
-                  placeholder="e.g., api-pool"
-                  value={newPool.name}
-                  onChange={(e) => setNewPool({ ...newPool, name: e.target.value })}
+            <Form {...createPoolForm}>
+              <form onSubmit={createPoolForm.handleSubmit(() => { toast.info("Pool creation requires config file update and reload"); setCreateDialogOpen(false) })} className="grid gap-4 py-4">
+                <FormField
+                  control={createPoolForm.control}
+                  name="name"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Pool Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g., api-pool" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor="algorithm">Algorithm</Label>
-                <Select
-                  value={newPool.algorithm}
-                  onValueChange={(value: string) => setNewPool({ ...newPool, algorithm: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select algorithm" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(algorithmLabels).filter((_, i) => i % 2 === 0).map(([value, label]) => (
-                      <SelectItem key={value} value={value}>
-                        {label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="flex items-center justify-between">
-                <Label htmlFor="health-check">Enable Health Checks</Label>
-                <Switch
-                  id="health-check"
-                  checked={newPool.healthCheckEnabled}
-                  onCheckedChange={(checked) => setNewPool({ ...newPool, healthCheckEnabled: checked })}
+                <FormField
+                  control={createPoolForm.control}
+                  name="algorithm"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Algorithm</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select algorithm" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {Object.entries(algorithmLabels).filter((_, i) => i % 2 === 0).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
-              </div>
-              {newPool.healthCheckEnabled && (
-                <>
-                  <div className="grid gap-2">
-                    <Label htmlFor="hc-type">Health Check Type</Label>
-                    <Select
-                      value={newPool.healthCheckType}
-                      onValueChange={(value: string) => setNewPool({ ...newPool, healthCheckType: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="http">HTTP</SelectItem>
-                        <SelectItem value="tcp">TCP</SelectItem>
-                        <SelectItem value="grpc">gRPC</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="hc-path">Health Check Path</Label>
-                    <Input 
-                      id="hc-path"
-                      placeholder="/health"
-                      value={newPool.healthCheckPath}
-                      onChange={(e) => setNewPool({ ...newPool, healthCheckPath: e.target.value })}
+                <FormField
+                  control={createPoolForm.control}
+                  name="healthCheckEnabled"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between space-y-0">
+                      <FormLabel>Enable Health Checks</FormLabel>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                {createPoolForm.watch("healthCheckEnabled") && (
+                  <>
+                    <FormField
+                      control={createPoolForm.control}
+                      name="healthCheckType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Health Check Type</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="http">HTTP</SelectItem>
+                              <SelectItem value="tcp">TCP</SelectItem>
+                              <SelectItem value="grpc">gRPC</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
                     />
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="hc-interval">Interval</Label>
-                    <Select
-                      value={newPool.healthCheckInterval}
-                      onValueChange={(value: string) => setNewPool({ ...newPool, healthCheckInterval: value })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="5s">5 seconds</SelectItem>
-                        <SelectItem value="10s">10 seconds</SelectItem>
-                        <SelectItem value="30s">30 seconds</SelectItem>
-                        <SelectItem value="1m">1 minute</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={() => { toast.info("Pool creation requires config file update and reload"); setCreateDialogOpen(false) }} disabled={!newPool.name}>
-                Create Pool
-              </Button>
-            </DialogFooter>
+                    <FormField
+                      control={createPoolForm.control}
+                      name="healthCheckPath"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Health Check Path</FormLabel>
+                          <FormControl>
+                            <Input placeholder="/health" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={createPoolForm.control}
+                      name="healthCheckInterval"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Interval</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="5s">5 seconds</SelectItem>
+                              <SelectItem value="10s">10 seconds</SelectItem>
+                              <SelectItem value="30s">30 seconds</SelectItem>
+                              <SelectItem value="1m">1 minute</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
+                <DialogFooter>
+                  <Button variant="outline" type="button" onClick={() => { setCreateDialogOpen(false); createPoolForm.reset() }}>
+                    Cancel
+                  </Button>
+                  <Button type="submit" disabled={createPoolForm.formState.isSubmitting}>
+                    {createPoolForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Create Pool
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
           </DialogContent>
         </Dialog>
       </div>
@@ -364,7 +430,7 @@ export function PoolsPage() {
               <TabsContent value="backends" className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-medium">Backends</h3>
-                  <Dialog open={backendDialogOpen} onOpenChange={setBackendDialogOpen}>
+                  <Dialog open={backendDialogOpen} onOpenChange={(open) => { setBackendDialogOpen(open); if (!open) addBackendForm.reset() }}>
                     <DialogTrigger asChild>
                       <Button size="sm">
                         <Plus className="mr-2 h-4 w-4" />
@@ -378,35 +444,45 @@ export function PoolsPage() {
                           Add a new backend server to this pool.
                         </DialogDescription>
                       </DialogHeader>
-                      <div className="grid gap-4 py-4">
-                        <div className="grid gap-2">
-                          <Label htmlFor="address">Backend Address</Label>
-                          <Input 
-                            id="address"
-                            placeholder="e.g., 10.0.1.10:8080"
-                            value={newBackend.address}
-                            onChange={(e) => setNewBackend({ ...newBackend, address: e.target.value })}
+                      <Form {...addBackendForm}>
+                        <form onSubmit={addBackendForm.handleSubmit(handleAddBackend)} className="grid gap-4 py-4">
+                          <FormField
+                            control={addBackendForm.control}
+                            name="address"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Backend Address</FormLabel>
+                                <FormControl>
+                                  <Input placeholder="e.g., 10.0.1.10:8080" {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
                           />
-                        </div>
-                        <div className="grid gap-2">
-                          <Label htmlFor="weight">Weight</Label>
-                          <Input 
-                            id="weight"
-                            type="number"
-                            min={1}
-                            value={newBackend.weight}
-                            onChange={(e) => setNewBackend({ ...newBackend, weight: parseInt(e.target.value) || 1 })}
+                          <FormField
+                            control={addBackendForm.control}
+                            name="weight"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Weight</FormLabel>
+                                <FormControl>
+                                  <Input type="number" min={1} {...field} />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
                           />
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setBackendDialogOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={handleAddBackend} disabled={!newBackend.address}>
-                          Add Backend
-                        </Button>
-                      </DialogFooter>
+                          <DialogFooter>
+                            <Button variant="outline" type="button" onClick={() => { setBackendDialogOpen(false); addBackendForm.reset() }}>
+                              Cancel
+                            </Button>
+                            <Button type="submit" disabled={!addBackendForm.formState.isValid || addBackendForm.formState.isSubmitting}>
+                              {addBackendForm.formState.isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                              Add Backend
+                            </Button>
+                          </DialogFooter>
+                        </form>
+                      </Form>
                     </DialogContent>
                   </Dialog>
                 </div>
@@ -441,7 +517,7 @@ export function PoolsPage() {
                               variant="ghost"
                               size="icon"
                               className="h-9 w-9 shrink-0 text-destructive" aria-label="Delete backend"
-                              onClick={() => handleDeleteBackend(backend.id)}
+                              onClick={() => setDeleteBackendId(backend.id)}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -534,6 +610,25 @@ export function PoolsPage() {
           )}
         </div>
       </div>
+
+      {/* Delete Backend Confirmation */}
+      <AlertDialog open={deleteBackendId !== null} onOpenChange={(open) => { if (!open) setDeleteBackendId(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Backend</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove {pendingBackend?.address ?? "this backend"} from {selectedPool?.name}? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => deleteBackendId && handleDeleteBackend(deleteBackendId)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              <Trash2 className="mr-2 h-4 w-4" />
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

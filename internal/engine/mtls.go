@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync"
@@ -88,7 +89,7 @@ func (l *mtlsHTTPSListener) Start() error {
 	defer l.mu.Unlock()
 
 	if l.running {
-		return fmt.Errorf("listener already running")
+		return errors.New("listener already running")
 	}
 
 	srv := &http.Server{
@@ -125,7 +126,7 @@ func (l *mtlsHTTPSListener) Stop(ctx context.Context) error {
 	defer l.mu.Unlock()
 
 	if !l.running {
-		return fmt.Errorf("listener not running")
+		return errors.New("listener not running")
 	}
 
 	l.running = false

@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from 'react-router'
 import { ThemeProvider } from '@/components/theme-provider'
 import { QueryProvider } from '@/lib/query-provider'
 import { Toaster } from '@/components/ui/sonner'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { Layout } from '@/components/layout'
 import { ErrorBoundary } from '@/pages/error'
 import './index.css'
@@ -49,7 +50,8 @@ function PageLoader() {
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
 		<QueryProvider>
-			<ThemeProvider defaultTheme="system" storageKey="olb-theme">
+			<TooltipProvider>
+				<ThemeProvider defaultTheme="system" storageKey="olb-theme">
 				<BrowserRouter>
 					<Layout>
 						<Suspense fallback={<PageLoader />}>
@@ -69,9 +71,10 @@ createRoot(document.getElementById('root')!).render(
 							</Routes>
 						</Suspense>
 					</Layout>
-					<Toaster position="bottom-right" />
+					<Toaster />
 				</BrowserRouter>
 			</ThemeProvider>
+			</TooltipProvider>
 		</QueryProvider>
 	</StrictMode>,
 )

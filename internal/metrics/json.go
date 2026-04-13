@@ -2,8 +2,8 @@ package metrics
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
+	"strconv"
 	"strings"
 )
 
@@ -118,9 +118,9 @@ func (h *JSONHandler) WriteMetrics(w io.Writer) error {
 // formatFloat formats a float as a compact string.
 func formatFloat(f float64) string {
 	if f == float64(int64(f)) {
-		return fmt.Sprintf("%d", int64(f))
+		return strconv.FormatInt(int64(f), 10)
 	}
-	return fmt.Sprintf("%g", f)
+	return strconv.FormatFloat(f, 'g', -1, 64)
 }
 
 // formatLabelMap formats a label map as a string.

@@ -177,3 +177,21 @@ func (c *Chain) Clear() *Chain {
 	c.sorted = nil // invalidate cache
 	return c
 }
+
+// SecretZeroer is an optional interface that middleware can implement
+// to zero sensitive secrets from memory on shutdown.
+type SecretZeroer interface {
+	ZeroSecrets()
+}
+
+// ZeroSecrets calls ZeroSecrets() on all middleware that implement the SecretZeroer interface.
+// Call this during graceful shutdown to reduce the window where secrets remain in memory.
+func (c *Chain) ZeroSecrets() {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, mw := range c.middlewares {
+		if z, ok := mw.(SecretZeroer); ok {
+			z.ZeroSecrets()
+		}
+	}
+}

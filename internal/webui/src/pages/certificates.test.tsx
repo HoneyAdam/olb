@@ -4,6 +4,14 @@ import userEvent from '@testing-library/user-event'
 import { CertificatesPage } from '@/pages/certificates'
 import { toast } from 'sonner'
 
+// Polyfill ResizeObserver for jsdom
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+globalThis.ResizeObserver = ResizeObserverMock
+
 const { mockUseCertificates } = vi.hoisted(() => ({
   mockUseCertificates: vi.fn(),
 }))

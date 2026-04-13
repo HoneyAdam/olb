@@ -432,6 +432,11 @@ jobs:
       - name: Verify module checksums
         run: go mod verify
 
+      - name: Run govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          govulncheck ./...
+
       - name: Run Nancy (dependency vulnerability scanner)
         run: |
           go install github.com/sonatypecommunity/nancy@v1.0.106
@@ -494,10 +499,19 @@ jobs:
       - name: Build release binaries
         run: make build-all
 
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: bin/olb-linux-amd64
+          format: spdx-json
+          output-file: sbom.spdx.json
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: bin/*
+          files: |
+            bin/*
+            sbom.spdx.json
           draft: true
           prerelease: ${{ contains(github.ref, 'rc') || contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
           generate_release_notes: true

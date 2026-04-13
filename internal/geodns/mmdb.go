@@ -11,6 +11,7 @@ package geodns
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"net"
@@ -119,7 +120,7 @@ func findMetadata(data []byte) (uint32, error) {
 		}
 	}
 
-	return 0, fmt.Errorf("geodns: mmdb metadata marker not found")
+	return 0, errors.New("geodns: mmdb metadata marker not found")
 }
 
 // parseMetadata decodes the metadata map at the given offset.
@@ -148,10 +149,10 @@ func parseMetadata(data []byte, offset uint32) (mmdbMetadata, error) {
 	}
 
 	if meta.nodeCount == 0 {
-		return mmdbMetadata{}, fmt.Errorf("geodns: missing node_count in metadata")
+		return mmdbMetadata{}, errors.New("geodns: missing node_count in metadata")
 	}
 	if meta.recordSize == 0 {
-		return mmdbMetadata{}, fmt.Errorf("geodns: missing record_size in metadata")
+		return mmdbMetadata{}, errors.New("geodns: missing record_size in metadata")
 	}
 
 	return meta, nil
@@ -191,7 +192,7 @@ func (r *mmdbReader) lookup(ip net.IP) (result, error) {
 	// Normalize to 16-byte form for consistent bit traversal
 	ip = ip.To16()
 	if ip == nil {
-		return result{}, fmt.Errorf("invalid IP")
+		return result{}, errors.New("invalid IP")
 	}
 
 	// For IPv4 addresses in an IPv6 database, the tree handles this naturally
@@ -214,11 +215,12 @@ func (r *mmdbReader) lookup(ip net.IP) (result, error) {
 		if record == r.meta.nodeCount {
 			// Empty record — IP not found
 			return result{}, nil
-		} else if record > r.meta.nodeCount {
+		}
+		if record > r.meta.nodeCount {
 			// Data record: offset from data section start
 			dataOffset := r.dataBase + (record - r.meta.nodeCount - 16)
 			if dataOffset >= uint32(len(r.data)) {
-				return result{}, fmt.Errorf("data offset out of bounds")
+				return result{}, errors.New("data offset out of bounds")
 			}
 			res, _ := r.decodeField(dataOffset)
 			return res, nil

@@ -2,9 +2,11 @@
 package geodns
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -117,10 +119,10 @@ func (g *GeoDNS) Route(r *http.Request) (pool string, location *Location, err er
 // AddRule adds a new GeoDNS rule.
 func (g *GeoDNS) AddRule(rule GeoRule) error {
 	if rule.ID == "" {
-		return fmt.Errorf("rule ID is required")
+		return errors.New("rule ID is required")
 	}
 	if rule.Pool == "" {
-		return fmt.Errorf("rule pool is required")
+		return errors.New("rule pool is required")
 	}
 
 	g.mu.Lock()
@@ -203,7 +205,7 @@ func (g *GeoDNS) Close() {
 // Safe to call while lookups are in progress.
 func (g *GeoDNS) ReloadDB() error {
 	if g.mmdbPath == "" {
-		return fmt.Errorf("no database path configured")
+		return errors.New("no database path configured")
 	}
 
 	reader, err := newMMDBReader(g.mmdbPath)
@@ -407,8 +409,8 @@ func (g *GeoDNS) Middleware(next http.Handler) http.Handler {
 			r.Header.Set("X-Geo-Country", loc.Country)
 			r.Header.Set("X-Geo-Region", loc.Region)
 			r.Header.Set("X-Geo-City", loc.City)
-			r.Header.Set("X-Geo-Lat", fmt.Sprintf("%f", loc.Latitude))
-			r.Header.Set("X-Geo-Lon", fmt.Sprintf("%f", loc.Longitude))
+			r.Header.Set("X-Geo-Lat", strconv.FormatFloat(loc.Latitude, 'f', -1, 64))
+			r.Header.Set("X-Geo-Lon", strconv.FormatFloat(loc.Longitude, 'f', -1, 64))
 		}
 		next.ServeHTTP(w, r)
 	})

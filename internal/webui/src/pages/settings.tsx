@@ -4,10 +4,11 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Settings, Server, Globe, Shield, RotateCcw } from "lucide-react"
+import { Settings, Server, Globe, Shield, RotateCcw, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { useConfig } from "@/hooks/use-query"
 import { api } from "@/lib/api"
+import { LoadingCard } from "@/components/ui/loading"
 
 interface ListenerConfig {
   name: string
@@ -23,11 +24,12 @@ interface PoolConfig {
   health_check?: { type: string; path: string; interval: string }
 }
 
+import { type OLBConfig } from "@/types"
+
 export function SettingsPage() {
   useDocumentTitle("Settings")
-  const { data: config } = useConfig()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const c = (config?.data ?? config) as Record<string, any> | undefined
+  const { data: config, isLoading, error, refetch } = useConfig()
+  const c = (config?.data ?? config) as OLBConfig | undefined
 
   const handleReload = async () => {
     try {
@@ -39,10 +41,41 @@ export function SettingsPage() {
     }
   }
 
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+          <p className="text-muted-foreground">View current configuration</p>
+        </div>
+        <LoadingCard />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+          <p className="text-muted-foreground">View current configuration</p>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-destructive">Failed to load configuration: {error.message}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
         <p className="text-muted-foreground">View current configuration</p>
       </div>
 

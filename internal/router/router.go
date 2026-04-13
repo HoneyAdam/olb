@@ -251,7 +251,10 @@ func (r *Router) matchInHostTrie(ht *hostTrie, path string, req *http.Request) *
 	}
 
 	// Get the matched path pattern
-	matchedPath, _ := result.Value.(string)
+	var matchedPath string
+	if s, ok := result.Value.(string); ok {
+		matchedPath = s
+	}
 
 	// Get all routes for this path
 	entry, exists := ht.routes[matchedPath]

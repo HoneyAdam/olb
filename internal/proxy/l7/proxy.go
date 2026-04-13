@@ -242,7 +242,12 @@ func (p *HTTPProxy) ShadowManager() *ShadowManager {
 
 // getErrorHandler returns the current error handler.
 func (p *HTTPProxy) getErrorHandler() func(http.ResponseWriter, *http.Request, error) {
-	return p.errorHandler.Load().(func(http.ResponseWriter, *http.Request, error))
+	if v := p.errorHandler.Load(); v != nil {
+		if fn, ok := v.(func(http.ResponseWriter, *http.Request, error)); ok {
+			return fn
+		}
+	}
+	return defaultErrorHandler
 }
 
 // contextKey is a private type for context keys.
@@ -251,9 +256,6 @@ type contextKey int
 const (
 	backendIDKey contextKey = iota
 	requestStateKey
-	// Legacy keys kept for any external consumers reading from context.
-	reqCtxKey
-	routeMatchKey
 )
 
 // buildCachedHandler builds and caches the middleware chain handler.
@@ -261,13 +263,21 @@ const (
 func (p *HTTPProxy) buildCachedHandler() {
 	if p.middlewareChain == nil {
 		p.cachedHandler.Store(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			rs := r.Context().Value(requestStateKey).(*requestState)
+			rs, ok := r.Context().Value(requestStateKey).(*requestState)
+			if !ok {
+				http.Error(w, "internal error: missing request state", http.StatusInternalServerError)
+				return
+			}
 			p.proxyHandler(w, r, rs.reqCtx, rs.routeMatch)
 		}))
 		return
 	}
 	p.cachedHandler.Store(p.middlewareChain.Then(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		rs := r.Context().Value(requestStateKey).(*requestState)
+		rs, ok := r.Context().Value(requestStateKey).(*requestState)
+		if !ok {
+			http.Error(w, "internal error: missing request state", http.StatusInternalServerError)
+			return
+		}
 		p.proxyHandler(w, r, rs.reqCtx, rs.routeMatch)
 	})))
 }
@@ -302,7 +312,13 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(ctx)
 
 	// Use cached handler (built once, not per-request)
-	p.cachedHandler.Load().(http.Handler).ServeHTTP(w, r)
+	if v := p.cachedHandler.Load(); v != nil {
+		if h, ok := v.(http.Handler); ok {
+			h.ServeHTTP(w, r)
+			return
+		}
+	}
+	http.Error(w, "proxy not initialized", http.StatusServiceUnavailable)
 }
 
 // proxyHandler handles the actual proxying.

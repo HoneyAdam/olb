@@ -1,5 +1,5 @@
 # Frontend build stage
-FROM node:20-alpine AS frontend
+FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153113bb8f333c AS frontend
 
 WORKDIR /build/webui
 COPY internal/webui/package.json internal/webui/package-lock.json ./
@@ -8,7 +8,7 @@ COPY internal/webui/ ./
 RUN npm run build
 
 # Go build stage
-FROM golang:1.26-alpine AS builder
+FROM golang:1.26-alpine@sha256:c2a1f7b2095d046ae14b286b18413a05bb82c9bca9b25fe7ff5efef0f0826166 AS builder
 
 # Install build dependencies
 RUN apk add --no-cache git make
@@ -34,7 +34,7 @@ RUN CGO_ENABLED=0 go build -trimpath \
     -o bin/olb ./cmd/olb
 
 # Runtime stage
-FROM alpine:3.20
+FROM alpine:3.20@sha256:a4f4213abb84c497377b8544c81b3564f313746700372ec4fe84653e4fb03805
 
 # Install runtime dependencies
 RUN apk add --no-cache ca-certificates tzdata

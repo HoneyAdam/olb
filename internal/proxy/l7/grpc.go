@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -266,6 +267,9 @@ func encodeTrailersAsGRPCWebFrame(trailers http.Header) []byte {
 		trailerBuf = append(trailerBuf, "grpc-status: 0\r\n"...)
 	}
 
+	if len(trailerBuf) > math.MaxUint32 {
+		trailerBuf = trailerBuf[:math.MaxUint32]
+	}
 	buf = make([]byte, 5+len(trailerBuf))
 	buf[0] = 0x80 // trailer flag
 	binary.BigEndian.PutUint32(buf[1:5], uint32(len(trailerBuf)))

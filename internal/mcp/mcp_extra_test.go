@@ -135,7 +135,9 @@ func TestSSETransport_HandleSSE_MessagesChannelClosed(t *testing.T) {
 func TestHTTPTransport_ServeHTTP_InvalidJSONBody(t *testing.T) {
 	s := newTestServer()
 	transport, err := NewHTTPTransport(s, ":0", "test-token")
-	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	// Send malformed JSON - HandleJSONRPC handles parse errors internally
 	// and returns a JSON response, so it should still return 200
@@ -575,7 +577,9 @@ func TestRegisterCustomPrompt(t *testing.T) {
 func TestHTTPTransport_BearerAuth_ShortHeader(t *testing.T) {
 	s := newTestServer()
 	transport, err := NewHTTPTransport(s, ":0", "secret-token")
-	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))

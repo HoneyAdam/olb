@@ -1395,11 +1395,9 @@ func TestDecodeScalar_IntFromFloat(t *testing.T) {
 	}
 
 	var cfg Config
-	if err := Decode([]byte(input), &cfg); err != nil {
-		t.Fatalf("decode error: %v", err)
-	}
-	if cfg.Count != 3 {
-		t.Errorf("Count = %d, want 3", cfg.Count)
+	// Float-to-int truncation is now rejected for safety
+	if err := Decode([]byte(input), &cfg); err == nil {
+		t.Error("expected error for float-to-int truncation, got nil")
 	}
 }
 

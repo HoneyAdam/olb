@@ -57,7 +57,7 @@ func newTerminal() (*Terminal, error) {
 		uintptr(unsafe.Pointer(&original)),
 	)
 	if errno != 0 {
-		return nil, fmt.Errorf("tcgetattr failed: %v", errno)
+		return nil, fmt.Errorf("tcgetattr failed: %w", errno)
 	}
 
 	// Save original state
@@ -81,7 +81,7 @@ func newTerminal() (*Terminal, error) {
 		uintptr(unsafe.Pointer(&raw)),
 	)
 	if errno != 0 {
-		return nil, fmt.Errorf("tcsetattr failed: %v", errno)
+		return nil, fmt.Errorf("tcsetattr failed: %w", errno)
 	}
 
 	return &Terminal{
@@ -103,7 +103,7 @@ func (t *Terminal) restore() error {
 		uintptr(unsafe.Pointer(&state.original)),
 	)
 	if errno != 0 {
-		return fmt.Errorf("tcsetattr failed: %v", errno)
+		return fmt.Errorf("tcsetattr failed: %w", errno)
 	}
 
 	// Clear screen and show cursor

@@ -253,8 +253,11 @@ func (m *NodeAuthMiddleware) Accept() (net.Conn, error) {
 	}
 }
 
-// Close closes the underlying listener.
+// Close closes the underlying listener and zeros the shared secret.
 func (m *NodeAuthMiddleware) Close() error {
+	for i := range m.secret {
+		m.secret[i] = 0
+	}
 	return m.inner.Close()
 }
 

@@ -87,28 +87,28 @@ func (g *Gossip) handleAck(payload []byte) {
 	ah, ok := g.ackHandlers[seqNo]
 	if ok {
 		delete(g.ackHandlers, seqNo)
-	}
-	g.ackHandlersMu.Unlock()
-
-	if ok {
 		ah.timer.Stop()
 		select {
 		case ah.ackCh <- struct{}{}:
 		default:
 		}
 	}
+	g.ackHandlersMu.Unlock()
 
-	// Refresh the sender's alive status.
-	g.membersMu.Lock()
-	if m, ok := g.members[senderID]; ok {
-		if m.State == StateSuspect {
-			m.State = StateAlive
-			g.cancelSuspicion(senderID)
-			g.emitEvent(EventUpdate, m)
+	if ok {
+
+		// Refresh the sender's alive status.
+		g.membersMu.Lock()
+		if m, ok := g.members[senderID]; ok {
+			if m.State == StateSuspect {
+				m.State = StateAlive
+				g.cancelSuspicion(senderID)
+				g.emitEvent(EventUpdate, m)
+			}
+			m.LastSeen = g.nowFn()
 		}
-		m.LastSeen = g.nowFn()
+		g.membersMu.Unlock()
 	}
-	g.membersMu.Unlock()
 }
 
 // handlePingReq handles an indirect probe request. We ping the target on

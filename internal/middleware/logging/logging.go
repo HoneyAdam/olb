@@ -4,6 +4,7 @@ package logging
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/openloadbalancer/olb/pkg/utils"
@@ -190,7 +191,7 @@ func (m *Middleware) buildCommonLogEntry(r *http.Request, rec *responseRecorder,
 
 // buildJSONEntry creates JSON formatted log entry.
 func (m *Middleware) buildJSONEntry(r *http.Request, rec *responseRecorder, duration time.Duration, start time.Time) string {
-	fields := []string{}
+	fields := make([]string, 0, len(m.config.Fields))
 
 	for _, field := range m.config.Fields {
 		var value string
@@ -204,11 +205,11 @@ func (m *Middleware) buildJSONEntry(r *http.Request, rec *responseRecorder, dura
 		case "query":
 			value = fmt.Sprintf("\"query\":\"%s\"", r.URL.RawQuery)
 		case "status":
-			value = fmt.Sprintf("\"status\":%d", rec.statusCode)
+			value = "\"status\":" + strconv.Itoa(rec.statusCode)
 		case "duration":
-			value = fmt.Sprintf("\"duration_ms\":%d", duration.Milliseconds())
+			value = "\"duration_ms\":" + strconv.FormatInt(duration.Milliseconds(), 10)
 		case "bytes":
-			value = fmt.Sprintf("\"bytes_sent\":%d", rec.bytesSent)
+			value = "\"bytes_sent\":" + strconv.Itoa(rec.bytesSent)
 		case "ip":
 			ip := utils.ExtractIP(r.RemoteAddr)
 			value = fmt.Sprintf("\"client_ip\":\"%s\"", ip)
@@ -255,10 +256,10 @@ func (m *Middleware) buildCustomEntry(r *http.Request, rec *responseRecorder, du
 		"$method":      r.Method,
 		"$path":        r.URL.Path,
 		"$query":       r.URL.RawQuery,
-		"$status":      fmt.Sprintf("%d", rec.statusCode),
-		"$duration_ms": fmt.Sprintf("%d", duration.Milliseconds()),
+		"$status":      strconv.Itoa(rec.statusCode),
+		"$duration_ms": strconv.FormatInt(duration.Milliseconds(), 10),
 		"$duration":    duration.String(),
-		"$bytes":       fmt.Sprintf("%d", rec.bytesSent),
+		"$bytes":       strconv.Itoa(rec.bytesSent),
 		"$ip":          ip,
 		"$host":        r.Host,
 		"$user_agent":  r.UserAgent(),

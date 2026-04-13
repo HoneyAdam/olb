@@ -27,7 +27,7 @@ func NewMetricsFetcher(apiAddr string) *MetricsFetcher {
 
 // FetchSystemInfo fetches system information.
 func (f *MetricsFetcher) FetchSystemInfo() (*admin.SystemInfo, error) {
-	url := fmt.Sprintf("http://%s/api/v1/system/info", f.apiAddr)
+	url := "http://" + f.apiAddr + "/api/v1/system/info"
 	resp, err := f.client.Get(url)
 	if err != nil {
 		return nil, err
@@ -57,7 +57,7 @@ func (f *MetricsFetcher) FetchSystemInfo() (*admin.SystemInfo, error) {
 
 // FetchBackends fetches backend information.
 func (f *MetricsFetcher) FetchBackends() ([]admin.BackendPool, error) {
-	url := fmt.Sprintf("http://%s/api/v1/backends", f.apiAddr)
+	url := "http://" + f.apiAddr + "/api/v1/backends"
 	resp, err := f.client.Get(url)
 	if err != nil {
 		return nil, err
@@ -87,7 +87,7 @@ func (f *MetricsFetcher) FetchBackends() ([]admin.BackendPool, error) {
 
 // FetchRoutes fetches route information.
 func (f *MetricsFetcher) FetchRoutes() ([]admin.Route, error) {
-	url := fmt.Sprintf("http://%s/api/v1/routes", f.apiAddr)
+	url := "http://" + f.apiAddr + "/api/v1/routes"
 	resp, err := f.client.Get(url)
 	if err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (f *MetricsFetcher) FetchRoutes() ([]admin.Route, error) {
 
 // FetchHealth fetches health status.
 func (f *MetricsFetcher) FetchHealth() (*admin.HealthStatus, error) {
-	url := fmt.Sprintf("http://%s/api/v1/system/health", f.apiAddr)
+	url := "http://" + f.apiAddr + "/api/v1/system/health"
 	resp, err := f.client.Get(url)
 	if err != nil {
 		return nil, err

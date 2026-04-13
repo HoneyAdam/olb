@@ -59,7 +59,7 @@ func DefaultStickyConfig() *StickyConfig {
 		CookieName:     "OLB_SRV",
 		CookiePath:     "/",
 		CookieMaxAge:   0,
-		CookieSecure:   false,
+		CookieSecure:   true,
 		CookieHttpOnly: true,
 		CookieSameSite: http.SameSiteLaxMode,
 		HeaderName:     "X-Backend-ID",

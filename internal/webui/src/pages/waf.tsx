@@ -19,14 +19,15 @@ export function WAFPage() {
   useDocumentTitle("WAF")
   const { data: wafStatus, isLoading, error, refetch } = useWAFStatus()
   const { data: config } = useConfig()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const wafConfig = ((config as any)?.data ?? config)?.waf as Record<string, any> | undefined
+  // Handle both API response shape and test mock shape
+  const configData = (config?.data ?? config) as Record<string, unknown> | undefined
+  const wafConfig = configData?.waf as Record<string, unknown> | undefined
 
   if (isLoading) {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Web Application Firewall</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Web Application Firewall</h1>
           <p className="text-muted-foreground">Protect your applications from attacks</p>
         </div>
         <LoadingCard />
@@ -38,7 +39,7 @@ export function WAFPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Web Application Firewall</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Web Application Firewall</h1>
           <p className="text-muted-foreground">Protect your applications from attacks</p>
         </div>
         <Card>
@@ -75,11 +76,11 @@ export function WAFPage() {
   const totalRequests = stats?.total_requests ?? 0
 
   // Extract rate limit rules from config
-  const rateLimitRules = wafConfig?.rate_limit?.rules as Array<Record<string, any>> ?? []
+  const rateLimitRules = (wafConfig?.rate_limit as Record<string, unknown> | undefined)?.rules as Array<Record<string, unknown>> | undefined ?? []
 
   // Extract detection config
-  const detectionConfig = wafConfig?.detection as Record<string, any> | undefined
-  const detectors = detectionConfig?.detectors as Record<string, Record<string, any>> | undefined
+  const detectionConfig = wafConfig?.detection as Record<string, unknown> | undefined
+  const detectors = detectionConfig?.detectors as Record<string, Record<string, unknown>> | undefined
 
   const mode = wafStatus.mode || 'unknown'
 
@@ -87,7 +88,7 @@ export function WAFPage() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Web Application Firewall</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Web Application Firewall</h1>
           <p className="text-muted-foreground">Protect your applications from attacks</p>
         </div>
         <div className="flex items-center gap-3">
@@ -231,26 +232,32 @@ export function WAFPage() {
           <h3 className="text-lg font-medium">WAF Rate Limiting Rules</h3>
           {rateLimitRules.length > 0 ? (
             <div className="grid gap-4">
-              {rateLimitRules.map((rl, i) => (
-                <Card key={i}>
-                  <CardContent className="p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <div className="font-medium">{rl.id || `Rule ${i + 1}`}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {rl.limit || rl.requests || '?'} requests per {rl.window || '?'}
-                          {rl.scope && ` (scope: ${rl.scope})`}
+              {rateLimitRules.map((rl, i) => {
+                const limit = (rl.limit ?? rl.requests ?? '?') as string | number | '?'
+                const window_ = (rl.window ?? '?') as string | '?'
+                const scope = rl.scope as string | undefined
+                const action = (rl.action ?? 'block') as string
+                return (
+                  <Card key={i}>
+                    <CardContent className="p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <div className="font-medium">{(rl.id as string | undefined) || `Rule ${i + 1}`}</div>
+                          <div className="text-sm text-muted-foreground">
+                            {limit} requests per {window_}
+                            {scope && ` (scope: ${scope})`}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <Badge variant={action === 'block' ? 'destructive' : 'default'}>
+                            {action}
+                          </Badge>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4">
-                        <Badge variant={rl.action === 'block' ? 'destructive' : 'default'}>
-                          {rl.action || 'block'}
-                        </Badge>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+                    </CardContent>
+                  </Card>
+                )
+              })}
             </div>
           ) : (
             <Card>
@@ -282,28 +289,41 @@ export function WAFPage() {
                   <span className="text-sm">Mode</span>
                   <Badge variant="outline">{mode}</Badge>
                 </div>
-                {wafConfig?.ip_acl && (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm">IP ACL Auto-Ban</span>
-                    <Badge variant={wafConfig.ip_acl.auto_ban?.enabled ? 'default' : 'secondary'}>
-                      {wafConfig.ip_acl.auto_ban?.enabled ? 'Enabled' : 'Disabled'}
-                    </Badge>
-                  </div>
-                )}
-                {wafConfig?.sanitizer && (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm">Sanitizer</span>
-                    <Badge variant={wafConfig.sanitizer.enabled ? 'default' : 'secondary'}>
-                      {wafConfig.sanitizer.enabled ? 'Enabled' : 'Disabled'}
-                    </Badge>
-                  </div>
-                )}
-                {wafConfig?.bot_detection && (
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm">Bot Detection Mode</span>
-                    <Badge variant="outline">{wafConfig.bot_detection.mode || 'unknown'}</Badge>
-                  </div>
-                )}
+                {(() => {
+                  const ipAcl = wafConfig?.ip_acl as Record<string, unknown> | undefined
+                  if (!ipAcl) return null
+                  const autoBan = ipAcl.auto_ban as Record<string, unknown> | undefined
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm">IP ACL Auto-Ban</span>
+                      <Badge variant={autoBan?.enabled ? 'default' : 'secondary'}>
+                        {autoBan?.enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </div>
+                  )
+                })()}
+                {(() => {
+                  const sanitizer = wafConfig?.sanitizer as Record<string, unknown> | undefined
+                  if (!sanitizer) return null
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm">Sanitizer</span>
+                      <Badge variant={sanitizer.enabled ? 'default' : 'secondary'}>
+                        {sanitizer.enabled ? 'Enabled' : 'Disabled'}
+                      </Badge>
+                    </div>
+                  )
+                })()}
+                {(() => {
+                  const botDetection = wafConfig?.bot_detection as Record<string, unknown> | undefined
+                  if (!botDetection) return null
+                  return (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-sm">Bot Detection Mode</span>
+                      <Badge variant="outline">{String(botDetection.mode || 'unknown')}</Badge>
+                    </div>
+                  )
+                })()}
               </div>
               <p className="text-xs text-muted-foreground mt-4">
                 WAF is configured via the config file. Edit the config file and reload to make changes.

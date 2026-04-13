@@ -2,7 +2,9 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -160,7 +162,7 @@ func (cm *ClusterManager) Join(seedAddrs []string) error {
 	cm.mu.Lock()
 	if cm.clusterSt == ClusterStateActive {
 		cm.mu.Unlock()
-		return fmt.Errorf("already part of a cluster")
+		return errors.New("already part of a cluster")
 	}
 	cm.clusterSt = ClusterStateJoining
 	cm.seedAddrs = seedAddrs
@@ -170,7 +172,7 @@ func (cm *ClusterManager) Join(seedAddrs []string) error {
 		cm.mu.Lock()
 		cm.clusterSt = ClusterStateStandalone
 		cm.mu.Unlock()
-		return fmt.Errorf("cluster not initialized")
+		return errors.New("cluster not initialized")
 	}
 
 	// Add seed addresses as peers
@@ -366,11 +368,10 @@ func (cm *ClusterManager) handleClusterJoin(w http.ResponseWriter, r *http.Reque
 	}
 
 	var req joinRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON: "+err.Error())
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeJSONError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON")
 		return
 	}
-	defer r.Body.Close()
 
 	if len(req.SeedAddrs) == 0 {
 		writeJSONError(w, http.StatusBadRequest, "MISSING_FIELD", "seed_addrs is required")
@@ -378,7 +379,7 @@ func (cm *ClusterManager) handleClusterJoin(w http.ResponseWriter, r *http.Reque
 	}
 
 	if err := cm.Join(req.SeedAddrs); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "JOIN_FAILED", err.Error())
+		writeJSONError(w, http.StatusInternalServerError, "JOIN_FAILED", "failed to join cluster")
 		return
 	}
 
@@ -396,7 +397,7 @@ func (cm *ClusterManager) handleClusterLeave(w http.ResponseWriter, r *http.Requ
 	}
 
 	if err := cm.Leave(); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, "LEAVE_FAILED", err.Error())
+		writeJSONError(w, http.StatusInternalServerError, "LEAVE_FAILED", "failed to leave cluster")
 		return
 	}
 

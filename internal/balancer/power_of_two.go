@@ -66,7 +66,8 @@ func (p *PowerOfTwo) Next(ctx *RequestContext, backends []*backend.Backend) *bac
 
 	if conns1 < conns2 {
 		return b1
-	} else if conns2 < conns1 {
+	}
+	if conns2 < conns1 {
 		return b2
 	}
 

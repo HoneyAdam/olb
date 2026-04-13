@@ -76,6 +76,19 @@ func New(config Config) (*Middleware, error) {
 	return m, nil
 }
 
+// ZeroSecrets clears pre-computed password hashes from memory.
+// Call this during shutdown to reduce the window where secrets are in memory.
+func (m *Middleware) ZeroSecrets() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for user, hash := range m.hashes {
+		for i := range hash {
+			hash[i] = 0
+		}
+		delete(m.hashes, user)
+	}
+}
+
 // Name returns the middleware name.
 func (m *Middleware) Name() string {
 	return "basic_auth"

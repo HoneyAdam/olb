@@ -419,6 +419,11 @@ func (e *Engine) Shutdown(ctx context.Context) error {
 		e.logger.Info("Profiling stopped")
 	}
 
+	// 9. Zero secrets from middleware
+	if e.middlewareChain != nil {
+		e.middlewareChain.ZeroSecrets()
+	}
+
 	// Signal stop
 	e.stopOnce.Do(func() {
 		close(e.stopCh)

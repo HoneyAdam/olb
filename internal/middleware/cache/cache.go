@@ -383,7 +383,7 @@ func (m *Middleware) isCacheable(rec *httptest.ResponseRecorder, r *http.Request
 	}
 
 	// Check body size
-	if m.config.MaxSize > 0 && rec.Body.Len() > int(m.config.MaxSize) {
+	if m.config.MaxSize > 0 && int64(rec.Body.Len()) > m.config.MaxSize {
 		return false
 	}
 
@@ -433,7 +433,7 @@ func (m *Middleware) serveFromCache(w http.ResponseWriter, r *http.Request, cach
 
 	// Write response
 	w.WriteHeader(cached.StatusCode)
-	w.Write(cached.Body)
+	_, _ = w.Write(cached.Body)
 }
 
 // writeResponse writes the recorded response to the client.
@@ -450,7 +450,7 @@ func (m *Middleware) writeResponse(w http.ResponseWriter, rec *httptest.Response
 
 	// Write response
 	w.WriteHeader(rec.Code)
-	w.Write(rec.Body.Bytes())
+	_, _ = w.Write(rec.Body.Bytes())
 }
 
 // parseMaxAge parses max-age directive from Cache-Control header.

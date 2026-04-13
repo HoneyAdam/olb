@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/openloadbalancer/olb/pkg/utils"
@@ -256,13 +257,13 @@ func (m *AccessLogMiddleware) logJSON(ctx *RequestContext, body []byte, bodyTrun
 
 	// Status
 	sb.WriteString(`"status":`)
-	sb.WriteString(fmt.Sprintf("%d", ctx.StatusCode))
+	sb.WriteString(strconv.Itoa(ctx.StatusCode))
 	sb.WriteString(`,"bytes_in":`)
-	sb.WriteString(fmt.Sprintf("%d", ctx.BytesIn))
+	sb.WriteString(strconv.FormatInt(ctx.BytesIn, 10))
 	sb.WriteString(`,"bytes_out":`)
-	sb.WriteString(fmt.Sprintf("%d", ctx.BytesOut))
+	sb.WriteString(strconv.FormatInt(ctx.BytesOut, 10))
 	sb.WriteString(`,"duration_ms":`)
-	sb.WriteString(fmt.Sprintf("%.3f", float64(ctx.Duration().Nanoseconds())/1e6))
+	sb.WriteString(strconv.FormatFloat(float64(ctx.Duration().Nanoseconds())/1e6, 'f', 3, 64))
 
 	// Body (only when LogBody is enabled)
 	if body != nil {
@@ -326,18 +327,18 @@ func (m *AccessLogMiddleware) logCLF(ctx *RequestContext) {
 	// Request line: METHOD PATH PROTOCOL
 	sb.WriteString(req.Method)
 	sb.WriteByte(' ')
-	sb.WriteString(req.URL.RequestURI())
+	sb.WriteString(sanitizeCRLF(req.URL.RequestURI()))
 	sb.WriteByte(' ')
 	sb.WriteString(req.Proto)
 	sb.WriteString(`" `)
 
 	// Status code
-	sb.WriteString(fmt.Sprintf("%d", ctx.StatusCode))
+	sb.WriteString(strconv.Itoa(ctx.StatusCode))
 	sb.WriteByte(' ')
 
 	// Response size (or - if not known)
 	if ctx.BytesOut > 0 {
-		sb.WriteString(fmt.Sprintf("%d", ctx.BytesOut))
+		sb.WriteString(strconv.FormatInt(ctx.BytesOut, 10))
 	} else {
 		sb.WriteByte('-')
 	}
@@ -350,6 +351,12 @@ func (m *AccessLogMiddleware) logCLF(ctx *RequestContext) {
 	} else {
 		m.config.Output.Write([]byte(sb.String()))
 	}
+}
+
+// sanitizeCRLF strips carriage return and line feed characters from a string
+// to prevent log injection via user-controlled input (e.g., request URIs).
+func sanitizeCRLF(s string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(s)
 }
 
 // escapeJSON escapes a string for JSON output.

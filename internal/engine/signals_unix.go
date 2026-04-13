@@ -39,8 +39,9 @@ func (e *Engine) setupSignalHandlers() {
 				case syscall.SIGTERM, syscall.SIGINT:
 					e.logger.Info("Received shutdown signal", logging.String("signal", sig.String()))
 					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-					defer cancel()
-					if err := e.Shutdown(ctx); err != nil {
+					err := e.Shutdown(ctx)
+					cancel()
+					if err != nil {
 						e.logger.Error("Shutdown failed", logging.Error(err))
 					}
 					return

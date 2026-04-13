@@ -127,7 +127,7 @@ func (s *Server) reloadConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := s.circuitBreaker.Execute(func(ctx context.Context) error {
+	err := s.circuitBreaker.Execute(r.Context(), func(ctx context.Context) error {
 		return s.onReload()
 	})
 	if err != nil {

@@ -285,7 +285,11 @@ func decodeFloat(f float64, dst reflect.Value) error {
 		dst.SetFloat(f)
 		return nil
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		dst.SetInt(int64(f))
+		truncated := int64(f)
+		if float64(truncated) != f {
+			return fmt.Errorf("cannot convert float %v to int without truncation", f)
+		}
+		dst.SetInt(truncated)
 		return nil
 	case reflect.Interface:
 		dst.Set(reflect.ValueOf(f))

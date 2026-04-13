@@ -1,7 +1,11 @@
 @import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/jetbrains-mono";
 
 @theme {
   --color-background: var(--background);
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono Variable', 'JetBrains Mono', 'Fira Code', monospace;
   --color-background-subtle: var(--background-subtle);
   --color-background-muted: var(--background-muted);
   --color-surface: var(--surface);
@@ -104,16 +108,10 @@
   --ring:               #4f6df5;
 }
 
-* {
-  border-color: var(--border);
-  transition-property: background-color, border-color, color;
-  transition-timing-function: ease;
-  transition-duration: 150ms;
-}
-
 body {
-  background-color: var(--background);
-  color: var(--text-primary);
+  transition-property: background-color, color;
+  transition-duration: 150ms;
+  transition-timing-function: ease;
 }
 
 @media (prefers-reduced-motion: reduce) {

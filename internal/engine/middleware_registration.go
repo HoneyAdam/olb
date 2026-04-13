@@ -273,7 +273,12 @@ func registerCacheMiddleware(ctx *middlewareRegistrationContext) {
 
 	var ttl time.Duration
 	if c.DefaultTTL != "" {
-		ttl, _ = time.ParseDuration(c.DefaultTTL)
+		var err error
+		ttl, err = time.ParseDuration(c.DefaultTTL)
+		if err != nil {
+			ctx.logger.Warnf("invalid cache TTL %q, using default 5m", c.DefaultTTL)
+			ttl = 5 * time.Minute
+		}
 	}
 	if ttl == 0 {
 		ttl = 5 * time.Minute
@@ -381,7 +386,12 @@ func registerCoalesceMiddleware(ctx *middlewareRegistrationContext) {
 	c := ctx.cfg.Middleware.Coalesce
 	var ttl time.Duration
 	if c.TTL != "" {
-		ttl, _ = time.ParseDuration(c.TTL)
+		var err error
+		ttl, err = time.ParseDuration(c.TTL)
+		if err != nil {
+			ctx.logger.Warnf("invalid coalesce TTL %q, using default 100ms", c.TTL)
+			ttl = 100 * time.Millisecond
+		}
 	}
 	if ttl == 0 {
 		ttl = 100 * time.Millisecond
@@ -494,7 +504,6 @@ func registerAPIKeyMiddleware(ctx *middlewareRegistrationContext) {
 		Enabled:      a.Enabled,
 		Keys:         a.Keys,
 		Header:       a.Header,
-		QueryParam:   a.QueryParam,
 		ExcludePaths: a.ExcludePaths,
 		Hash:         a.Hash,
 	})

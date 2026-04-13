@@ -14,16 +14,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { Download, Upload, RotateCcw, AlertCircle, FileJson, CheckCircle } from "lucide-react"
+import { Download, Upload, RotateCcw, AlertCircle, FileJson, CheckCircle, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { useConfig } from "@/hooks/use-query"
 import { api } from "@/lib/api"
+import { LoadingCard } from "@/components/ui/loading"
+import { type OLBConfig } from "@/types"
 
 export function BackupRestorePage() {
-  useDocumentTitle("Backup   const { data: config, refetch } = useConfig() Restore")
-  const { data: config, refetch } = useConfig()
+  useDocumentTitle("Backup & Restore")
+  const { data: config, refetch, isLoading, error } = useConfig()
   const [importDialogOpen, setImportDialogOpen] = useState(false)
-  const [importPreview, setImportPreview] = useState<any>(null)
+  const [importPreview, setImportPreview] = useState<Record<string, unknown> | null>(null)
   const [importing, setImporting] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -97,8 +99,39 @@ export function BackupRestorePage() {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const c = (config?.data ?? config) as Record<string, any> | undefined
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Backup & Restore</h1>
+          <p className="text-muted-foreground">Export and import configuration</p>
+        </div>
+        <LoadingCard />
+        <LoadingCard />
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Backup & Restore</h1>
+          <p className="text-muted-foreground">Export and import configuration</p>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-destructive">Failed to load configuration: {error.message}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  const c = (config?.data ?? config) as OLBConfig | undefined
   const configSections = [
     { label: "Listeners", count: c?.listeners?.length ?? 0 },
     { label: "Pools", count: c?.pools?.length ?? 0 },
@@ -108,9 +141,9 @@ export function BackupRestorePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Backup & Restore</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Backup & Restore</h1>
           <p className="text-muted-foreground">Export and import configuration</p>
         </div>
         <Button variant="outline" onClick={handleReload}>
@@ -186,15 +219,15 @@ export function BackupRestorePage() {
         <CardContent>
           {config ? (
             <div className="space-y-2">
-              {Object.keys(config as object).map((key) => (
+              {Object.entries(config as Record<string, unknown>).map(([key, value]) => (
                 <div key={key} className="flex items-center justify-between p-3 rounded-lg border">
                   <span className="font-medium text-sm capitalize">{key.replace(/_/g, " ")}</span>
                   <Badge variant="outline" className="text-xs font-mono">
-                    {typeof (config as any)[key] === "object"
-                      ? Array.isArray((config as any)[key])
-                        ? `${(config as any)[key].length} items`
+                    {typeof value === "object" && value !== null
+                      ? Array.isArray(value)
+                        ? `${value.length} items`
                         : "configured"
-                      : String((config as any)[key])}
+                      : String(value)}
                   </Badge>
                 </div>
               ))}
@@ -236,7 +269,7 @@ export function BackupRestorePage() {
                     ? `OLB export from ${importPreview._exported || "unknown date"}`
                     : "Generic JSON configuration file"}
                 </div>
-                {importPreview.config && (
+                {typeof importPreview.config === 'object' && importPreview.config !== null && (
                   <div className="text-xs text-muted-foreground">
                     Sections: {Object.keys(importPreview.config).join(", ")}
                   </div>

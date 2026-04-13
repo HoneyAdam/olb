@@ -12,6 +12,10 @@ vi.mock('@/hooks/use-query', () => ({
   useEvents: mockUseEvents,
 }))
 
+vi.mock('@/hooks/use-debounce', () => ({
+  useDebounce(value) { return value; },
+}))
+
 vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
@@ -73,7 +77,7 @@ describe('LogsPage', () => {
     expect(systemBadges.length).toBeGreaterThanOrEqual(3)
   })
 
-  it('filters events by search', () => {
+  it('filters events by search', async () => {
     setupLoadedEvents()
     render(<LogsPage />)
 

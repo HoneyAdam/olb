@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -34,7 +35,13 @@ type ShadowManager struct {
 	config  ShadowConfig
 	counter atomic.Uint64
 	client  *http.Client
+
+	// sem bounds the number of concurrent in-flight shadow requests.
+	sem chan struct{}
+	wg  sync.WaitGroup
 }
+
+const maxConcurrentShadow = 1000
 
 // NewShadowManager creates a new shadow manager.
 func NewShadowManager(config ShadowConfig) *ShadowManager {
@@ -48,6 +55,7 @@ func NewShadowManager(config ShadowConfig) *ShadowManager {
 		enabled: config.Enabled,
 		config:  config,
 		targets: make([]ShadowTarget, 0),
+		sem:     make(chan struct{}, maxConcurrentShadow),
 		client: &http.Client{
 			Timeout:   config.Timeout,
 			Transport: transport,
@@ -85,6 +93,13 @@ func (sm *ShadowManager) ShouldShadow() bool {
 	n := sm.counter.Add(1)
 	threshold := uint64(100.0 / pct)
 	return n%threshold == 1
+}
+
+// Wait blocks until all in-flight shadow requests have completed.
+func (sm *ShadowManager) Wait() {
+	if sm != nil {
+		sm.wg.Wait()
+	}
 }
 
 // ShouldShadowRequest determines if a specific request should be shadowed,
@@ -134,8 +149,18 @@ func (sm *ShadowManager) ShadowRequest(req *http.Request) {
 			continue
 		}
 
-		// Send shadow request asynchronously
-		go sm.sendShadow(req, be.Address, target, bodyBuf)
+		// Send shadow request asynchronously (bounded by semaphore)
+		sm.wg.Add(1)
+		go func(req *http.Request, addr string, t ShadowTarget, body []byte) {
+			defer sm.wg.Done()
+			select {
+			case sm.sem <- struct{}{}:
+				sm.sendShadow(req, addr, t, body)
+				<-sm.sem
+			default:
+				// Semaphore full - drop shadow request
+			}
+		}(req, be.Address, target, bodyBuf)
 	}
 }
 

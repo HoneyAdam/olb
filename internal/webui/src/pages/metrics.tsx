@@ -3,12 +3,14 @@ import { useDocumentTitle } from "@/hooks/use-document-title"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
-import { Activity, Server, Zap } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { Activity, Server, Zap, RefreshCw } from "lucide-react"
 import { useMetrics, usePools } from "@/hooks/use-query"
 import { LoadingCard } from "@/components/ui/loading"
+import { cn, wPct } from "@/lib/utils"
 
 // Simple chart component using SVG
-function SimpleLineChart({ data, color = "#3b82f6" }: { data: number[]; color?: string }) {
+function SimpleLineChart({ data, colorClass = "stroke-info" }: { data: number[]; colorClass?: string }) {
   if (data.length < 2) return <div className="h-16 flex items-center justify-center text-xs text-muted-foreground">Collecting data...</div>
   const max = Math.max(...data)
   const min = Math.min(...data)
@@ -23,22 +25,22 @@ function SimpleLineChart({ data, color = "#3b82f6" }: { data: number[]; color?: 
   }).join(' ')
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-16 overflow-visible" role="img" aria-label="Line chart showing metric trend over time">
+    <svg viewBox={`0 0 ${width} ${height}`} className={cn("w-full h-16 overflow-visible", colorClass)} role="img" aria-label="Line chart showing metric trend over time">
       <polyline
         fill="none"
-        stroke={color}
+        stroke="currentColor"
         strokeWidth="2"
         points={points}
         vectorEffect="non-scaling-stroke"
       />
       <defs>
-        <linearGradient id={`grad-${color.replace('#', '')}`} x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor={color} stopOpacity="0.3" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        <linearGradient id="grad-fill" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.3" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
         </linearGradient>
       </defs>
       <polygon
-        fill={`url(#grad-${color.replace('#', '')})`}
+        fill="url(#grad-fill)"
         points={`0,${height} ${points} ${width},${height}`}
       />
     </svg>
@@ -53,10 +55,7 @@ function SimpleBarChart({ data }: { data: { label: string; value: number }[] }) 
     <div className="flex items-end gap-2 h-32">
       {data.map((item, i) => (
         <div key={i} className="flex-1 flex flex-col items-center gap-1">
-          <div
-            className="w-full bg-primary/80 rounded-t"
-            style={{ height: `${(item.value / max) * 100}%` }}
-          />
+          <div className={cn("w-full bg-primary/80 rounded-t", wPct((item.value / max) * 100))} />
           <span className="text-xs text-muted-foreground">{item.label}</span>
         </div>
       ))}
@@ -65,14 +64,15 @@ function SimpleBarChart({ data }: { data: { label: string; value: number }[] }) 
 }
 
 // Extract a numeric value from metrics data
-function extractMetric(metrics: Record<string, any>, name: string): number {
+function extractMetric(metrics: Record<string, unknown>, name: string): number {
   if (!metrics) return 0
   const val = metrics[name]
   if (val === undefined) return 0
   if (typeof val === 'number') return val
   if (typeof val === 'object' && val !== null) {
-    if (val.value !== undefined) return Number(val.value) || 0
-    if (val.counter !== undefined) return Number(val.counter) || 0
+    const obj = val as Record<string, unknown>
+    if (obj.value !== undefined) return Number(obj.value) || 0
+    if (obj.counter !== undefined) return Number(obj.counter) || 0
   }
   return 0
 }
@@ -81,17 +81,17 @@ const MAX_HISTORY = 30
 
 export function MetricsPage() {
   useDocumentTitle("Metrics")
-  const { data: metrics, isLoading } = useMetrics()
+  const { data: metrics, isLoading, error, refetch } = useMetrics()
   const { data: pools } = usePools()
 
   // Keep sliding window of metric samples for time-series charts
   const [requestHistory, setRequestHistory] = useState<number[]>([])
   const [errorHistory, setErrorHistory] = useState<number[]>([])
-  const prevMetricsRef = useRef<Record<string, any> | null>(null)
+  const prevMetricsRef = useRef<Record<string, unknown> | null>(null)
 
   useEffect(() => {
     if (!metrics || typeof metrics !== 'object') return
-    const m = metrics as Record<string, any>
+    const m = metrics as Record<string, unknown>
 
     // Derive values from metrics or backend health
     const totalReqs = extractMetric(m, 'http_requests_total') ||
@@ -134,7 +134,7 @@ export function MetricsPage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Metrics</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Metrics</h1>
           <p className="text-muted-foreground">Performance and traffic analytics</p>
         </div>
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
@@ -147,11 +147,30 @@ export function MetricsPage() {
     )
   }
 
+  if (error && !pools) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Metrics</h1>
+          <p className="text-muted-foreground">Performance and traffic analytics</p>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-destructive">Failed to load metrics: {error.message}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Metrics</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Metrics</h1>
           <p className="text-muted-foreground">Performance and traffic analytics</p>
         </div>
       </div>
@@ -171,7 +190,7 @@ export function MetricsPage() {
                 : totalRequests}
             </div>
             <p className="text-xs text-muted-foreground">Since last restart</p>
-            <SimpleLineChart data={requestHistory} color="#3b82f6" />
+            <SimpleLineChart data={requestHistory} colorClass="stroke-info" />
           </CardContent>
         </Card>
 
@@ -197,7 +216,7 @@ export function MetricsPage() {
           <CardContent>
             <div className="text-2xl font-bold">{errorRate}%</div>
             <p className="text-xs text-muted-foreground">{totalErrors} total errors</p>
-            <SimpleLineChart data={errorHistory} color="#ef4444" />
+            <SimpleLineChart data={errorHistory} colorClass="stroke-destructive" />
           </CardContent>
         </Card>
 
@@ -238,7 +257,7 @@ export function MetricsPage() {
                 <CardDescription>Recent request volume</CardDescription>
               </CardHeader>
               <CardContent>
-                <SimpleLineChart data={requestHistory} color="#3b82f6" />
+                <SimpleLineChart data={requestHistory} colorClass="stroke-info" />
               </CardContent>
             </Card>
           </div>
@@ -329,8 +348,4 @@ export function MetricsPage() {
       </Tabs>
     </div>
   )
-}
-
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ')
 }

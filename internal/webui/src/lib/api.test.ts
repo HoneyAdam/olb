@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { api, APIError } from '@/lib/api'
 
 // Helper to create a mock successful Response
-function mockOkResponse(data: any): Response {
+function mockOkResponse(data: unknown): Response {
   return {
     ok: true,
     status: 200,

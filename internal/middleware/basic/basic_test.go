@@ -366,3 +366,49 @@ func TestExtractCredentials(t *testing.T) {
 		})
 	}
 }
+
+func TestBasicAuth_ZeroSecrets(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "plain"
+	config.AllowPlaintext = true
+	config.Users = map[string]string{
+		"admin": "password123",
+		"user":  "secret",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(mw.hashes) == 0 {
+		t.Fatal("expected hashes to be populated")
+	}
+
+	mw.ZeroSecrets()
+
+	if len(mw.hashes) != 0 {
+		t.Errorf("expected hashes to be cleared, got %d entries", len(mw.hashes))
+	}
+}
+
+func TestBasicAuth_ZeroSecrets_SHA256(t *testing.T) {
+	config := DefaultConfig()
+	config.Enabled = true
+	config.Hash = "sha256"
+	config.Users = map[string]string{
+		"admin": "password123",
+	}
+
+	mw, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mw.ZeroSecrets()
+	mw.ZeroSecrets() // Should not panic
+	if len(mw.hashes) != 0 {
+		t.Error("expected empty hashes after double zero")
+	}
+}

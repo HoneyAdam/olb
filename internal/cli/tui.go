@@ -2,9 +2,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"github.com/openloadbalancer/olb/internal/admin"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -75,7 +77,7 @@ func NewTUI(fetcher *MetricsFetcher) *TUI {
 // Run starts the TUI event loop.
 func (t *TUI) Run() error {
 	if !t.running.CompareAndSwap(false, true) {
-		return fmt.Errorf("TUI already running")
+		return errors.New("TUI already running")
 	}
 	defer t.running.Store(false)
 
@@ -357,7 +359,7 @@ func (t *TUI) renderBackends(data *DashboardData, width, height int) {
 			x += colWidths[0] + 2
 			t.screen.DrawText(x, row, truncate(b.Address, colWidths[1]))
 			x += colWidths[1] + 2
-			t.screen.DrawText(x, row, fmt.Sprintf("%d", b.Weight))
+			t.screen.DrawText(x, row, strconv.Itoa(b.Weight))
 			x += colWidths[2] + 2
 			t.screen.DrawTextColored(x, row, truncate(status, colWidths[3]), statusColor)
 			x += colWidths[3] + 2
@@ -416,7 +418,7 @@ func (t *TUI) renderRoutes(data *DashboardData, width, height int) {
 		x += colWidths[2] + 2
 		t.screen.DrawText(x, row, truncate(r.BackendPool, colWidths[3]))
 		x += colWidths[3] + 2
-		t.screen.DrawText(x, row, fmt.Sprintf("%d", r.Priority))
+		t.screen.DrawText(x, row, strconv.Itoa(r.Priority))
 
 		row++
 	}

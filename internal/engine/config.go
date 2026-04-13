@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/openloadbalancer/olb/internal/backend"
@@ -132,6 +133,9 @@ func (e *Engine) applyConfigInternal(newCfg *config.Config, noRollback bool) err
 				id = fmt.Sprintf("%s-%d", backendCfg.Address, i)
 			}
 			b := backend.NewBackend(id, backendCfg.Address)
+			if backendCfg.Weight > math.MaxInt32 {
+				return fmt.Errorf("backend %s weight %d exceeds maximum %d", backendCfg.Address, backendCfg.Weight, math.MaxInt32)
+			}
 			b.Weight = int32(backendCfg.Weight)
 			if backendCfg.Scheme != "" {
 				b.Scheme = backendCfg.Scheme

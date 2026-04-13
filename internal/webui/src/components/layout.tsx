@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Menu, Server, ChevronRight, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-provider"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { navItems } from "@/lib/nav"
 import { cn } from "@/lib/utils"
 import { Link, useLocation } from "react-router"
@@ -9,18 +10,9 @@ import { Link, useLocation } from "react-router"
 export function Layout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const location = useLocation()
-  const sidebarRef = useRef<HTMLElement>(null)
-  const mainRef = useRef<HTMLDivElement>(null)
 
+  // Close sidebar on route change (mobile)
   useEffect(() => { setSidebarOpen(false) }, [location.pathname])
-
-  // Focus management: trap focus in sidebar when open on mobile
-  useEffect(() => {
-    if (sidebarOpen && sidebarRef.current) {
-      const firstLink = sidebarRef.current.querySelector<HTMLElement>("a")
-      firstLink?.focus()
-    }
-  }, [sidebarOpen])
 
   // Close sidebar on Escape
   useEffect(() => {
@@ -35,13 +27,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Skip to content link */}
+      {/* Skip to content link — accessible navigation */}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground focus:outline-none focus:ring-2 focus:ring-ring"
       >
         Skip to content
       </a>
+
+      {/* aria-live region for screen reader status announcements */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only" id="a11y-status" />
 
       {sidebarOpen && (
         <div
@@ -53,7 +48,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
       <aside
         id="sidebar-nav"
-        ref={sidebarRef}
         role="navigation"
         aria-label="Main navigation"
         className={cn(
@@ -111,10 +105,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
             <Menu className="h-5 w-5" />
           </Button>
           <div className="flex flex-1 items-center justify-end gap-2">
-            <ThemeToggle />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ThemeToggle />
+              </TooltipTrigger>
+              <TooltipContent>Switch theme</TooltipContent>
+            </Tooltip>
           </div>
         </header>
-        <main id="main-content" ref={mainRef} role="main" className="p-4 lg:p-6" tabIndex={-1}>
+        <main id="main-content" role="main" className="p-4 lg:p-6" tabIndex={-1}>
           {children}
         </main>
       </div>

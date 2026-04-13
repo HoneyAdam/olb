@@ -82,7 +82,7 @@ func (rl *DistributedRateLimiter) Allow(r *http.Request) (allowed bool, retryAft
 		}
 
 		key := rl.buildKey(rule, r, ip)
-		allowed, remaining, resetAt, err := rl.checkStore(key, rule)
+		allowed, _, resetAt, err := rl.checkStore(r.Context(), key, rule)
 
 		if err != nil {
 			// Store error - fallback to local if enabled
@@ -104,21 +104,18 @@ func (rl *DistributedRateLimiter) Allow(r *http.Request) (allowed bool, retryAft
 			}
 			return false, retry
 		}
-
-		// Record remaining for monitoring
-		_ = remaining
 	}
 
 	return true, 0
 }
 
 // checkStore checks the rate limit against the store.
-func (rl *DistributedRateLimiter) checkStore(key string, rule Rule) (bool, int, time.Time, error) {
+func (rl *DistributedRateLimiter) checkStore(ctx context.Context, key string, rule Rule) (bool, int, time.Time, error) {
 	if rl.store == nil {
 		return true, rule.Limit, time.Now().Add(rule.Window), nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 
 	allowed, remaining, resetAt, err := rl.store.Allow(ctx, key, rule.Limit, rule.Window)

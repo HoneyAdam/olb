@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useQuery, useMutation, useToastMutation } from '@/hooks/use-query'
 import { APIError } from '@/lib/api'
@@ -229,7 +229,7 @@ describe('useMutation', () => {
 
     const { result } = renderHook(() => useMutation(mutationFn))
 
-    let mutationResult: any
+    let mutationResult: { message: string }
     await act(async () => {
       mutationResult = await result.current.mutate({ pool: 'web', id: 'b1' })
     })
@@ -249,7 +249,7 @@ describe('useMutation', () => {
     await act(async () => {
       try {
         await result.current.mutate({ bad: true })
-      } catch (err) {
+      } catch (_err) {
         // Expected
       }
     })
@@ -322,7 +322,7 @@ describe('useToastMutation', () => {
 
     const { result } = renderHook(() =>
       useToastMutation(mutationFn, {
-        successMessage: (data: any) => `Created ${data.name}`,
+        successMessage: (data: { name: string }) => `Created ${data.name}`,
       })
     )
 

@@ -106,5 +106,5 @@ func (pw *protectedWriter) Flush() {
 	pw.Header().Set("Content-Length", strconv.Itoa(len(body)))
 	pw.wroteHeader = true
 	pw.ResponseWriter.WriteHeader(pw.status)
-	pw.ResponseWriter.Write(body)
+	_, _ = pw.ResponseWriter.Write(body)
 }

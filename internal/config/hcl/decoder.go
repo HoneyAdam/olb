@@ -245,7 +245,12 @@ func decodeScalar(src reflect.Value, dst reflect.Value) error {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 			dst.SetInt(src.Int())
 		case reflect.Float32, reflect.Float64:
-			dst.SetInt(int64(src.Float()))
+			f := src.Float()
+			truncated := int64(f)
+			if float64(truncated) != f {
+				return fmt.Errorf("cannot convert float %v to int without truncation", f)
+			}
+			dst.SetInt(truncated)
 		case reflect.String:
 			i, err := strconv.ParseInt(src.String(), 0, 64)
 			if err != nil {
@@ -260,11 +265,22 @@ func decodeScalar(src reflect.Value, dst reflect.Value) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		switch src.Kind() {
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+			if src.Int() < 0 {
+				return fmt.Errorf("cannot assign negative value %d to unsigned type", src.Int())
+			}
 			dst.SetUint(uint64(src.Int()))
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 			dst.SetUint(src.Uint())
 		case reflect.Float32, reflect.Float64:
-			dst.SetUint(uint64(src.Float()))
+			f := src.Float()
+			if f < 0 {
+				return fmt.Errorf("cannot assign negative float %v to unsigned type", f)
+			}
+			truncated := uint64(f)
+			if float64(truncated) != f {
+				return fmt.Errorf("cannot convert float %v to uint without truncation", f)
+			}
+			dst.SetUint(truncated)
 		case reflect.String:
 			i, err := strconv.ParseUint(src.String(), 0, 64)
 			if err != nil {

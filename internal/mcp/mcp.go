@@ -594,8 +594,13 @@ func (s *Server) handleToolsCall(params json.RawMessage) (any, *ResponseError) {
 
 	result, err := handler(callParams.Arguments)
 	if err != nil {
+		// Sanitize error to avoid leaking internal details to clients
+		errMsg := err.Error()
+		if len(errMsg) > 200 {
+			errMsg = errMsg[:200] + "..."
+		}
 		return ToolResult{
-			Content: []ToolContent{{Type: "text", Text: err.Error()}},
+			Content: []ToolContent{{Type: "text", Text: "error: " + errMsg}},
 			IsError: true,
 		}, nil
 	}
@@ -1122,7 +1127,9 @@ func (s *Server) handleDiagnose(params map[string]any) (any, error) {
 func (s *Server) handleGetLogs(params map[string]any) (any, error) {
 	count := 50
 	if c, ok := params["count"].(float64); ok {
-		count = int(c)
+		if c > 0 && c == float64(int(c)) && c <= 1000 {
+			count = int(c)
+		}
 	}
 	level, _ := params["level"].(string)
 

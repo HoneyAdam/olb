@@ -4,6 +4,7 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -185,7 +186,7 @@ func (cb *CircuitBreakerMiddleware) Wrap(next http.Handler) http.Handler {
 			// Circuit is still open; reject the request.
 			entry.mu.Unlock()
 			w.Header().Set("X-Circuit-State", "open")
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", int(cb.config.OpenDuration.Seconds())))
+			w.Header().Set("Retry-After", strconv.Itoa(int(cb.config.OpenDuration.Seconds())))
 			http.Error(w, "Service Unavailable (circuit breaker open)", http.StatusServiceUnavailable)
 			return
 

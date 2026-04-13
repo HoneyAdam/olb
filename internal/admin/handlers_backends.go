@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"math"
 	"net"
 	"net/http"
 	"strings"
@@ -85,7 +86,7 @@ func (s *Server) addBackend(w http.ResponseWriter, r *http.Request) {
 
 	var req AddBackendRequest
 	if err := readJSONBody(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON")
 		return
 	}
 
@@ -134,6 +135,10 @@ func (s *Server) addBackend(w http.ResponseWriter, r *http.Request) {
 	// Create backend (standalone mode)
 	b := backend.NewBackend(req.ID, req.Address)
 	if req.Weight > 0 {
+		if req.Weight > math.MaxInt32 {
+			writeError(w, http.StatusBadRequest, "INVALID_ARGUMENT", "weight exceeds maximum value")
+			return
+		}
 		b.Weight = int32(req.Weight)
 	}
 
@@ -233,7 +238,7 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 
 	var req UpdateBackendRequest
 	if err := readJSONBody(r, &req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_JSON", err.Error())
+		writeError(w, http.StatusBadRequest, "INVALID_JSON", "invalid JSON")
 		return
 	}
 
@@ -246,17 +251,25 @@ func (s *Server) updateBackend(w http.ResponseWriter, r *http.Request) {
 
 	// Raft mode: propose the backend update through consensus
 	if s.raftProposer != nil {
-		backendJSON, _ := json.Marshal(map[string]any{
+		backendJSON, err := json.Marshal(map[string]any{
 			"id":      backendID,
 			"address": b.Address,
 			"weight":  b.Weight,
 		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "MARSHAL_ERROR", "failed to marshal backend data")
+			return
+		}
 		if req.Weight != nil {
-			backendJSON, _ = json.Marshal(map[string]any{
+			backendJSON, err = json.Marshal(map[string]any{
 				"id":      backendID,
 				"address": b.Address,
 				"weight":  *req.Weight,
 			})
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "MARSHAL_ERROR", "failed to marshal backend data")
+				return
+			}
 		}
 		if err := s.raftProposer.ProposeUpdateBackend(poolName, backendJSON); err != nil {
 			writeError(w, http.StatusConflict, "RAFT_ERROR",

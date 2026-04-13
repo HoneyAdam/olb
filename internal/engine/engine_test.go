@@ -3950,7 +3950,6 @@ func TestCreateMiddlewareChainWithAPIKey(t *testing.T) {
 			Enabled:      true,
 			Keys:         map[string]string{"key1": "secret1", "key2": "secret2"},
 			Header:       "X-API-Key",
-			QueryParam:   "api_key",
 			ExcludePaths: []string{"/health"},
 			Hash:         "",
 		},

@@ -99,6 +99,7 @@ func (p *ConsulProvider) Stop() error {
 	p.watches = make(map[string]context.CancelFunc)
 	p.watchMu.Unlock()
 
+	p.client.CloseIdleConnections()
 	return p.baseProvider.Stop()
 }
 

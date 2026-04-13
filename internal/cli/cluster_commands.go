@@ -57,7 +57,7 @@ func (c *ClusterStatusCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var status clusterStatusResponse
 	if err := client.get("/cluster/status", &status); err != nil {
@@ -129,7 +129,7 @@ func (c *ClusterJoinCommand) Run(args []string) error {
 		seedAddrs[i] = strings.TrimSpace(seedAddrs[i])
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	body := map[string]any{
 		"seed_addrs": seedAddrs,
@@ -172,7 +172,7 @@ func (c *ClusterLeaveCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var result map[string]string
 	if err := client.post("/cluster/leave", nil, &result); err != nil {
@@ -213,7 +213,7 @@ func (c *ClusterMembersCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var members []clusterMemberInfo
 	if err := client.get("/cluster/members", &members); err != nil {

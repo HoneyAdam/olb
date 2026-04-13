@@ -170,7 +170,10 @@ func (wh *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 	// 6. Forward any buffered data from client
 	if clientBuf != nil && clientBuf.Reader != nil && clientBuf.Reader.Buffered() > 0 {
 		buffered := make([]byte, clientBuf.Reader.Buffered())
-		n, _ := clientBuf.Reader.Read(buffered)
+		n, err := clientBuf.Reader.Read(buffered)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read buffered client data: %w", err)
+		}
 		if n > 0 {
 			if _, err := backendConn.Write(buffered[:n]); err != nil {
 				backendConn.Close()
@@ -183,7 +186,10 @@ func (wh *WebSocketHandler) HandleWebSocket(w http.ResponseWriter, r *http.Reque
 	// 7. Forward any buffered data from backend
 	if backendBuf.Buffered() > 0 {
 		buffered := make([]byte, backendBuf.Buffered())
-		n, _ := backendBuf.Read(buffered)
+		n, err := backendBuf.Read(buffered)
+		if err != nil && err != io.EOF {
+			return fmt.Errorf("failed to read buffered backend data: %w", err)
+		}
 		if n > 0 {
 			if _, err := clientConn.Write(buffered[:n]); err != nil {
 				backendConn.Close()

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -183,8 +184,8 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 
 		// Finish span
 		span.EndTime = time.Now()
-		span.Attributes["http.status_code"] = fmt.Sprintf("%d", rec.statusCode)
-		span.Attributes["http.response_size"] = fmt.Sprintf("%d", rec.bytesWritten)
+		span.Attributes["http.status_code"] = strconv.Itoa(rec.statusCode)
+		span.Attributes["http.response_size"] = strconv.FormatInt(rec.bytesWritten, 10)
 
 		// Store span if sampled
 		if span.IsSampled() {

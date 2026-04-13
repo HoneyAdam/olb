@@ -3,7 +3,9 @@ package l4
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -117,7 +119,10 @@ func (s *UDPSession) LastActivity() time.Time {
 	if v == nil {
 		return s.created
 	}
-	return v.(time.Time)
+	if t, ok := v.(time.Time); ok {
+		return t
+	}
+	return s.created
 }
 
 // close closes the session and its backend connection.
@@ -208,7 +213,7 @@ func NewUDPProxy(pool *backend.Pool, balancer Balancer, config *UDPProxyConfig) 
 // Start binds to the listen address and starts the receive loop and cleanup goroutine.
 func (p *UDPProxy) Start() error {
 	if p.running.Load() {
-		return fmt.Errorf("udp proxy already running")
+		return errors.New("udp proxy already running")
 	}
 
 	addr, err := net.ResolveUDPAddr("udp", p.config.ListenAddr)
@@ -238,7 +243,7 @@ func (p *UDPProxy) Start() error {
 // Stop gracefully stops the UDP proxy, closing all sessions and the listener.
 func (p *UDPProxy) Stop() error {
 	if !p.running.CompareAndSwap(true, false) {
-		return fmt.Errorf("udp proxy not running")
+		return errors.New("udp proxy not running")
 	}
 
 	// Signal all goroutines to stop
@@ -355,14 +360,14 @@ func (p *UDPProxy) createSession(clientAddr *net.UDPAddr) (*UDPSession, error) {
 	// Get healthy backends
 	backends := p.pool.GetHealthyBackends()
 	if len(backends) == 0 {
-		return nil, fmt.Errorf("no healthy backends available")
+		return nil, errors.New("no healthy backends available")
 	}
 
 	// Select a backend
 	selected := p.balancer.Next(nil, backends)
 	backend.ReleaseHealthyBackends(backends)
 	if selected == nil {
-		return nil, fmt.Errorf("balancer returned no backend")
+		return nil, errors.New("balancer returned no backend")
 	}
 
 	// Acquire a connection slot on the backend
@@ -408,6 +413,7 @@ func (p *UDPProxy) forwardToBackend(session *UDPSession, data []byte) {
 		if session.backend != nil {
 			session.backend.RecordError()
 		}
+		slog.Debug("udp proxy: write to backend failed", "backend", session.backendAddr.String(), "error", err)
 		return
 	}
 

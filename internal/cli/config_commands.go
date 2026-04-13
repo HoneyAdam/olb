@@ -33,7 +33,7 @@ func (c *ConfigShowCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var config map[string]any
 	if err := client.get("/config", &config); err != nil {
@@ -120,7 +120,7 @@ func (c *ConfigDiffCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var runningConfig map[string]any
 	if err := client.get("/config", &runningConfig); err != nil {

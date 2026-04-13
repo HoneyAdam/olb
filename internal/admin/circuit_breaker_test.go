@@ -17,7 +17,7 @@ func TestAdminCircuitBreaker_InitialState(t *testing.T) {
 
 func TestAdminCircuitBreaker_Execute_Success(t *testing.T) {
 	cb := newAdminCircuitBreaker()
-	err := cb.Execute(func(ctx context.Context) error {
+	err := cb.Execute(t.Context(), func(ctx context.Context) error {
 		return nil
 	})
 	if err != nil {
@@ -33,7 +33,7 @@ func TestAdminCircuitBreaker_Execute_Error(t *testing.T) {
 	cb.errorThreshold = 3
 
 	for i := 0; i < 3; i++ {
-		err := cb.Execute(func(ctx context.Context) error {
+		err := cb.Execute(t.Context(), func(ctx context.Context) error {
 			return errors.New("fail")
 		})
 		if err == nil {
@@ -51,7 +51,7 @@ func TestAdminCircuitBreaker_OpenRejects(t *testing.T) {
 	cb.errorThreshold = 1
 
 	// Trigger open state
-	_ = cb.Execute(func(ctx context.Context) error {
+	_ = cb.Execute(t.Context(), func(ctx context.Context) error {
 		return errors.New("fail")
 	})
 
@@ -60,7 +60,7 @@ func TestAdminCircuitBreaker_OpenRejects(t *testing.T) {
 	}
 
 	// Next call should be rejected immediately
-	err := cb.Execute(func(ctx context.Context) error {
+	err := cb.Execute(t.Context(), func(ctx context.Context) error {
 		return nil
 	})
 	if err == nil {
@@ -74,7 +74,7 @@ func TestAdminCircuitBreaker_HalfOpen_Recovery(t *testing.T) {
 	cb.openDuration = 50 * time.Millisecond
 
 	// Open the circuit
-	_ = cb.Execute(func(ctx context.Context) error {
+	_ = cb.Execute(t.Context(), func(ctx context.Context) error {
 		return errors.New("fail")
 	})
 
@@ -87,7 +87,7 @@ func TestAdminCircuitBreaker_HalfOpen_Recovery(t *testing.T) {
 
 	// Successful calls should close it
 	for i := 0; i < 3; i++ {
-		err := cb.Execute(func(ctx context.Context) error {
+		err := cb.Execute(t.Context(), func(ctx context.Context) error {
 			return nil
 		})
 		if err != nil {
@@ -106,7 +106,7 @@ func TestAdminCircuitBreaker_HalfOpen_ReOpen(t *testing.T) {
 	cb.openDuration = 50 * time.Millisecond
 
 	// Open the circuit
-	_ = cb.Execute(func(ctx context.Context) error {
+	_ = cb.Execute(t.Context(), func(ctx context.Context) error {
 		return errors.New("fail")
 	})
 
@@ -114,7 +114,7 @@ func TestAdminCircuitBreaker_HalfOpen_ReOpen(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 
 	// Fail in half-open -> should re-open
-	err := cb.Execute(func(ctx context.Context) error {
+	err := cb.Execute(t.Context(), func(ctx context.Context) error {
 		return errors.New("still failing")
 	})
 	if err == nil {
@@ -130,7 +130,7 @@ func TestAdminCircuitBreaker_Timeout(t *testing.T) {
 	cb := newAdminCircuitBreaker()
 	cb.timeout = 50 * time.Millisecond
 
-	err := cb.Execute(func(ctx context.Context) error {
+	err := cb.Execute(t.Context(), func(ctx context.Context) error {
 		time.Sleep(200 * time.Millisecond)
 		return nil
 	})
@@ -147,7 +147,7 @@ func TestAdminCircuitBreaker_Reset(t *testing.T) {
 	cb.errorThreshold = 1
 
 	// Open it
-	_ = cb.Execute(func(ctx context.Context) error {
+	_ = cb.Execute(t.Context(), func(ctx context.Context) error {
 		return errors.New("fail")
 	})
 	if cb.State() != "open" {
@@ -172,7 +172,7 @@ func TestAdminCircuitBreaker_ConcurrentSafe(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		go func(idx int) {
 			defer func() { done <- struct{}{} }()
-			err := cb.Execute(func(ctx context.Context) error {
+			err := cb.Execute(t.Context(), func(ctx context.Context) error {
 				if idx%3 == 0 {
 					return errors.New("fail")
 				}

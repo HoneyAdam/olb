@@ -76,7 +76,7 @@ func (a *Analytics) incrementDetector(name string) {
 func (a *Analytics) recordTimeline() {
 	nowMin := time.Now().Unix() / 60
 	startMin := a.timelineStart.Load()
-	slot := int(nowMin-startMin) % 1440
+	slot := int((nowMin - startMin) % 1440)
 	if slot >= 0 && slot < 1440 {
 		a.timeline[slot].Add(1)
 	}
@@ -117,7 +117,7 @@ func (a *Analytics) GetTimeline(minutes int) []TimelineBucket {
 
 	for i := minutes - 1; i >= 0; i-- {
 		targetMin := nowMin - int64(i)
-		slot := int(targetMin-startMin) % 1440
+		slot := int((targetMin - startMin) % 1440)
 		if slot < 0 {
 			slot += 1440
 		}

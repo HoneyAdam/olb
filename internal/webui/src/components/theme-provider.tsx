@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Monitor, Moon, Sun } from "lucide-react"
+import { Check, Monitor, Moon, Sun } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -8,6 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { useLocalStorage } from "@/hooks/use-local-storage"
 
 type Theme = "dark" | "light" | "system"
 
@@ -25,9 +26,7 @@ export function ThemeProvider({
   defaultTheme?: Theme
   storageKey?: string
 }) {
-  const [theme, setTheme] = React.useState<Theme>(
-    () => (localStorage.getItem(storageKey) as Theme) || defaultTheme
-  )
+  const [theme, setTheme] = useLocalStorage<Theme>(storageKey, defaultTheme)
 
   React.useEffect(() => {
     const root = window.document.documentElement
@@ -41,7 +40,7 @@ export function ThemeProvider({
   }, [theme])
 
   return (
-    <ThemeProviderContext.Provider value={{ theme, setTheme: (t) => { localStorage.setItem(storageKey, t); setTheme(t); } }}>
+    <ThemeProviderContext.Provider value={{ theme, setTheme }}>
       {children}
     </ThemeProviderContext.Provider>
   )
@@ -76,27 +75,19 @@ export function ThemeToggle({ className }: { className?: string }) {
         <DropdownMenuItem onClick={() => setTheme("light")}>
           <Sun className="mr-2 h-4 w-4" aria-hidden="true" />
           <span>Light</span>
-          {theme === "light" && <CheckIcon className="ml-auto h-4 w-4" />}
+          {theme === "light" && <Check className="ml-auto h-4 w-4" />}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("dark")}>
           <Moon className="mr-2 h-4 w-4" aria-hidden="true" />
           <span>Dark</span>
-          {theme === "dark" && <CheckIcon className="ml-auto h-4 w-4" />}
+          {theme === "dark" && <Check className="ml-auto h-4 w-4" />}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => setTheme("system")}>
           <Monitor className="mr-2 h-4 w-4" aria-hidden="true" />
           <span>System</span>
-          {theme === "system" && <CheckIcon className="ml-auto h-4 w-4" />}
+          {theme === "system" && <Check className="ml-auto h-4 w-4" />}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  )
-}
-
-function CheckIcon({ className }: { className: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12" />
-    </svg>
   )
 }

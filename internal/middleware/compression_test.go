@@ -629,8 +629,13 @@ func TestCompressWriter_IsContentTypeCompressible(t *testing.T) {
 	cfg := CompressionConfig{
 		ContentTypes: []string{"text/html", "text/", "application/json"},
 	}
+	allowedTypes := make(map[string]bool, len(cfg.ContentTypes))
+	for _, ct := range cfg.ContentTypes {
+		allowedTypes[strings.ToLower(ct)] = true
+	}
 	cw := &compressWriter{
-		config: &cfg,
+		config:       &cfg,
+		allowedTypes: allowedTypes,
 	}
 
 	tests := []struct {

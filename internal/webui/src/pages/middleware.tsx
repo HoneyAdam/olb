@@ -16,7 +16,7 @@ import { LoadingCard } from "@/components/ui/loading"
 import { cn } from "@/lib/utils"
 import { useMiddlewareStatus, useConfig } from "@/hooks/use-query"
 import { APIMiddlewareStatusItem } from "@/types"
-import { Clock, Globe, Lock, Zap, Server, ScrollText, Shield, Code, Settings2, ShieldCheck, Key, Fingerprint, Repeat, Ban, Timer, Maximize, Activity, BarChart3, ArrowRightLeft, FileCheck, Scissors, Eye, Bug, MapPin, GitBranch } from "lucide-react"
+import { Clock, Globe, Lock, Zap, Server, ScrollText, Shield, Code, Settings2, ShieldCheck, Key, Fingerprint, Repeat, Ban, Timer, Maximize, Activity, BarChart3, ArrowRightLeft, FileCheck, Scissors, Eye, Bug, MapPin, GitBranch, RefreshCw } from "lucide-react"
 
 // Map middleware IDs to icons
 const mwIcons: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -61,7 +61,7 @@ const categoryColors: Record<string, string> = {
 
 export function MiddlewarePage() {
   useDocumentTitle("Middleware")
-  const { data: middlewareStatus, isLoading } = useMiddlewareStatus()
+  const { data: middlewareStatus, isLoading, error, refetch } = useMiddlewareStatus()
   const { data: config } = useConfig()
   const [selectedCategory, setSelectedCategory] = useState<string>("all")
   const [configDialogOpen, setConfigDialogOpen] = useState(false)
@@ -74,11 +74,12 @@ export function MiddlewarePage() {
     : middlewares.filter(m => m.category === selectedCategory)
 
   // Get the current config values for a middleware
-  const getMWConfig = (id: string): Record<string, any> => {
+  const getMWConfig = (id: string): Record<string, unknown> => {
     if (!config || typeof config !== 'object') return {}
-    const c = config as any
-    if (!c.middleware || !c.middleware[id]) return {}
-    return c.middleware[id]
+    const c = config as Record<string, unknown>
+    const mw = c.middleware as Record<string, Record<string, unknown>> | undefined
+    if (!mw || !mw[id]) return {}
+    return mw[id]
   }
 
   const openConfigDialog = (middleware: APIMiddlewareStatusItem) => {
@@ -121,7 +122,7 @@ export function MiddlewarePage() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Middleware</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Middleware</h1>
           <p className="text-muted-foreground">Configure request/response middleware chain</p>
         </div>
         <LoadingCard />
@@ -129,11 +130,30 @@ export function MiddlewarePage() {
     )
   }
 
+  if (error) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Middleware</h1>
+          <p className="text-muted-foreground">Configure request/response middleware chain</p>
+        </div>
+        <Card>
+          <CardContent className="p-6">
+            <p className="text-destructive">Failed to load middleware: {error.message}</p>
+            <Button variant="outline" size="sm" className="mt-2" onClick={() => refetch()}>
+              <RefreshCw className="mr-2 h-4 w-4" /> Retry
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Middleware</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Middleware</h1>
           <p className="text-muted-foreground">
             {enabledCount} of {middlewares.length} middleware components enabled
           </p>

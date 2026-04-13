@@ -1424,11 +1424,15 @@ func TestStdioTransport_ContextCancel(t *testing.T) {
 
 func TestHTTPTransport_Handler(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "")
+	transport, err := NewHTTPTransport(s, ":0", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	// Test POST request
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.ServeHTTP(w, req)
 
@@ -1449,7 +1453,10 @@ func TestHTTPTransport_Handler(t *testing.T) {
 
 func TestHTTPTransport_MethodNotAllowed(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "")
+	transport, err := NewHTTPTransport(s, ":0", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/mcp", nil)
 	w := httptest.NewRecorder()
@@ -1462,7 +1469,10 @@ func TestHTTPTransport_MethodNotAllowed(t *testing.T) {
 
 func TestHTTPTransport_StartStop(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	if err := transport.Start(); err != nil {
 		t.Fatalf("Start failed: %v", err)
@@ -1476,7 +1486,13 @@ func TestHTTPTransport_StartStop(t *testing.T) {
 	// Make a real HTTP request
 	url := fmt.Sprintf("http://%s/mcp", addr)
 	reqBody := makeRequest("initialize", nil)
-	httpResp, err := http.Post(url, "application/json", bytes.NewReader(reqBody))
+	httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer test-token")
+	httpResp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		t.Fatalf("HTTP request failed: %v", err)
 	}
@@ -1623,7 +1639,10 @@ func TestListBackends_FilterByStatus(t *testing.T) {
 
 func TestHTTPTransport_BearerAuth_Success(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "secret-token")
+	transport, err := NewHTTPTransport(s, ":0", "secret-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
@@ -1638,7 +1657,10 @@ func TestHTTPTransport_BearerAuth_Success(t *testing.T) {
 
 func TestHTTPTransport_BearerAuth_InvalidToken(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "secret-token")
+	transport, err := NewHTTPTransport(s, ":0", "secret-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
@@ -1653,10 +1675,14 @@ func TestHTTPTransport_BearerAuth_InvalidToken(t *testing.T) {
 
 func TestHTTPTransport_BearerAuth_MissingHeader(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "secret-token")
+	transport, err := NewHTTPTransport(s, ":0", "secret-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.ServeHTTP(w, req)
 
@@ -1671,7 +1697,10 @@ func TestHTTPTransport_BearerAuth_MissingHeader(t *testing.T) {
 
 func TestHTTPTransport_BearerAuth_InvalidScheme(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "secret-token")
+	transport, err := NewHTTPTransport(s, ":0", "secret-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
@@ -1892,6 +1921,7 @@ func TestSSETransport_LegacyHandler_Post(t *testing.T) {
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.handleLegacy(w, req)
 
@@ -1942,11 +1972,12 @@ func TestSSETransport_LegacyHandler_AuthRequired(t *testing.T) {
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.handleLegacy(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Errorf("Status code = %d, want %d", w.Code, http.StatusUnauthorized)
+	if w.Code != http.StatusOK {
+		t.Errorf("Status code = %d, want %d", w.Code, http.StatusOK)
 	}
 }
 
@@ -2449,7 +2480,10 @@ func TestReadResource_LogsNotConfigured(t *testing.T) {
 
 func TestHTTPTransport_StopNilServer(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	// Stop without starting - httpSrv is nil
 	if err := transport.Stop(context.Background()); err != nil {
@@ -2461,7 +2495,10 @@ func TestHTTPTransport_StopNilServer(t *testing.T) {
 
 func TestHTTPTransport_AddrWithoutListener(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:9999", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:9999", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	// Addr without starting should return the configured address
 	addr := transport.Addr()
@@ -2709,7 +2746,10 @@ func TestHTTPTransport_Start_ListenError(t *testing.T) {
 	s := newTestServer()
 
 	// Start one transport on a fixed port
-	transport1 := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport1, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 	if err := transport1.Start(); err != nil {
 		t.Fatalf("First Start failed: %v", err)
 	}
@@ -2718,8 +2758,11 @@ func TestHTTPTransport_Start_ListenError(t *testing.T) {
 	addr := transport1.Addr()
 
 	// Try to start another transport on the same address
-	transport2 := NewHTTPTransport(s, addr, "")
-	err := transport2.Start()
+	transport2, err := NewHTTPTransport(s, addr, "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
+	err = transport2.Start()
 	if err == nil {
 		t.Error("Expected error when starting on already-bound address")
 		transport2.Stop(context.Background())
@@ -2735,10 +2778,14 @@ func TestHTTPTransport_ServeHTTP_HandleJSONRPCError(t *testing.T) {
 	// returns a JSON response. So this path is essentially dead code. But let's
 	// ensure we hit the normal path with a valid request.
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "")
+	transport, err := NewHTTPTransport(s, ":0", "test-token")
+	if err != nil {
+		t.Fatalf("NewHTTPTransport failed: %v", err)
+	}
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.ServeHTTP(w, req)
 
@@ -3139,6 +3186,7 @@ func TestSSETransport_HandleLegacy_WithAuditToolCall(t *testing.T) {
 		"arguments": map[string]any{"count": float64(10)},
 	})
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	req.RemoteAddr = "10.0.0.1:12345"
 	w := httptest.NewRecorder()
 	transport.handleLegacy(w, req)
@@ -3171,6 +3219,7 @@ func TestSSETransport_HandleLegacy_AuditNonToolCall(t *testing.T) {
 
 	reqBody := makeRequest("resources/list", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.handleLegacy(w, req)
 

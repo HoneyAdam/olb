@@ -69,7 +69,7 @@ func (o *JSONOutput) Write(level Level, msg string, fields []Field) {
 	o.buf = append(o.buf, '}', '\n')
 
 	// Write
-	o.w.Write(o.buf)
+	_, _ = o.w.Write(o.buf)
 }
 
 // Close closes the output.
@@ -202,7 +202,7 @@ func (o *TextOutput) Write(level Level, msg string, fields []Field) {
 
 	buf.WriteByte('\n')
 
-	o.w.Write([]byte(buf.String()))
+	_, _ = o.w.Write([]byte(buf.String()))
 }
 
 // Close closes the output.
@@ -421,19 +421,29 @@ func (o *RotatingFileOutput) compressFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
 
 	gzWriter := gzip.NewWriter(dstFile)
-	defer gzWriter.Close()
 
 	_, err = io.Copy(gzWriter, srcFile)
 	if err != nil {
+		gzWriter.Close()
+		dstFile.Close()
 		return err
 	}
 
-	// Remove source file after successful compression
-	os.Remove(src)
-	return nil
+	// Close gzip writer first to flush the footer
+	if err := gzWriter.Close(); err != nil {
+		dstFile.Close()
+		return err
+	}
+
+	// Flush and close destination file
+	if err := dstFile.Close(); err != nil {
+		return err
+	}
+
+	// Remove source file only after successful compression
+	return os.Remove(src)
 }
 
 // Reopen reopens the log file (for SIGUSR1 handling).

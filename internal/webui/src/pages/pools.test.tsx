@@ -15,6 +15,10 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
 
+vi.mock('@/hooks/use-debounce', () => ({
+  useDebounce(value) { return value; },
+}))
+
 const mockPools = [
   {
     name: 'web-pool',

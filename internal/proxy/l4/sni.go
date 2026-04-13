@@ -419,6 +419,7 @@ type SNIBasedProxy struct {
 
 	running atomic.Bool
 	mu      sync.RWMutex
+	wg      sync.WaitGroup
 }
 
 // NewSNIBasedProxy creates a new SNI-based proxy.
@@ -463,12 +464,14 @@ func (p *SNIBasedProxy) Start() error {
 		return errors.New("already running")
 	}
 
+	p.wg.Add(1)
 	go p.acceptLoop()
 	return nil
 }
 
 // acceptLoop accepts incoming connections.
 func (p *SNIBasedProxy) acceptLoop() {
+	defer p.wg.Done()
 	for p.running.Load() {
 		conn, err := p.listener.Accept()
 		if err != nil {
@@ -478,7 +481,11 @@ func (p *SNIBasedProxy) acceptLoop() {
 			continue
 		}
 
-		go p.handleConnection(conn)
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			p.handleConnection(conn)
+		}()
 	}
 }
 
@@ -494,12 +501,12 @@ func (p *SNIBasedProxy) Stop() error {
 	p.running.Store(false)
 
 	p.mu.Lock()
-	defer p.mu.Unlock()
-
 	if p.listener != nil {
-		return p.listener.Close()
+		p.listener.Close()
 	}
+	p.mu.Unlock()
 
+	p.wg.Wait()
 	return nil
 }
 

@@ -45,7 +45,7 @@ func (wrr *WeightedRoundRobin) Next(ctx *RequestContext, backends []*backend.Bac
 	defer wrr.mu.Unlock()
 
 	// Build a list of weighted backends from the provided healthy backends
-	var weighted []*weightedBackend
+	weighted := make([]*weightedBackend, 0, len(backends))
 	totalWeight := int32(0)
 
 	for _, b := range backends {

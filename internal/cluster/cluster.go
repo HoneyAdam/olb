@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -954,7 +955,9 @@ func (c *Cluster) HandleAppendEntries(req *AppendEntries) *AppendEntriesResponse
 
 		// Apply outside the lock to avoid interleaving
 		for _, cmd := range toApply {
-			c.stateMachine.Apply(cmd)
+			if _, err := c.stateMachine.Apply(cmd); err != nil {
+				slog.Warn("failed to apply committed entry on follower", "error", err)
+			}
 			c.lastApplied.Add(1)
 		}
 	}

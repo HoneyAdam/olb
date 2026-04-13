@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,7 +16,6 @@ type Config struct {
 	Enabled      bool               // Enable API Key Auth
 	Keys         map[string]string  // key_id -> api_key (hashed or plain)
 	Header       string             // Header name (default: "X-API-Key")
-	QueryParam   string             // Query parameter name (alternative to header)
 	ExcludePaths []string           // Paths to exclude
 	Hash         string             // Key hash type: "sha256", "plain"
 	KeyMetadata  map[string]KeyInfo // key_id -> metadata (name, permissions, etc.)
@@ -34,7 +34,6 @@ func DefaultConfig() Config {
 		Enabled:     false,
 		Keys:        make(map[string]string),
 		Header:      "X-API-Key",
-		QueryParam:  "api_key",
 		Hash:        "sha256",
 		KeyMetadata: make(map[string]KeyInfo),
 	}
@@ -69,14 +68,26 @@ func New(config Config) (*Middleware, error) {
 		case "plain":
 			m.hashes[keyID] = []byte(key)
 		default:
-			m.hashes[keyID] = []byte(key)
+			return nil, fmt.Errorf("unsupported hash algorithm %q (supported: sha256, plain)", config.Hash)
 		}
 	}
 
 	return m, nil
 }
 
-// Name returns the middleware name.
+// ZeroSecrets clears pre-computed key hashes from memory.
+// Call this during shutdown to reduce the window where secrets are in memory.
+func (m *Middleware) ZeroSecrets() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for keyID, hash := range m.hashes {
+		for i := range hash {
+			hash[i] = 0
+		}
+		delete(m.hashes, keyID)
+	}
+}
+
 func (m *Middleware) Name() string {
 	return "api_key"
 }
@@ -106,8 +117,8 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			}
 		}
 
-		// Extract API key
-		apiKey := extractAPIKey(r, header, m.config.QueryParam)
+		// Extract API key from header
+		apiKey := extractAPIKey(r, header)
 		if apiKey == "" {
 			m.unauthorized(w, "API key required")
 			return
@@ -133,24 +144,11 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// extractAPIKey extracts API key from header or query parameter.
-func extractAPIKey(r *http.Request, header, queryParam string) string {
-	// Try header first
+// extractAPIKey extracts API key from the request header.
+func extractAPIKey(r *http.Request, header string) string {
 	if header != "" {
-		key := r.Header.Get(header)
-		if key != "" {
-			return key
-		}
+		return r.Header.Get(header)
 	}
-
-	// Fall back to query parameter
-	if queryParam != "" {
-		key := r.URL.Query().Get(queryParam)
-		if key != "" {
-			return key
-		}
-	}
-
 	return ""
 }
 
@@ -174,11 +172,8 @@ func (m *Middleware) validateKey(apiKey string) (string, bool) {
 			}
 		}
 	default:
-		for keyID, expectedKey := range m.hashes {
-			if subtle.ConstantTimeCompare([]byte(apiKey), expectedKey) == 1 {
-				return keyID, true
-			}
-		}
+		// Should never reach here — New() rejects unknown hash types
+		return "", false
 	}
 
 	return "", false

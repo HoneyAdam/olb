@@ -2,6 +2,7 @@
 package wafmcp
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -51,7 +52,7 @@ func registerIPACLTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 
 		acl := wafMW.IPACL()
 		if acl == nil {
-			return "IP ACL not enabled", fmt.Errorf("IP ACL not enabled")
+			return "IP ACL not enabled", errors.New("IP ACL not enabled")
 		}
 		var expires time.Time
 		if expiresStr != "" {
@@ -87,7 +88,7 @@ func registerIPACLTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 
 		acl := wafMW.IPACL()
 		if acl == nil {
-			return nil, fmt.Errorf("IP ACL not enabled")
+			return nil, errors.New("IP ACL not enabled")
 		}
 		var expires time.Time
 		if expiresStr != "" {
@@ -118,7 +119,7 @@ func registerIPACLTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 		cidr, _ := params["cidr"].(string)
 		acl := wafMW.IPACL()
 		if acl == nil {
-			return nil, fmt.Errorf("IP ACL not enabled")
+			return nil, errors.New("IP ACL not enabled")
 		}
 		if acl.RemoveWhitelist(cidr) {
 			return "Removed " + cidr + " from whitelist", nil
@@ -141,7 +142,7 @@ func registerIPACLTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 		cidr, _ := params["cidr"].(string)
 		acl := wafMW.IPACL()
 		if acl == nil {
-			return nil, fmt.Errorf("IP ACL not enabled")
+			return nil, errors.New("IP ACL not enabled")
 		}
 		if acl.RemoveBlacklist(cidr) {
 			return "Removed " + cidr + " from blacklist", nil
@@ -184,7 +185,7 @@ func registerAnalyticsTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 	}, func(params map[string]any) (any, error) {
 		analytics := wafMW.Analytics()
 		if analytics == nil {
-			return nil, fmt.Errorf("analytics not available")
+			return nil, errors.New("analytics not available")
 		}
 		return analytics.GetStats(), nil
 	})
@@ -202,11 +203,13 @@ func registerAnalyticsTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 	}, func(params map[string]any) (any, error) {
 		limit := 10
 		if l, ok := params["limit"].(float64); ok && l > 0 {
-			limit = int(l)
+			if l == float64(int(l)) && l <= 1000 {
+				limit = int(l)
+			}
 		}
 		analytics := wafMW.Analytics()
 		if analytics == nil {
-			return nil, fmt.Errorf("analytics not available")
+			return nil, errors.New("analytics not available")
 		}
 		return analytics.GetTopBlockedIPs(limit), nil
 	})
@@ -224,11 +227,13 @@ func registerAnalyticsTools(server *mcp.Server, wafMW *waf.WAFMiddleware) {
 	}, func(params map[string]any) (any, error) {
 		minutes := 60
 		if m, ok := params["minutes"].(float64); ok && m > 0 {
-			minutes = int(m)
+			if m == float64(int(m)) && m <= 1440 {
+				minutes = int(m)
+			}
 		}
 		analytics := wafMW.Analytics()
 		if analytics == nil {
-			return nil, fmt.Errorf("analytics not available")
+			return nil, errors.New("analytics not available")
 		}
 		return analytics.GetTimeline(minutes), nil
 	})

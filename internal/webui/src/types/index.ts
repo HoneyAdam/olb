@@ -138,3 +138,53 @@ export interface APIEventItem {
   message: string
   timestamp: string
 }
+
+// Full runtime config shape (matches Go config struct)
+export interface OLBConfig {
+  logging?: { level?: string; format?: string; output?: string }
+  server?: {
+    max_connections?: number
+    max_connections_per_source?: number
+    max_connections_per_backend?: number
+    proxy_timeout?: string
+    dial_timeout?: string
+    max_retries?: number
+    max_idle_conns?: number
+    max_idle_conns_per_host?: number
+    drain_timeout?: string
+  }
+  admin?: {
+    address?: string
+    rate_limit_max_requests?: number | string
+    rate_limit_window?: string
+    mcp_audit?: boolean
+    mcp_address?: string
+  }
+  cluster?: {
+    enabled?: boolean
+    node_id?: string
+    bind_addr?: string
+    bind_port?: number
+    peers?: string[]
+    data_dir?: string
+    election_tick?: string
+    heartbeat_tick?: string
+  }
+  listeners?: Array<{ name: string; address: string; protocol?: string; routes?: Array<{ path: string }> }>
+  pools?: Array<{ name: string; algorithm: string; backends?: Array<Record<string, unknown>>; health_check?: { type: string; path: string; interval: string } }>
+  tls?: { enabled?: boolean; cert_file?: string; key_file?: string; acme?: { enabled?: boolean; email?: string } }
+  waf?: {
+    enabled?: boolean
+    mode?: string
+    ip_acl?: { enabled?: boolean }
+    rate_limit?: { enabled?: boolean }
+    sanitizer?: { enabled?: boolean }
+    detection?: { enabled?: boolean }
+    bot_detection?: { enabled?: boolean }
+    response?: { security_headers?: { enabled?: boolean } }
+  }
+  middleware?: {
+    cors?: { enabled?: boolean; allowed_origins?: string[]; allowed_methods?: string[] }
+  }
+  [key: string]: unknown
+}

@@ -313,7 +313,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 				if mw.mode == "enforce" {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
-					w.Write([]byte(`{"error":"blocked by WAF","layer":"ip_acl"}`))
+					_, _ = w.Write([]byte(`{"error":"blocked by WAF","layer":"ip_acl"}`))
 					return
 				}
 			}
@@ -409,7 +409,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 				if mw.mode == "enforce" {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
-					w.Write([]byte(`{"error":"blocked by WAF","layer":"detection"}`))
+					_, _ = w.Write([]byte(`{"error":"blocked by WAF","layer":"detection"}`))
 					return
 				}
 			}
@@ -435,7 +435,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 				if mw.mode == "enforce" {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
-					w.Write([]byte(`{"error":"blocked by WAF","layer":"detection"}`))
+					_, _ = w.Write([]byte(`{"error":"blocked by WAF","layer":"detection"}`))
 					return
 				}
 			}
@@ -466,7 +466,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 				if mw.mode == "enforce" {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusForbidden)
-					w.Write([]byte(`{"error":"blocked by WAF","layer":"bot"}`))
+					_, _ = w.Write([]byte(`{"error":"blocked by WAF","layer":"bot"}`))
 					return
 				}
 			}

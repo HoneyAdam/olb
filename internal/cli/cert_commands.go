@@ -33,7 +33,7 @@ func (c *CertListCommand) Run(args []string) error {
 		return err
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	var certs []map[string]any
 	if err := client.get("/certificates", &certs); err != nil {
@@ -107,7 +107,7 @@ func (c *CertAddCommand) Run(args []string) error {
 
 	domain := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	req := map[string]any{
 		"domain": domain,
@@ -176,7 +176,7 @@ func (c *CertRemoveCommand) Run(args []string) error {
 
 	domain := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	url := fmt.Sprintf("/certificates/%s", domain)
 	if err := client.delete(url); err != nil {
@@ -218,7 +218,7 @@ func (c *CertRenewCommand) Run(args []string) error {
 
 	domain := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	url := fmt.Sprintf("/certificates/%s/renew", domain)
 	if err := client.post(url, nil, nil); err != nil {
@@ -262,7 +262,7 @@ func (c *CertInfoCommand) Run(args []string) error {
 
 	domain := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	url := fmt.Sprintf("/certificates/%s", domain)
 	var cert map[string]any

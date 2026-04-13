@@ -200,7 +200,10 @@ func (b *Backend) LastCheck() time.Time {
 	if v == nil {
 		return time.Time{}
 	}
-	return v.(time.Time)
+	if t, ok := v.(time.Time); ok {
+		return t
+	}
+	return time.Time{}
 }
 
 // CheckFailCount returns the number of consecutive failed checks.
@@ -260,7 +263,9 @@ func (b *Backend) String() string {
 func (b *Backend) GetURL() *url.URL {
 	// Fast path: check cached value
 	if cached := b.cachedURL.Load(); cached != nil {
-		return cached.(*url.URL)
+		if u, ok := cached.(*url.URL); ok {
+			return u
+		}
 	}
 
 	// Slow path: parse and cache

@@ -43,7 +43,7 @@ func (c *BackendAddCommand) Run(args []string) error {
 	pool := remaining[0]
 	address := remaining[1]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	req := &AddBackendRequest{
 		ID:      address,
@@ -91,7 +91,7 @@ func (c *BackendRemoveCommand) Run(args []string) error {
 	pool := remaining[0]
 	address := remaining[1]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	if err := client.RemoveBackend(pool, address); err != nil {
 		return fmt.Errorf("failed to remove backend: %w", err)
@@ -133,7 +133,7 @@ func (c *BackendDrainCommand) Run(args []string) error {
 	pool := remaining[0]
 	address := remaining[1]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	if err := client.DrainBackend(pool, address); err != nil {
 		return fmt.Errorf("failed to drain backend: %w", err)
@@ -175,7 +175,7 @@ func (c *BackendEnableCommand) Run(args []string) error {
 	pool := remaining[0]
 	address := remaining[1]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	// Use the generic doRequest to enable backend
 	url := fmt.Sprintf("/backends/%s/backends/%s/enable", pool, address)
@@ -225,7 +225,7 @@ func (c *BackendDisableCommand) Run(args []string) error {
 	pool := remaining[0]
 	address := remaining[1]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	url := fmt.Sprintf("/backends/%s/backends/%s/disable", pool, address)
 	resp, err := client.doRequest(http.MethodPost, url, nil)
@@ -275,7 +275,7 @@ func (c *BackendStatsCommand) Run(args []string) error {
 
 	pool := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	poolInfo, err := client.GetPool(pool)
 	if err != nil {

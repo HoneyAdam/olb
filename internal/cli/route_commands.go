@@ -45,7 +45,7 @@ func (c *RouteAddCommand) Run(args []string) error {
 		return fmt.Errorf("--backend is required")
 	}
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	route := map[string]any{
 		"path":         path,
@@ -92,7 +92,7 @@ func (c *RouteRemoveCommand) Run(args []string) error {
 
 	path := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	// URL encode the path
 	encodedPath := strings.ReplaceAll(path, "/", "%2F")
@@ -139,7 +139,7 @@ func (c *RouteTestCommand) Run(args []string) error {
 
 	path := remaining[0]
 
-	client := NewClient(fmt.Sprintf("http://%s", c.apiAddr))
+	client := NewClient("http://" + c.apiAddr)
 
 	// URL encode the path
 	encodedPath := strings.ReplaceAll(path, "/", "%2F")

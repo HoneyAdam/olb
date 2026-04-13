@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 
 	"github.com/openloadbalancer/olb/internal/admin"
@@ -205,7 +206,7 @@ func getMCPAddress(cfg *config.Config) string {
 		}
 	}
 
-	return net.JoinHostPort(host, fmt.Sprintf("%d", port+1))
+	return net.JoinHostPort(host, strconv.Itoa(port+1))
 }
 
 // engineRaftProposer implements admin.RaftProposer by proposing config changes

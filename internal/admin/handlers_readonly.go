@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -112,7 +113,9 @@ func (s *Server) getMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
 
 	prometheusOutput := s.metrics.PrometheusFormat()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	_, _ = w.Write([]byte(prometheusOutput))
+	if _, err := w.Write([]byte(prometheusOutput)); err != nil {
+		slog.Warn("Failed to write Prometheus metrics response", "error", err)
+	}
 }
 
 // getCertificates handles GET /api/v1/certificates

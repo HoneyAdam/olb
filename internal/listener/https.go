@@ -2,6 +2,7 @@ package listener
 
 import (
 	"crypto/tls"
+	"errors"
 	"net"
 	"net/http"
 
@@ -119,6 +120,9 @@ func (l *HTTPSListener) Start() error {
 func isClosedError(err error) bool {
 	if err == nil {
 		return false
+	}
+	if errors.Is(err, http.ErrServerClosed) {
+		return true
 	}
 	// Check for various "closed" error conditions
 	if opErr, ok := err.(*net.OpError); ok {

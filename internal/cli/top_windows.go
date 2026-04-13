@@ -69,12 +69,12 @@ func newTerminal() (*Terminal, error) {
 
 	r, _, err := procGetConsoleMode.Call(uintptr(inHandle), uintptr(unsafe.Pointer(&originalInMode)))
 	if r == 0 {
-		return nil, fmt.Errorf("GetConsoleMode (input) failed: %v", err)
+		return nil, fmt.Errorf("GetConsoleMode (input) failed: %w", err)
 	}
 
 	r, _, err = procGetConsoleMode.Call(uintptr(outHandle), uintptr(unsafe.Pointer(&originalOutMode)))
 	if r == 0 {
-		return nil, fmt.Errorf("GetConsoleMode (output) failed: %v", err)
+		return nil, fmt.Errorf("GetConsoleMode (output) failed: %w", err)
 	}
 
 	// Save original state
@@ -95,7 +95,7 @@ func newTerminal() (*Terminal, error) {
 		newInMode = originalInMode &^ (ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT)
 		r, _, err = procSetConsoleMode.Call(uintptr(inHandle), uintptr(newInMode))
 		if r == 0 {
-			return nil, fmt.Errorf("SetConsoleMode (input) failed: %v", err)
+			return nil, fmt.Errorf("SetConsoleMode (input) failed: %w", err)
 		}
 	}
 

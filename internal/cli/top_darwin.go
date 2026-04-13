@@ -17,7 +17,7 @@ func newTerminal() (*Terminal, error) {
 	// TIOCGETA on Darwin
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(0x40487413), uintptr(unsafe.Pointer(&oldState)))
 	if errno != 0 {
-		return nil, fmt.Errorf("failed to get terminal attributes: %v", errno)
+		return nil, fmt.Errorf("failed to get terminal attributes: %w", errno)
 	}
 
 	t := &Terminal{originalState: oldState}
@@ -32,7 +32,7 @@ func newTerminal() (*Terminal, error) {
 	// TIOCSETA on Darwin
 	_, _, errno = syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(0x80487414), uintptr(unsafe.Pointer(&newState)))
 	if errno != 0 {
-		return nil, fmt.Errorf("failed to set terminal attributes: %v", errno)
+		return nil, fmt.Errorf("failed to set terminal attributes: %w", errno)
 	}
 
 	return t, nil
@@ -46,7 +46,7 @@ func (t *Terminal) restore() error {
 	fd := int(os.Stdin.Fd())
 	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, uintptr(fd), uintptr(0x80487414), uintptr(unsafe.Pointer(&oldState)))
 	if errno != 0 {
-		return fmt.Errorf("failed to restore terminal: %v", errno)
+		return fmt.Errorf("failed to restore terminal: %w", errno)
 	}
 	return nil
 }
