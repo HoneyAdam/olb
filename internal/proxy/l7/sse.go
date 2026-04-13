@@ -187,7 +187,11 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 
 	// Stream events line by line
 	ctx := r.Context()
-	reader := bufio.NewReader(resp.Body)
+	maxLineSize := sh.config.MaxEventSize
+	if maxLineSize <= 0 {
+		maxLineSize = 1024 * 1024 // 1MB default
+	}
+	reader := bufio.NewReader(io.LimitReader(resp.Body, maxLineSize))
 	for {
 		// Read line with timeout handling
 		lineCh := make(chan readLineResult, 1)

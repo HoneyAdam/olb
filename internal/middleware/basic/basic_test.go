@@ -90,6 +90,7 @@ func TestBasicAuth_ValidCredentials(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true
 	config.Hash = "plain"
+	config.AllowPlaintext = true
 	config.Users = map[string]string{
 		"admin": "password123",
 	}
@@ -229,6 +230,7 @@ func TestBasicAuth_UnknownUser(t *testing.T) {
 	config := DefaultConfig()
 	config.Enabled = true
 	config.Hash = "plain"
+	config.AllowPlaintext = true
 	config.Users = map[string]string{
 		"admin": "password123",
 	}

@@ -71,7 +71,7 @@ type HTTP2Config struct {
 func DefaultHTTP2Config() *HTTP2Config {
 	return &HTTP2Config{
 		EnableHTTP2:                  true,
-		EnableH2C:                    true,
+		EnableH2C:                    false,
 		MaxConcurrentStreams:         250,
 		MaxFrameSize:                 16 * 1024, // 16KB
 		IdleTimeout:                  60 * time.Second,
@@ -511,9 +511,8 @@ func GetProtocolInfo(r *http.Request) *ProtocolInfo {
 func IsProtocolUpgrade(r *http.Request) bool {
 	// Check for HTTP/2 upgrade headers
 	connection := strings.ToLower(r.Header.Get("Connection"))
-	upgrade := strings.ToLower(r.Header.Get("Upgrade"))
 
-	if strings.Contains(connection, "upgrade") && upgrade == "h2c" {
+	if strings.Contains(connection, "upgrade") && strings.EqualFold(r.Header.Get("Upgrade"), "h2c") {
 		return true
 	}
 

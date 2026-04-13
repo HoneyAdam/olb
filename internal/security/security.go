@@ -433,6 +433,7 @@ func SanitizePath(p string) string {
 
 // decodeTraversalSequences decodes common percent-encoded sequences used to
 // bypass path traversal filters and normalises backslashes to forward slashes.
+// It loops until no more encoded traversal sequences remain to defeat double-encoding.
 func decodeTraversalSequences(s string) string {
 	// Replace common encodings of ".." and "/" used in traversal attacks.
 	replacer := strings.NewReplacer(
@@ -443,7 +444,15 @@ func decodeTraversalSequences(s string) string {
 		"%5c", "/",
 		"%5C", "/",
 	)
-	s = replacer.Replace(s)
+
+	// Loop until stable to defeat double/triple encoding attacks.
+	for {
+		next := replacer.Replace(s)
+		if next == s {
+			break
+		}
+		s = next
+	}
 
 	// Normalise backslashes to forward slashes (Windows-style traversal).
 	s = strings.ReplaceAll(s, `\`, "/")

@@ -7,6 +7,7 @@ package profiling
 import (
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/pprof"
 	"os"
@@ -278,6 +279,13 @@ func Apply(cfg ProfileConfig) (cleanup func(), err error) {
 		addr := cfg.PprofAddr
 		if addr == "" {
 			addr = "localhost:6060"
+		}
+		// Warn if pprof binds to a non-localhost address
+		if addr != "" {
+			host, _, _ := net.SplitHostPort(addr)
+			if host != "" && host != "localhost" && host != "127.0.0.1" && host != "::1" {
+				log.Printf("WARNING: profiling server bound to %s � exposes runtime state (goroutine dumps, heap profiles) to the network", addr)
+			}
 		}
 		mux := http.NewServeMux()
 		RegisterPprofHandlers(mux)

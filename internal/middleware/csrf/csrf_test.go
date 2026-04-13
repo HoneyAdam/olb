@@ -315,8 +315,8 @@ func TestCSRF_FormToken(t *testing.T) {
 func TestDefaultConfig(t *testing.T) {
 	config := DefaultConfig()
 
-	if config.Enabled != false {
-		t.Error("Default Enabled should be false")
+	if config.Enabled != true {
+		t.Error("Default Enabled should be true")
 	}
 	if config.CookieName != "csrf_token" {
 		t.Errorf("Default CookieName should be csrf_token, got %s", config.CookieName)

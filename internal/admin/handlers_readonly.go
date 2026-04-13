@@ -53,10 +53,16 @@ func (s *Server) getHealthStatus(w http.ResponseWriter, r *http.Request) {
 	statuses := hc.ListStatuses()
 	response := make([]HealthStatusInfo, 0, len(statuses))
 
+	// Check if request is authenticated to decide on topology exposure
+	hasAuth := r.Header.Get("Authorization") != ""
+
 	for backendID, status := range statuses {
 		hcs := HealthStatusInfo{
-			BackendID: backendID,
-			Status:    status.String(),
+			Status: status.String(),
+		}
+		// Only expose backend IDs to authenticated requests
+		if hasAuth {
+			hcs.BackendID = backendID
 		}
 
 		// Get last result if available
@@ -106,7 +112,7 @@ func (s *Server) getMetricsPrometheus(w http.ResponseWriter, r *http.Request) {
 
 	prometheusOutput := s.metrics.PrometheusFormat()
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
-	w.Write([]byte(prometheusOutput))
+	_, _ = w.Write([]byte(prometheusOutput))
 }
 
 // getCertificates handles GET /api/v1/certificates

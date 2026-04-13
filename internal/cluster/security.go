@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strings"
@@ -184,6 +185,10 @@ func NewNodeAuthMiddleware(inner net.Listener, secret []byte, allowedNodeIDs []s
 	allowed := make(map[string]struct{}, len(allowedNodeIDs))
 	for _, id := range allowedNodeIDs {
 		allowed[id] = struct{}{}
+	}
+
+	if len(allowed) == 0 {
+		log.Printf("WARNING: cluster NodeAuthMiddleware has no allowed_node_ids configured — any node with a valid token can join")
 	}
 
 	return &NodeAuthMiddleware{

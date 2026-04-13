@@ -512,7 +512,7 @@ func (s *Server) dispatch(method string, params json.RawMessage) (any, *Response
 	default:
 		return nil, &ResponseError{
 			Code:    errCodeMethodNotFound,
-			Message: fmt.Sprintf("Method not found: %s", method),
+			Message: "Method not found",
 		}
 	}
 }
@@ -584,7 +584,7 @@ func (s *Server) handleToolsCall(params json.RawMessage) (any, *ResponseError) {
 	if !ok {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: fmt.Sprintf("Unknown tool: %s", callParams.Name),
+			Message: "Unknown tool",
 		}
 	}
 
@@ -595,16 +595,16 @@ func (s *Server) handleToolsCall(params json.RawMessage) (any, *ResponseError) {
 	result, err := handler(callParams.Arguments)
 	if err != nil {
 		return ToolResult{
-			Content: []ToolContent{{Type: "text", Text: fmt.Sprintf("Error: %s", err.Error())}},
+			Content: []ToolContent{{Type: "text", Text: err.Error()}},
 			IsError: true,
 		}, nil
 	}
 
 	// Marshal result to JSON text for the tool content
-	resultJSON, marshalErr := json.MarshalIndent(result, "", "  ")
+	resultJSON, marshalErr := json.Marshal(result)
 	if marshalErr != nil {
 		return ToolResult{
-			Content: []ToolContent{{Type: "text", Text: fmt.Sprintf("Error: %s", marshalErr.Error())}},
+			Content: []ToolContent{{Type: "text", Text: "Failed to marshal response"}},
 			IsError: true,
 		}, nil
 	}
@@ -662,7 +662,7 @@ func (s *Server) handleResourcesRead(params json.RawMessage) (any, *ResponseErro
 	if !ok {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: fmt.Sprintf("Unknown resource: %s", readParams.URI),
+			Message: "Unknown resource",
 		}
 	}
 
@@ -718,7 +718,7 @@ func (s *Server) readResource(uri string) (string, *ResponseError) {
 	default:
 		return "", &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: fmt.Sprintf("Unknown resource: %s", uri),
+			Message: "Unknown resource",
 		}
 	}
 
@@ -782,7 +782,7 @@ func (s *Server) handlePromptsGet(params json.RawMessage) (any, *ResponseError) 
 	if !ok {
 		return nil, &ResponseError{
 			Code:    errCodeInvalidParams,
-			Message: fmt.Sprintf("Unknown prompt: %s", getParams.Name),
+			Message: "Unknown prompt",
 		}
 	}
 
@@ -1239,12 +1239,16 @@ type HTTPTransport struct {
 }
 
 // NewHTTPTransport creates a new HTTP transport.
-func NewHTTPTransport(server *Server, addr string, token string) *HTTPTransport {
+// The token must be non-empty; otherwise, the MCP endpoint would be unauthenticated.
+func NewHTTPTransport(server *Server, addr string, token string) (*HTTPTransport, error) {
+	if token == "" {
+		return nil, fmt.Errorf("MCP HTTP transport requires a non-empty bearer token")
+	}
 	return &HTTPTransport{
 		server:      server,
 		addr:        addr,
 		bearerToken: token,
-	}
+	}, nil
 }
 
 // ServeHTTP implements http.Handler for the MCP HTTP transport.
@@ -1276,7 +1280,6 @@ func (t *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed to read request body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	resp, err := t.server.HandleJSONRPC(body)
 	if err != nil {
@@ -1286,7 +1289,7 @@ func (t *HTTPTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 // Start starts the HTTP transport and listens for requests.

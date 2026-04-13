@@ -3,6 +3,7 @@
 package hmac
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -11,8 +12,10 @@ import (
 	"hash"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Config configures HMAC signature verification.
@@ -103,6 +106,39 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			return
 		}
 
+		// Replay protection via timestamp validation
+		if m.config.TimestampHeader != "" && m.config.MaxAge != "" {
+			maxAge, parseErr := time.ParseDuration(m.config.MaxAge)
+			if parseErr != nil {
+				m.unauthorized(w, "invalid max_age configuration")
+				return
+			}
+			tsStr := r.Header.Get(m.config.TimestampHeader)
+			if tsStr == "" {
+				m.unauthorized(w, "missing timestamp")
+				return
+			}
+			tsUnix, parseErr := strconv.ParseInt(tsStr, 10, 64)
+			if parseErr != nil {
+				// Try RFC3339 format
+				ts, timeErr := time.Parse(time.RFC3339, tsStr)
+				if timeErr != nil {
+					m.unauthorized(w, "invalid timestamp format")
+					return
+				}
+				tsUnix = ts.Unix()
+			}
+			now := time.Now().Unix()
+			diff := now - tsUnix
+			if diff < 0 {
+				diff = -diff
+			}
+			if time.Duration(diff)*time.Second > maxAge {
+				m.unauthorized(w, "request timestamp expired")
+				return
+			}
+		}
+
 		// Compute expected signature
 		expected, err := m.computeSignature(r)
 		if err != nil {
@@ -154,12 +190,13 @@ func (m *Middleware) computeSignature(r *http.Request) (string, error) {
 
 	// Add body if configured
 	if m.config.UseBody && r.Body != nil {
-		body, err := io.ReadAll(r.Body)
+		const maxBodySize = 10 << 20 // 10 MB
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
 		if err != nil {
 			return "", err
 		}
 		// Restore body for downstream handlers
-		r.Body = io.NopCloser(strings.NewReader(string(body)))
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		message.Write(body)
 	}
 

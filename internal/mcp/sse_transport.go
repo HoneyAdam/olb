@@ -28,6 +28,9 @@ type SSETransportConfig struct {
 	// (no CORS headers are sent, which is the safest default).
 	AllowedOrigins []string
 
+	// MaxClients limits the number of concurrent SSE clients. 0 = unlimited.
+	MaxClients int
+
 	// AuditLog enables logging of all MCP tool calls.
 	AuditLog bool
 
@@ -182,6 +185,11 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	}
 
 	t.mu.Lock()
+	if t.config.MaxClients > 0 && len(t.clients) >= t.config.MaxClients {
+		t.mu.Unlock()
+		http.Error(w, "too many SSE clients", http.StatusServiceUnavailable)
+		return
+	}
 	t.clients[clientID] = client
 	t.mu.Unlock()
 
@@ -200,12 +208,20 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	// Send endpoint event — tells client where to POST messages
-	fmt.Fprintf(w, "event: endpoint\ndata: /message?sessionId=%s\n\n", clientID)
+	_, _ = w.Write([]byte("event: endpoint\ndata: /message?sessionId="))
+	_, _ = w.Write([]byte(clientID))
+	_, _ = w.Write([]byte("\n\n"))
 	flusher.Flush()
 
 	// Keep-alive ticker
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+
+	var (
+		eventPrefix = []byte("event: message\ndata: ")
+		eventSuffix = []byte("\n\n")
+		keepalive   = []byte(": keepalive\n\n")
+	)
 
 	for {
 		select {
@@ -213,11 +229,13 @@ func (t *SSETransport) handleSSE(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "event: message\ndata: %s\n\n", msg)
+			_, _ = w.Write(eventPrefix)
+			_, _ = w.Write(msg)
+			_, _ = w.Write(eventSuffix)
 			flusher.Flush()
 
 		case <-ticker.C:
-			fmt.Fprintf(w, ": keepalive\n\n")
+			_, _ = w.Write(keepalive)
 			flusher.Flush()
 
 		case <-client.done:
@@ -250,7 +268,6 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	// Audit logging
 	start := time.Now()
@@ -275,7 +292,7 @@ func (t *SSETransport) handleMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	t.setCORSHeaders(w, r)
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 
 	// Also push to SSE stream if sessionId provided
 	sessionID := r.URL.Query().Get("sessionId")
@@ -310,7 +327,6 @@ func (t *SSETransport) handleLegacy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to read body", http.StatusBadRequest)
 		return
 	}
-	defer r.Body.Close()
 
 	// Audit logging
 	start := time.Now()
@@ -332,7 +348,7 @@ func (t *SSETransport) handleLegacy(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	t.setCORSHeaders(w, r)
 	w.WriteHeader(http.StatusOK)
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 // --- Helpers ---
@@ -357,6 +373,7 @@ func (t *SSETransport) setCORSHeaders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)
+	w.Header().Add("Vary", "Origin")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

@@ -6,19 +6,23 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Config configures Basic Authentication.
 type Config struct {
-	Enabled      bool              // Enable Basic Auth
-	Users        map[string]string // username -> bcrypt-hashed password or plain (for testing)
-	Realm        string            // Auth realm (default: "Restricted")
-	ExcludePaths []string          // Paths to exclude
-	Hash         string            // Password hash type: "bcrypt", "sha256", "plain"
+	Enabled        bool
+	AllowPlaintext bool              // Allow plaintext passwords (not recommended)              // Enable Basic Auth
+	Users          map[string]string // username -> bcrypt-hashed password or plain (for testing)
+	Realm          string            // Auth realm (default: "Restricted")
+	ExcludePaths   []string          // Paths to exclude
+	Hash           string            // Password hash type: "bcrypt", "sha256", "plain"
 }
 
 // DefaultConfig returns default Basic Auth configuration.
@@ -56,11 +60,16 @@ func New(config Config) (*Middleware, error) {
 			h := sha256.Sum256([]byte(pass))
 			m.hashes[user] = h[:]
 		case "plain":
+			if !config.AllowPlaintext {
+				return nil, fmt.Errorf("plaintext passwords rejected: use sha256 or bcrypt, or set allow_plaintext: true")
+			}
 			log.Printf("WARNING: basic auth user %q uses plaintext password storage — use 'sha256' or 'bcrypt' hash instead", user)
 			m.hashes[user] = []byte(pass)
-		default:
-			// Store as-is for bcrypt (checked at runtime)
+		case "bcrypt":
+			// Bcrypt passwords are already hashed; store the bcrypt hash as-is for runtime comparison
 			m.hashes[user] = []byte(pass)
+		default:
+			return nil, fmt.Errorf("unsupported hash algorithm %q (supported: sha256, bcrypt, plain)", config.Hash)
 		}
 	}
 
@@ -159,10 +168,11 @@ func (m *Middleware) validateCredentials(username, password string) bool {
 		return subtle.ConstantTimeCompare(h[:], expectedHash) == 1
 	case "plain":
 		return subtle.ConstantTimeCompare([]byte(password), expectedHash) == 1
+	case "bcrypt":
+		return bcrypt.CompareHashAndPassword(expectedHash, []byte(password)) == nil
 	default:
-		// For bcrypt, we'd need golang.org/x/crypto/bcrypt
-		// For now, fall back to plain text comparison
-		return subtle.ConstantTimeCompare([]byte(password), expectedHash) == 1
+		// Should never reach here — New() rejects unknown hash types
+		return false
 	}
 }
 

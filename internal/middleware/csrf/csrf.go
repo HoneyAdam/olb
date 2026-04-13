@@ -29,13 +29,14 @@ type Config struct {
 // DefaultConfig returns default CSRF configuration.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:        false,
+		Enabled:        true,
 		CookieName:     "csrf_token",
 		HeaderName:     "X-CSRF-Token",
 		FieldName:      "csrf_token",
 		ExcludeMethods: []string{"GET", "HEAD", "OPTIONS", "TRACE"},
 		CookiePath:     "/",
 		CookieMaxAge:   86400,
+		CookieSecure:   true,
 		CookieHTTPOnly: true,
 		TokenLength:    32,
 	}
@@ -223,7 +224,7 @@ func (m *Middleware) handleError(w http.ResponseWriter, r *http.Request, message
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
 	resp, _ := json.Marshal(map[string]string{"error": "CSRF validation failed", "message": message})
-	w.Write(resp)
+	_, _ = w.Write(resp)
 }
 
 // generateToken generates a random CSRF token.

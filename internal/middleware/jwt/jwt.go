@@ -34,8 +34,9 @@ type Config struct {
 
 // ClaimsValidation configures additional claim validation.
 type ClaimsValidation struct {
-	Issuer   string // Expected issuer
-	Audience string // Expected audience
+	Issuer            string // Expected issuer
+	Audience          string // Expected audience
+	RequireExpiration bool   // Require exp claim (recommended: true)
 }
 
 // DefaultConfig returns default JWT configuration.
@@ -199,7 +200,12 @@ func (m *Middleware) validateToken(token string) (*Claims, error) {
 func (m *Middleware) validateClaims(claims *Claims) error {
 	now := time.Now().Unix()
 
-	// Check expiration
+	// Check expiration — tokens without exp are rejected unless explicitly allowed
+	if m.config.ClaimsValidation.RequireExpiration {
+		if claims.ExpiresAt <= 0 {
+			return errors.New("token missing required expiration claim")
+		}
+	}
 	if claims.ExpiresAt > 0 && now > claims.ExpiresAt {
 		return errors.New("token expired")
 	}
@@ -317,7 +323,7 @@ type Claims struct {
 	NotBefore int64                  `json:"nbf,omitempty"`
 	IssuedAt  int64                  `json:"iat,omitempty"`
 	JWTID     string                 `json:"jti,omitempty"`
-	Custom    map[string]interface{} `json:"-"`
+	Custom    map[string]interface{} `json:"custom,omitempty"`
 }
 
 // contextKey is the key for claims in context.

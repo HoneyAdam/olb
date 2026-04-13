@@ -63,8 +63,7 @@ func IsWebSocketUpgrade(r *http.Request) bool {
 	if !strings.Contains(connHeader, "upgrade") {
 		return false
 	}
-	upgradeHeader := strings.ToLower(r.Header.Get("Upgrade"))
-	return upgradeHeader == "websocket"
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }
 
 // WebSocketHandler handles WebSocket proxying.
@@ -233,7 +232,7 @@ func (wh *WebSocketHandler) writeUpgradeRequest(conn net.Conn, r *http.Request, 
 	if strings.ContainsAny(path, "\r\n") ||
 		strings.Contains(strings.ToLower(path), "%0d") ||
 		strings.Contains(strings.ToLower(path), "%0a") {
-		return fmt.Errorf("invalid request path: contains CR/LF characters")
+		return errors.New("invalid request path: contains CR/LF characters")
 	}
 
 	var buf strings.Builder
@@ -270,11 +269,11 @@ func (wh *WebSocketHandler) writeUpgradeResponse(conn net.Conn, resp *http.Respo
 	var buf strings.Builder
 	buf.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
 
-	// Forward backend's response headers
+	// Forward backend's response headers (sanitized to prevent CRLF injection)
 	hasAccept := false
 	for key, vals := range resp.Header {
 		for _, val := range vals {
-			buf.WriteString(fmt.Sprintf("%s: %s\r\n", key, val))
+			buf.WriteString(fmt.Sprintf("%s: %s\r\n", key, sanitizeHeaderValue(val)))
 		}
 		if strings.EqualFold(key, "Sec-WebSocket-Accept") {
 			hasAccept = true

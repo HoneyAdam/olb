@@ -608,7 +608,8 @@ func TestStdioTransport_RunEmptyLine(t *testing.T) {
 
 func TestHTTPTransport_ServeHTTP_WrongMethod(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("GET", "/", nil)
@@ -621,7 +622,8 @@ func TestHTTPTransport_ServeHTTP_WrongMethod(t *testing.T) {
 
 func TestHTTPTransport_ServeHTTP_NoAuth(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	body := makeRequest("tools/list", nil)
 	w := httptest.NewRecorder()
@@ -629,14 +631,15 @@ func TestHTTPTransport_ServeHTTP_NoAuth(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	transport.ServeHTTP(w, req)
 
-	if w.Code != http.StatusOK {
-		t.Errorf("ServeHTTP with no auth = %d, want %d", w.Code, http.StatusOK)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("ServeHTTP with no auth = %d, want %d", w.Code, http.StatusUnauthorized)
 	}
 }
 
 func TestHTTPTransport_ServeHTTP_ValidAuth(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "secret-token")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "secret-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	body := makeRequest("tools/list", nil)
 	w := httptest.NewRecorder()
@@ -652,7 +655,8 @@ func TestHTTPTransport_ServeHTTP_ValidAuth(t *testing.T) {
 
 func TestHTTPTransport_ServeHTTP_InvalidAuth(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "secret-token")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "secret-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	body := makeRequest("tools/list", nil)
 	w := httptest.NewRecorder()
@@ -668,7 +672,8 @@ func TestHTTPTransport_ServeHTTP_InvalidAuth(t *testing.T) {
 
 func TestHTTPTransport_ServeHTTP_NoBearerPrefix(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "secret-token")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "secret-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	body := makeRequest("tools/list", nil)
 	w := httptest.NewRecorder()
@@ -683,10 +688,12 @@ func TestHTTPTransport_ServeHTTP_NoBearerPrefix(t *testing.T) {
 
 func TestHTTPTransport_ServeHTTP_BodyReadError(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest("POST", "/", &errorReader{})
+	req.Header.Set("Authorization", "Bearer test-token")
 	transport.ServeHTTP(w, req)
 
 	if w.Code != http.StatusBadRequest {
@@ -700,7 +707,8 @@ func TestHTTPTransport_ServeHTTP_BodyReadError(t *testing.T) {
 
 func TestHTTPTransport_Start(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	if err := transport.Start(); err != nil {
 		t.Fatalf("Start error: %v", err)
@@ -713,7 +721,13 @@ func TestHTTPTransport_Start(t *testing.T) {
 
 	// Make a request to /mcp endpoint
 	body := makeRequest("tools/list", nil)
-	resp, err := http.Post("http://"+addr+"/mcp", "application/json", bytes.NewReader(body))
+	httpReq, err := http.NewRequest(http.MethodPost, "http://"+addr+"/mcp", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("Failed to create request: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer test-token")
+	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
 		t.Fatalf("HTTP POST error: %v", err)
 	}
@@ -836,7 +850,8 @@ func TestSSETransport_HandleMessage_AuditNonToolCall(t *testing.T) {
 
 func TestHTTPTransport_StartWithAuth(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "test-bearer")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-bearer")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	if err := transport.Start(); err != nil {
 		t.Fatalf("Start error: %v", err)
@@ -867,7 +882,8 @@ func TestHTTPTransport_StartWithAuth(t *testing.T) {
 
 func TestHTTPTransport_Addr(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	// Before Start, Addr should return configured addr
 	if transport.Addr() != "" {
@@ -877,7 +893,8 @@ func TestHTTPTransport_Addr(t *testing.T) {
 
 func TestHTTPTransport_Stop(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, "127.0.0.1:0", "")
+	transport, err := NewHTTPTransport(s, "127.0.0.1:0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	if err := transport.Start(); err != nil {
 		t.Fatalf("Start error: %v", err)

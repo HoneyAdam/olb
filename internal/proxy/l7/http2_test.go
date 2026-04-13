@@ -33,8 +33,8 @@ func TestDefaultHTTP2Config(t *testing.T) {
 	if !config.EnableHTTP2 {
 		t.Error("EnableHTTP2 should be true by default")
 	}
-	if !config.EnableH2C {
-		t.Error("EnableH2C should be true by default")
+	if config.EnableH2C {
+		t.Error("EnableH2C should be false by default")
 	}
 	if config.MaxConcurrentStreams != 250 {
 		t.Errorf("MaxConcurrentStreams = %v, want 250", config.MaxConcurrentStreams)

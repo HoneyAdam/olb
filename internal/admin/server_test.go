@@ -5144,7 +5144,7 @@ func TestGetHealthStatus_WithLatencyAndError(t *testing.T) {
 
 	found := false
 	for _, s := range statuses {
-		if s["backend_id"] == "backend-1" {
+		if s["status"] == "unhealthy" {
 			found = true
 			if s["latency"] == nil || s["latency"] == "" {
 				t.Error("expected latency to be set")
@@ -5156,7 +5156,7 @@ func TestGetHealthStatus_WithLatencyAndError(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Error("expected to find backend-1 in health status")
+		t.Error("expected to find unhealthy backend in health status")
 	}
 }
 

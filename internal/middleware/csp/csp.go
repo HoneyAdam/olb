@@ -2,6 +2,8 @@
 package csp
 
 import (
+	crypto_rand "crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"strings"
 )
@@ -212,12 +214,11 @@ func (m *Middleware) buildPolicyWithNonces(scriptNonce, styleNonce string) strin
 	return policy
 }
 
-// generateNonce generates a random nonce.
-// In production, this should use crypto/rand.
+// generateNonce generates a cryptographically random nonce.
 func generateNonce() string {
-	// Simple nonce generation for demo
-	// In production, use crypto/rand
-	return "random-nonce-placeholder"
+	b := make([]byte, 16)
+	_, _ = crypto_rand.Read(b)
+	return base64.StdEncoding.EncodeToString(b)
 }
 
 // GetPolicy returns the current CSP policy string.

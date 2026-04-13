@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os/exec"
@@ -166,7 +168,7 @@ func NewChecker() *Checker {
 // Register registers a backend for health checking.
 func (c *Checker) Register(b *backend.Backend, config *Check) error {
 	if b == nil {
-		return fmt.Errorf("backend cannot be nil")
+		return errors.New("backend cannot be nil")
 	}
 	if config == nil {
 		config = DefaultCheck()
@@ -321,9 +323,18 @@ func (c *Checker) performCheck(state *checkState) {
 
 // checkHTTP performs an HTTP health check.
 func (c *Checker) checkHTTP(b *backend.Backend, config *Check) Result {
-	url := fmt.Sprintf("http://%s%s", b.Address, config.Path)
+	// SSRF protection: reject health checks targeting internal/private addresses
+	host, _, splitErr := net.SplitHostPort(b.Address)
+	if splitErr != nil {
+		host = b.Address
+	}
+	if isInternalAddress(host) {
+		return Result{Healthy: false, Error: fmt.Errorf("health check target %q is an internal/private address (SSRF protection)", host)}
+	}
+
+	url := "http://" + b.Address + config.Path
 	if config.Type == "https" {
-		url = fmt.Sprintf("https://%s%s", b.Address, config.Path)
+		url = "https://" + b.Address + config.Path
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
@@ -343,7 +354,10 @@ func (c *Checker) checkHTTP(b *backend.Backend, config *Check) Result {
 	if err != nil {
 		return Result{Healthy: false, Error: err}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	// Check status code
 	if config.ExpectedStatus != 0 {
@@ -372,7 +386,7 @@ func (c *Checker) checkHTTP(b *backend.Backend, config *Check) Result {
 // sending a pre-encoded empty Check request and validating the gRPC status.
 func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 	// gRPC uses HTTP/2 POST with specific content type
-	url := fmt.Sprintf("https://%s/grpc.health.v1.Health/Check", b.Address)
+	url := "https://" + b.Address + "/grpc.health.v1.Health/Check"
 
 	ctx, cancel := context.WithTimeout(context.Background(), config.Timeout)
 	defer cancel()
@@ -391,7 +405,7 @@ func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 	resp, err := c.grpcClient.Do(req)
 	if err != nil {
 		// Fallback: if HTTPS fails (self-signed or no TLS), try plain HTTP/2
-		url = fmt.Sprintf("http://%s/grpc.health.v1.Health/Check", b.Address)
+		url = "http://" + b.Address + "/grpc.health.v1.Health/Check"
 		req, err = http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(grpcPayload))
 		if err != nil {
 			return Result{Healthy: false, Error: fmt.Errorf("grpc fallback request creation failed: %w", err)}
@@ -458,7 +472,7 @@ func (c *Checker) checkExec(b *backend.Backend, config *Check) Result {
 		}
 		errMsg := stderr.String()
 		if errMsg != "" {
-			return Result{Healthy: false, Error: fmt.Errorf("exec health check failed: %s: %s", err, truncateString(errMsg, 200))}
+			return Result{Healthy: false, Error: fmt.Errorf("exec health check failed: %w: stderr: %s", err, truncateString(errMsg, 200))}
 		}
 		return Result{Healthy: false, Error: fmt.Errorf("exec health check failed: %w", err)}
 	}
@@ -542,4 +556,17 @@ func (c *Checker) CountUnhealthy() int {
 		state.mu.RUnlock()
 	}
 	return count
+}
+
+// isInternalAddress checks if a host is a cloud metadata endpoint or other
+// dangerous SSRF target. Does NOT block localhost/RFC1918 since legitimate
+// backends often run on internal addresses.
+func isInternalAddress(host string) bool {
+	// Only block cloud metadata endpoints
+	switch host {
+	case "169.254.169.254", "metadata.google.internal", "metadata.google",
+		"100.100.100.200", "fd00:ec2::254":
+		return true
+	}
+	return false
 }

@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -68,6 +70,10 @@ type Server struct {
 
 	// CORS
 	allowedOrigins []string
+
+	// TLS
+	tlsCertFile string
+	tlsKeyFile  string
 
 	// Component references (interfaces)
 	poolManager   PoolManager
@@ -129,13 +135,18 @@ type Config struct {
 	RateLimitWindow      string
 
 	// Optional components
-	ClusterAdmin     ClusterAdmin // optional cluster management
-	RaftProposer     RaftProposer // optional, for Raft-based config changes
-	WebUI            http.Handler // optional web UI handler
-	ConfigGetter     ConfigGetter // optional config provider
-	CertLister       CertLister   // optional certificate lister
-	WAFStatus        func() any   // optional WAF status provider
-	MiddlewareStatus func() any   // optional middleware status provider
+	ClusterAdmin ClusterAdmin // optional cluster management
+	RaftProposer RaftProposer // optional, for Raft-based config changes
+	WebUI        http.Handler // optional web UI handler
+	ConfigGetter ConfigGetter // optional config provider
+	CertLister   CertLister   // optional certificate lister
+	WAFStatus    func() any   // optional WAF status provider
+
+	// TLS configuration for the admin API (optional).
+	// When both CertFile and KeyFile are set, the admin server uses HTTPS.
+	TLSCertFile      string
+	TLSKeyFile       string
+	MiddlewareStatus func() any // optional middleware status provider
 }
 
 // PoolManager interface for backend pool operations.
@@ -164,10 +175,10 @@ type Metrics interface {
 // NewServer creates a new Admin API server.
 func NewServer(config *Config) (*Server, error) {
 	if config == nil {
-		return nil, fmt.Errorf("config is nil")
+		return nil, errors.New("config is nil")
 	}
 	if config.Address == "" {
-		return nil, fmt.Errorf("address is required")
+		return nil, errors.New("address is required")
 	}
 
 	s := &Server{
@@ -189,6 +200,8 @@ func NewServer(config *Config) (*Server, error) {
 		csrfConfig:       config.CSRFConfig,
 		rateLimitMaxReqs: config.RateLimitMaxRequests,
 		rateLimitWindow:  config.RateLimitWindow,
+		tlsCertFile:      config.TLSCertFile,
+		tlsKeyFile:       config.TLSKeyFile,
 		startTime:        time.Now(),
 		circuitBreaker:   newAdminCircuitBreaker(),
 		state:            "running",
@@ -331,6 +344,9 @@ func (s *Server) setupRoutes() {
 
 // Start starts the Admin API server.
 func (s *Server) Start() error {
+	if s.tlsCertFile != "" && s.tlsKeyFile != "" {
+		return s.server.ListenAndServeTLS(s.tlsCertFile, s.tlsKeyFile)
+	}
 	return s.server.ListenAndServe()
 }
 
@@ -448,7 +464,7 @@ func (m *defaultMetrics) PrometheusFormat() string {
 }
 
 // rateLimiter provides basic rate limiting for the admin API to prevent
-// brute-force attacks. Allows 30 requests per minute per source IP.
+// brute-force attacks. Default: 60 requests per window per source IP.
 type rateLimiter struct {
 	mu       sync.Mutex
 	visitors map[string]*rlVisitor
@@ -519,8 +535,9 @@ func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 		if !exists || time.Since(v.lastSeen) > rl.window {
 			if !exists && len(rl.visitors) >= maxVisitors {
 				rl.mu.Unlock()
-				w.Header().Set("Retry-After", "60")
-				http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+				w.Header().Set("Retry-After", strconv.FormatFloat(rl.window.Seconds(), 'f', 0, 64))
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
 				return
 			}
 			rl.visitors[ip] = &rlVisitor{count: 1, lastSeen: time.Now()}
@@ -532,8 +549,9 @@ func (rl *rateLimiter) middleware(next http.Handler) http.Handler {
 		v.lastSeen = time.Now()
 		if v.count > rl.maxReqs {
 			rl.mu.Unlock()
-			w.Header().Set("Retry-After", "60")
-			http.Error(w, `{"error":"rate limit exceeded"}`, http.StatusTooManyRequests)
+			w.Header().Set("Retry-After", strconv.FormatFloat(rl.window.Seconds(), 'f', 0, 64))
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
 			return
 		}
 		rl.mu.Unlock()
@@ -572,6 +590,7 @@ func adminCORS(allowedOrigins []string) func(http.Handler) http.Handler {
 			origin := r.Header.Get("Origin")
 
 			if origin != "" && (allowAll || originSet[origin]) {
+				w.Header().Add("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")

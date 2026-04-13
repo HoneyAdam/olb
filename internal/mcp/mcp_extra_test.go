@@ -55,8 +55,8 @@ func TestToolsCall_MarshalResultError(t *testing.T) {
 	if !toolResult.IsError {
 		t.Error("Expected tool result to be marked as error due to marshal failure")
 	}
-	if !strings.Contains(toolResult.Content[0].Text, "Error:") {
-		t.Errorf("Expected error text, got: %s", toolResult.Content[0].Text)
+	if !strings.Contains(toolResult.Content[0].Text, "marshal") {
+		t.Errorf("Expected marshal error text, got: %s", toolResult.Content[0].Text)
 	}
 }
 
@@ -134,11 +134,13 @@ func TestSSETransport_HandleSSE_MessagesChannelClosed(t *testing.T) {
 
 func TestHTTPTransport_ServeHTTP_InvalidJSONBody(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "")
+	transport, err := NewHTTPTransport(s, ":0", "test-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	// Send malformed JSON - HandleJSONRPC handles parse errors internally
 	// and returns a JSON response, so it should still return 200
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("not json at all"))
+	req.Header.Set("Authorization", "Bearer test-token")
 	w := httptest.NewRecorder()
 	transport.ServeHTTP(w, req)
 
@@ -572,7 +574,8 @@ func TestRegisterCustomPrompt(t *testing.T) {
 
 func TestHTTPTransport_BearerAuth_ShortHeader(t *testing.T) {
 	s := newTestServer()
-	transport := NewHTTPTransport(s, ":0", "secret-token")
+	transport, err := NewHTTPTransport(s, ":0", "secret-token")
+	if err != nil { t.Fatalf("NewHTTPTransport failed: %v", err) }
 
 	reqBody := makeRequest("initialize", nil)
 	req := httptest.NewRequest(http.MethodPost, "/mcp", bytes.NewReader(reqBody))
