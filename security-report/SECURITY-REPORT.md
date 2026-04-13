@@ -39,6 +39,19 @@ Resolved P1 race conditions, integer overflow, division-by-zero, and unbounded I
 | SSE unbounded io.Copy in copyRegularResponse | internal/proxy/l7/sse.go | io.LimitReader with 64MB cap | FIXED |
 | gRPC unbounded io.Copy in HandleGRPC | internal/proxy/l7/grpc.go | io.LimitReader with MaxMessageSize cap | FIXED |
 
+### Round 4 — P1 Batch 2 (latest commit)
+Resolved remaining P1 race conditions, goroutine leaks, and resource exhaustion:
+
+| Finding | File | Fix | Status |
+|---------|------|-----|--------|
+| Cluster callback race with run() goroutine | internal/cluster/cluster.go | callbackMu RWMutex for onStateChange/onLeaderElected | FIXED |
+| GetBackendByAddress iterates Backends without pool.mu | internal/backend/manager.go | Use GetAllBackends() with proper locking | FIXED |
+| MCP SSE MaxClients defaults to 0 (unlimited) | internal/mcp/sse_transport.go | Default to 100 concurrent clients | FIXED |
+| Timeout middleware goroutine leak | internal/middleware/timeout.go | Background drain of handler goroutine on timeout | FIXED |
+| WebSocket missing write deadline | internal/proxy/l7/websocket.go | Add write deadline in copyWithIdleTimeout | FIXED |
+| TCP proxy MaxConnections defaults to 0 (unlimited) | internal/proxy/l4/tcp.go | Default to 10000 connections | FIXED |
+| TCP proxy error type assertion misses wrapped errors | internal/proxy/l4/tcp.go | Use errors.As instead of type assertion | FIXED |
+
 ## Critical Findings
 
 ### CRIT-1: MCP Server Fully Open When BearerToken Is Empty
@@ -147,12 +160,16 @@ Resolved P1 race conditions, integer overflow, division-by-zero, and unbounded I
 ### P0 (Immediate) — All Fixed
 CRIT-1, HIGH-1 through HIGH-12
 
-### P1 (Next Sprint) — In Progress
-- Race conditions in conn/pool.go (FIXED), cluster/cluster.go, backend/manager.go
+### P1 (Next Sprint) — Mostly Complete
+- Race conditions in conn/pool.go (FIXED), cluster/cluster.go (FIXED), backend/manager.go (FIXED)
 - SSE/gRPC unbounded io.Copy (FIXED)
-- Bot detection rate → integer overflow fixes (FIXED in pkg/utils/time.go)
-- Error type assertions (use errors.As)
+- Integer overflow fixes in pkg/utils/time.go (FIXED)
 - Rate limiter division by zero (FIXED)
+- Error type assertions (tcp.go FIXED; remaining use errors.As where needed)
+- MCP SSE unbounded clients (FIXED)
+- Timeout goroutine leak (FIXED)
+- WebSocket missing write deadline (FIXED)
+- TCP proxy missing connection limits (FIXED)
 
 ### P2 (Next Quarter)
 - MED-7: Add RBAC to admin API (Large effort)
