@@ -134,8 +134,12 @@ func (gh *GRPCHandler) HandleGRPC(w http.ResponseWriter, r *http.Request, b *bac
 	// Write status code
 	w.WriteHeader(resp.StatusCode)
 
-	// Copy response body
-	_, err = io.Copy(w, resp.Body)
+	// Copy response body (bounded to prevent DoS from unbounded backend response)
+	maxRespSize := int64(gh.config.MaxMessageSize)
+	if maxRespSize <= 0 {
+		maxRespSize = 4 * 1024 * 1024 // 4MB default
+	}
+	_, err = io.Copy(w, io.LimitReader(resp.Body, maxRespSize))
 	if err != nil {
 		return err
 	}

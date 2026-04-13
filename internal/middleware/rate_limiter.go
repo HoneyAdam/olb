@@ -101,6 +101,14 @@ func (m *RateLimitMiddleware) isTrustedProxy(ipStr string) bool {
 
 // NewRateLimitMiddleware creates a new rate limiter middleware.
 func NewRateLimitMiddleware(config RateLimitConfig) (*RateLimitMiddleware, error) {
+	// Guard against division by zero in rate calculations.
+	if config.RequestsPerSecond <= 0 {
+		return nil, fmt.Errorf("rate limiter: RequestsPerSecond must be > 0, got %f", config.RequestsPerSecond)
+	}
+	if config.BurstSize <= 0 {
+		return nil, fmt.Errorf("rate limiter: BurstSize must be > 0, got %d", config.BurstSize)
+	}
+
 	// Set defaults
 	if config.CleanupInterval <= 0 {
 		config.CleanupInterval = time.Minute
@@ -229,21 +237,23 @@ func (m *RateLimitMiddleware) allow(key string) (bool, time.Duration) {
 		bucketIface = actualIface
 		bucket := bucketIface.(*tokenBucket)
 		bucket.mu.Lock()
-		defer bucket.mu.Unlock()
 		if loaded {
 			// Another goroutine created the bucket, use that one
-			return m.checkAndConsume(bucket, now)
+			ok, retry := m.checkAndConsume(bucket, now)
+			bucket.mu.Unlock()
+			return ok, retry
 		}
 		// We created the bucket, consume one token
 		bucket.tokens--
+		bucket.mu.Unlock()
 		return true, 0
 	}
 
 	bucket := bucketIface.(*tokenBucket)
 	bucket.mu.Lock()
-	defer bucket.mu.Unlock()
-
-	return m.checkAndConsume(bucket, now)
+	ok, retry := m.checkAndConsume(bucket, now)
+	bucket.mu.Unlock()
+	return ok, retry
 }
 
 // checkAndConsume checks if a request can proceed and consumes a token.

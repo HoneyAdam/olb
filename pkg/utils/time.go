@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -49,32 +51,39 @@ func parseCustomDuration(s string) (time.Duration, error) {
 		}
 		numStr.Reset()
 
+		var unitDur time.Duration
 		switch c {
 		case 'w', 'W':
-			total += time.Duration(num * float64(7*24*time.Hour))
+			unitDur = 7 * 24 * time.Hour
 		case 'd', 'D':
-			total += time.Duration(num * float64(24*time.Hour))
+			unitDur = 24 * time.Hour
 		case 'h', 'H':
-			total += time.Duration(num * float64(time.Hour))
+			unitDur = time.Hour
 		case 'm', 'M':
 			// Check if next char is 's' or 'S' for milliseconds
 			if i+1 < len(s) && (s[i+1] == 's' || s[i+1] == 'S') {
-				total += time.Duration(num * float64(time.Millisecond))
+				unitDur = time.Millisecond
 				i++ // skip 's'
 			} else {
-				total += time.Duration(num * float64(time.Minute))
+				unitDur = time.Minute
 			}
 		case 's', 'S':
-			total += time.Duration(num * float64(time.Second))
+			unitDur = time.Second
 		case 'u', 'U':
 			// Check for us (microseconds)
 			if i+1 < len(s) && s[i+1] == 's' {
-				total += time.Duration(num * float64(time.Microsecond))
+				unitDur = time.Microsecond
 				i++
 			}
 		default:
 			return 0, strconv.ErrSyntax
 		}
+
+		scaled := num * float64(unitDur)
+		if scaled > float64(math.MaxInt64) || scaled < float64(math.MinInt64) {
+			return 0, fmt.Errorf("duration overflow: %g%s exceeds maximum", num, string(c))
+		}
+		total += time.Duration(scaled)
 	}
 
 	if numStr.Len() > 0 {
@@ -229,7 +238,11 @@ func ParseByteSize(s string) (int64, error) {
 		return 0, strconv.ErrSyntax
 	}
 
-	return int64(num * multiplier), nil
+	result := num * multiplier
+	if result > float64(math.MaxInt64) || result < 0 {
+		return 0, fmt.Errorf("byte size overflow: %q exceeds maximum int64 value", s)
+	}
+	return int64(result), nil
 }
 
 // MustParseByteSize parses a byte size string and panics on error.
@@ -285,11 +298,17 @@ func formatSize(size float64, unit string) string {
 
 // TruncateDuration truncates a duration to the given precision.
 func TruncateDuration(d time.Duration, precision time.Duration) time.Duration {
+	if precision <= 0 {
+		return d
+	}
 	return d / precision * precision
 }
 
 // RoundDuration rounds a duration to the given precision.
 func RoundDuration(d time.Duration, precision time.Duration) time.Duration {
+	if precision <= 0 {
+		return d
+	}
 	half := precision / 2
 	return (d + half) / precision * precision
 }

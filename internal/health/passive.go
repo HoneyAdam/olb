@@ -245,8 +245,12 @@ func (pc *PassiveChecker) markUnhealthy(addr string, bs *backendState) {
 	bs.unhealthySince = time.Now()
 	bs.mu.Unlock()
 
-	if pc.OnBackendUnhealthy != nil {
-		pc.OnBackendUnhealthy(addr)
+	// Read callback under the checker's mutex for safe concurrent access.
+	pc.mu.RLock()
+	cb := pc.OnBackendUnhealthy
+	pc.mu.RUnlock()
+	if cb != nil {
+		cb(addr)
 	}
 }
 
@@ -263,8 +267,12 @@ func (pc *PassiveChecker) markRecovered(addr string, bs *backendState) {
 	bs.unhealthySince = time.Time{}
 	bs.mu.Unlock()
 
-	if pc.OnBackendRecovered != nil {
-		pc.OnBackendRecovered(addr)
+	// Read callback under the checker's mutex for safe concurrent access.
+	pc.mu.RLock()
+	cb := pc.OnBackendRecovered
+	pc.mu.RUnlock()
+	if cb != nil {
+		cb(addr)
 	}
 }
 

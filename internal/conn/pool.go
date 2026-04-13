@@ -157,7 +157,9 @@ func (p *Pool) Get(ctx context.Context) (net.Conn, error) {
 		return conn, nil
 	}
 
-	// No idle connection available, create a new one
+	// No idle connection available, create a new one.
+	// We must unlock for the blocking dial, but snapshot the closed state
+	// to avoid using stale values after re-acquiring the lock.
 	p.mu.Unlock()
 	rawConn, err := p.dial(ctx)
 	p.mu.Lock()
@@ -167,11 +169,10 @@ func (p *Pool) Get(ctx context.Context) (net.Conn, error) {
 		return nil, err
 	}
 
-	// Pool may have been closed while we were dialing
+	// Re-check: pool may have been closed while we were dialing.
 	if p.closed {
 		p.mu.Unlock()
 		rawConn.Close()
-		p.mu.Lock()
 		p.misses++
 		return nil, errors.New("pool is closed")
 	}

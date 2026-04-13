@@ -180,8 +180,9 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 	// Get flusher (required for SSE)
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		// If we can't flush, just copy the body normally
-		_, err := io.Copy(w, resp.Body)
+		// If we can't flush, just copy the body normally (bounded)
+		const maxSSEFallbackSize = 64 * 1024 * 1024 // 64MB
+		_, err := io.Copy(w, io.LimitReader(resp.Body, maxSSEFallbackSize))
 		return err
 	}
 
@@ -301,11 +302,12 @@ func copySSEHeaders(dst, src http.Header) {
 	}
 }
 
-// copyRegularResponse copies a non-SSE response.
+// copyRegularResponse copies a non-SSE response (bounded to prevent DoS).
 func (sh *SSEHandler) copyRegularResponse(w http.ResponseWriter, resp *http.Response) error {
 	copySSEHeaders(w.Header(), resp.Header)
 	w.WriteHeader(resp.StatusCode)
-	_, err := io.Copy(w, resp.Body)
+	const maxRegularResponseSize = 64 * 1024 * 1024 // 64MB
+	_, err := io.Copy(w, io.LimitReader(resp.Body, maxRegularResponseSize))
 	return err
 }
 
