@@ -176,7 +176,10 @@ func (sm *ConfigStateMachine) Apply(command []byte) ([]byte, error) {
 	if sm.onConfigApplied != nil {
 		// Pass a copy to avoid race conditions
 		cfgCopy := sm.cloneConfigLocked()
-		go sm.onConfigApplied(cfgCopy)
+		go func() {
+			defer func() { recover() }()
+			sm.onConfigApplied(cfgCopy)
+		}()
 	}
 
 	result, err := json.Marshal(sm.config)

@@ -255,7 +255,7 @@ func (c *ReloadCommand) Run(args []string) error {
 		apiAddr = "localhost:8081"
 	}
 
-	url := fmt.Sprintf("http://%s/api/v1/system/reload", apiAddr)
+	url := "http://" + apiAddr + "/api/v1/system/reload"
 	resp, err := http.Post(url, "application/json", nil)
 	if err != nil {
 		return fmt.Errorf("failed to reload via API: %w", err)
@@ -297,8 +297,12 @@ func (c *StatusCommand) Run(args []string) error {
 	}
 
 	// Query admin API for system info
-	infoURL := fmt.Sprintf("http://%s/api/v1/system/info", c.apiAddr)
-	infoResp, err := http.Get(infoURL)
+	infoURL := "http://" + c.apiAddr + "/api/v1/system/info"
+	infoReq, err := http.NewRequestWithContext(context.Background(), http.MethodGet, infoURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	infoResp, err := http.DefaultClient.Do(infoReq)
 	if err != nil {
 		return fmt.Errorf("failed to query system info: %w", err)
 	}
@@ -314,8 +318,12 @@ func (c *StatusCommand) Run(args []string) error {
 	}
 
 	// Query admin API for health
-	healthURL := fmt.Sprintf("http://%s/api/v1/system/health", c.apiAddr)
-	healthResp, err := http.Get(healthURL)
+	healthURL := "http://" + c.apiAddr + "/api/v1/system/health"
+	healthReq, err := http.NewRequestWithContext(context.Background(), http.MethodGet, healthURL, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	healthResp, err := http.DefaultClient.Do(healthReq)
 	if err != nil {
 		return fmt.Errorf("failed to query health: %w", err)
 	}
@@ -479,8 +487,12 @@ func (c *BackendCommand) runList(args []string) error {
 	}
 
 	// Query admin API
-	url := fmt.Sprintf("http://%s/api/v1/backends", c.apiAddr)
-	resp, err := http.Get(url)
+	url := "http://" + c.apiAddr + "/api/v1/backends"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to query backends: %w", err)
 	}
@@ -566,8 +578,12 @@ func (c *HealthCommand) runShow(args []string) error {
 	}
 
 	// Query admin API
-	url := fmt.Sprintf("http://%s/api/v1/health", c.apiAddr)
-	resp, err := http.Get(url)
+	url := "http://" + c.apiAddr + "/api/v1/health"
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to query health: %w", err)
 	}

@@ -215,6 +215,12 @@ func ReleaseRequestContext(ctx *RequestContext) {
 	ctx.Body = nil
 	ctx.Request = nil
 	ctx.Headers = nil
+	for k := range ctx.Cookies {
+		delete(ctx.Cookies, k)
+	}
+	for k := range ctx.BodyParams {
+		delete(ctx.BodyParams, k)
+	}
 	ctx.DecodedPath = ""
 	ctx.DecodedQuery = ""
 	ctx.DecodedBody = ""

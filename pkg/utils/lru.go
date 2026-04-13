@@ -65,8 +65,8 @@ func MustNewLRU[K comparable, V any](capacity int) *LRU[K, V] {
 // The callback is called with the evicted key and value.
 func (c *LRU[K, V]) SetOnEvict(fn func(key K, value V)) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.onEvict = fn
-	c.mu.Unlock()
 }
 
 // Capacity returns the maximum number of items the cache can hold.

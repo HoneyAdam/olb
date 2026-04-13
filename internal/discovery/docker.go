@@ -411,7 +411,11 @@ func (p *DockerProvider) containerToService(container dockerContainer) *Service 
 
 	name := containerName(container.Names)
 	if name == "" {
-		name = container.ID[:12]
+		shortID := container.ID
+		if len(shortID) > 12 {
+			shortID = shortID[:12]
+		}
+		name = shortID
 	}
 
 	meta := map[string]string{
@@ -427,8 +431,13 @@ func (p *DockerProvider) containerToService(container dockerContainer) *Service 
 	allTags = append(allTags, p.config.Tags...)
 	allTags = append(allTags, tags...)
 
+	shortID := container.ID
+	if len(shortID) > 12 {
+		shortID = shortID[:12]
+	}
+
 	return &Service{
-		ID:      fmt.Sprintf("%s-docker-%s", p.name, container.ID[:12]),
+		ID:      fmt.Sprintf("%s-docker-%s", p.name, shortID),
 		Name:    name,
 		Address: ip,
 		Port:    port,
@@ -509,10 +518,12 @@ func (p *DockerProvider) watchEvents() {
 			}
 
 			// Backoff before reconnecting
+			timer := time.NewTimer(5 * time.Second)
 			select {
 			case <-p.ctx.Done():
+				timer.Stop()
 				return
-			case <-time.After(5 * time.Second):
+			case <-timer.C:
 			}
 		}
 	}

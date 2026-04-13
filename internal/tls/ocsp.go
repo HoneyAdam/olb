@@ -2,6 +2,7 @@ package tls
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
@@ -110,6 +111,7 @@ func (m *OCSPManager) Start() error {
 func (m *OCSPManager) Stop() error {
 	close(m.stopCh)
 	m.wg.Wait()
+	m.httpClient.CloseIdleConnections()
 	return nil
 }
 
@@ -244,7 +246,7 @@ func (m *OCSPManager) fetchResponse(cert *x509.Certificate, issuer *x509.Certifi
 // queryResponder queries a single OCSP responder.
 func (m *OCSPManager) queryResponder(responderURL string, requestBody []byte, issuer *x509.Certificate) (*OCSPResponse, error) {
 	// Try POST first
-	req, err := http.NewRequest("POST", responderURL, bytes.NewReader(requestBody))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", responderURL, bytes.NewReader(requestBody))
 	if err != nil {
 		return nil, err
 	}
@@ -272,7 +274,11 @@ func (m *OCSPManager) queryResponderGET(responderURL string, requestBody []byte,
 	encoded := base64.StdEncoding.EncodeToString(requestBody)
 	urlWithParam := fmt.Sprintf("%s/%s", responderURL, encoded)
 
-	resp, err := m.httpClient.Get(urlWithParam)
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, urlWithParam, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := m.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +293,7 @@ func (m *OCSPManager) queryResponderGET(responderURL string, requestBody []byte,
 
 // parseResponse parses the OCSP response.
 func (m *OCSPManager) parseResponse(body io.Reader, issuer *x509.Certificate) (*OCSPResponse, error) {
-	data, err := io.ReadAll(body)
+	data, err := io.ReadAll(io.LimitReader(body, 10<<10)) // 10 KB cap (OCSP responses are typically <1 KB)
 	if err != nil {
 		return nil, err
 	}

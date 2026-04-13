@@ -3,6 +3,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -114,7 +115,7 @@ func (c *Client) doRequest(method, path string, body any) (*http.Response, error
 	}
 
 	url := c.baseURL + "/api/v1" + path
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(context.Background(), method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -180,7 +181,7 @@ func (c *Client) delete(path string) error {
 
 // handleResponse processes the HTTP response and decodes JSON.
 func (c *Client) handleResponse(resp *http.Response, result any) error {
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB cap
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
@@ -200,7 +201,7 @@ func (c *Client) handleResponse(resp *http.Response, result any) error {
 
 // decodeError decodes an error response from the server.
 func (c *Client) decodeError(resp *http.Response) error {
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096)) // 4 KB cap for error bodies
 	if err != nil {
 		return fmt.Errorf("HTTP %d: failed to read error response", resp.StatusCode)
 	}
@@ -311,7 +312,7 @@ func (c *Client) GetMetricsPrometheus() (string, error) {
 		return "", c.decodeError(resp)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 10<<20)) // 10 MB cap
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}

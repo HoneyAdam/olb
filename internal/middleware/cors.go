@@ -2,7 +2,6 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -48,7 +47,7 @@ func NewCORSMiddleware(config CORSConfig) *CORSMiddleware {
 	if config.AllowCredentials {
 		for _, origin := range config.AllowedOrigins {
 			if origin == "*" {
-				panic(fmt.Sprintf("CORS misconfiguration: AllowedOrigins cannot contain '*' when AllowCredentials is true — specify explicit origins instead"))
+				panic("CORS misconfiguration: AllowedOrigins cannot contain '*' when AllowCredentials is true — specify explicit origins instead")
 			}
 		}
 	}
