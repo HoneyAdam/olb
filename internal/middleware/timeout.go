@@ -73,8 +73,12 @@ func (t *TimeoutMiddleware) Wrap(next http.Handler) http.Handler {
 			if !tw.Written() {
 				w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 				w.WriteHeader(http.StatusGatewayTimeout)
-				w.Write([]byte(t.config.Message))
+				_, _ = w.Write([]byte(t.config.Message))
 			}
+			// Drain the handler goroutine so it doesn't leak. It will
+			// eventually complete or fail writing to the already-responded
+			// connection, then close the done channel.
+			go func() { <-done }()
 		}
 	})
 }

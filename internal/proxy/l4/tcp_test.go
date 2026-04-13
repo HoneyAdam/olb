@@ -911,8 +911,8 @@ func TestDefaultTCPProxyConfig(t *testing.T) {
 	if cfg.BufferSize != 32*1024 {
 		t.Errorf("BufferSize = %d, want 32KB", cfg.BufferSize)
 	}
-	if cfg.MaxConnections != 0 {
-		t.Errorf("MaxConnections = %d, want 0", cfg.MaxConnections)
+	if cfg.MaxConnections != 10000 {
+		t.Errorf("MaxConnections = %d, want 10000", cfg.MaxConnections)
 	}
 	if !cfg.EnableTCPKeepalive {
 		t.Error("EnableTCPKeepalive should be true")

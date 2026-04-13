@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,7 +43,7 @@ func DefaultTCPProxyConfig() *TCPProxyConfig {
 		DialTimeout:        10 * time.Second,
 		IdleTimeout:        60 * time.Second,
 		BufferSize:         32 * 1024, // 32KB
-		MaxConnections:     0,         // unlimited
+		MaxConnections:     10000,     // 10K concurrent connections max
 		EnableTCPKeepalive: true,
 		TCPKeepalivePeriod: 30 * time.Second,
 	}
@@ -286,7 +287,8 @@ func isNormalCloseError(err error) bool {
 	if err == io.EOF {
 		return true
 	}
-	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
 		return true
 	}
 	// Check for common close errors
@@ -304,20 +306,7 @@ func isNormalCloseError(err error) bool {
 
 func containsAny(s string, substrs []string) bool {
 	for _, substr := range substrs {
-		if contains(s, substr) {
-			return true
-		}
-	}
-	return false
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) > 0 && containsInternal(s, substr))
-}
-
-func containsInternal(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
+		if strings.Contains(s, substr) {
 			return true
 		}
 	}
@@ -542,20 +531,23 @@ func CopyBidirectional(conn1, conn2 net.Conn, idleTimeout time.Duration) (int64,
 }
 
 // copyWithBuffer copies data with a buffer and idle timeout.
+// If idleTimeout is 0, a default of 5 minutes is used to prevent goroutines
+// from blocking indefinitely on unresponsive connections.
 func copyWithBuffer(dst, src net.Conn, idleTimeout time.Duration) (int64, error) {
 	buf := make([]byte, 32*1024)
 	var total int64
 
+	timeout := idleTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+
 	for {
-		if idleTimeout > 0 {
-			src.SetReadDeadline(time.Now().Add(idleTimeout))
-		}
+		src.SetReadDeadline(time.Now().Add(timeout))
 
 		nr, err := src.Read(buf)
 		if nr > 0 {
-			if idleTimeout > 0 {
-				src.SetReadDeadline(time.Time{})
-			}
+			src.SetReadDeadline(time.Time{})
 
 			nw, writeErr := dst.Write(buf[:nr])
 			total += int64(nw)

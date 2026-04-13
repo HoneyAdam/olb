@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -118,6 +119,7 @@ type Cluster struct {
 	transport *TCPTransport
 
 	// Callbacks
+	callbackMu      sync.RWMutex // protects onStateChange and onLeaderElected
 	onStateChange   func(State, State)
 	onLeaderElected func(string)
 
@@ -169,7 +171,7 @@ func New(config *Config, stateMachine StateMachine) (*Cluster, error) {
 	// Add self to nodes
 	c.nodes[config.NodeID] = &Node{
 		ID:       config.NodeID,
-		Address:  net.JoinHostPort(config.BindAddr, fmt.Sprintf("%d", config.BindPort)),
+		Address:  net.JoinHostPort(config.BindAddr, strconv.Itoa(config.BindPort)),
 		LastSeen: time.Now(),
 		IsLeader: false,
 	}
@@ -257,7 +259,11 @@ func (c *Cluster) run() {
 
 // GetState returns the current state of the node.
 func (c *Cluster) GetState() State {
-	return c.state.Load().(State)
+	v := c.state.Load()
+	if s, ok := v.(State); ok {
+		return s
+	}
+	return StateFollower // safe default for uninitialized
 }
 
 // setState sets the state of the node.
@@ -265,15 +271,22 @@ func (c *Cluster) setState(newState State) {
 	oldState := c.GetState()
 	if oldState != newState {
 		c.state.Store(newState)
-		if c.onStateChange != nil {
-			c.onStateChange(oldState, newState)
+		c.callbackMu.RLock()
+		cb := c.onStateChange
+		c.callbackMu.RUnlock()
+		if cb != nil {
+			cb(oldState, newState)
 		}
 	}
 }
 
 // GetLeader returns the current leader ID.
 func (c *Cluster) GetLeader() string {
-	return c.leaderID.Load().(string)
+	v := c.leaderID.Load()
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return "" // no leader known yet
 }
 
 // IsLeader returns true if this node is the leader.
@@ -445,6 +458,9 @@ func (c *Cluster) becomeLeader() {
 	if c.electionTimer != nil {
 		c.electionTimer.Stop()
 	}
+	if c.heartbeatTimer != nil {
+		c.heartbeatTimer.Stop()
+	}
 	c.heartbeatTimer = time.NewTicker(c.config.HeartbeatTick)
 	c.timerMu.Unlock()
 
@@ -455,8 +471,11 @@ func (c *Cluster) becomeLeader() {
 	}
 	c.nodesMu.Unlock()
 
-	if c.onLeaderElected != nil {
-		c.onLeaderElected(c.config.NodeID)
+	c.callbackMu.RLock()
+	cb := c.onLeaderElected
+	c.callbackMu.RUnlock()
+	if cb != nil {
+		cb(c.config.NodeID)
 	}
 }
 
@@ -644,6 +663,11 @@ func (c *Cluster) maybeCompactLog() {
 	}
 
 	go func() {
+		select {
+		case <-c.stopCh:
+			return
+		default:
+		}
 		_, err := c.CreateSnapshot()
 		if err != nil {
 			log.Printf("[cluster] auto-compaction failed: %v", err)
@@ -699,7 +723,7 @@ func (c *Cluster) GetLogEntries(startIndex uint64) []*LogEntry {
 	c.logMu.RLock()
 	defer c.logMu.RUnlock()
 
-	var entries []*LogEntry
+	entries := make([]*LogEntry, 0, len(c.log))
 	for _, entry := range c.log {
 		if entry.Index >= startIndex {
 			entries = append(entries, entry)
@@ -743,11 +767,15 @@ func (c *Cluster) RemoveNode(nodeID string) {
 
 // OnStateChange sets the callback for state changes.
 func (c *Cluster) OnStateChange(fn func(oldState, newState State)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
 	c.onStateChange = fn
 }
 
 // OnLeaderElected sets the callback for leader election.
 func (c *Cluster) OnLeaderElected(fn func(leaderID string)) {
+	c.callbackMu.Lock()
+	defer c.callbackMu.Unlock()
 	c.onLeaderElected = fn
 }
 
@@ -806,7 +834,7 @@ func (c *Cluster) HandleRequestVote(req *RequestVote) *RequestVoteResponse {
 		c.votedFor.Store("")
 	}
 
-	votedFor := c.votedFor.Load().(string)
+	votedFor, _ := c.votedFor.Load().(string)
 	if (votedFor == "" || votedFor == req.CandidateID) && c.isLogUpToDate(req.LastLogIndex, req.LastLogTerm) {
 		c.votedFor.Store(req.CandidateID)
 		c.resetElectionTimer()
@@ -915,10 +943,11 @@ func (c *Cluster) HandleAppendEntries(req *AppendEntries) *AppendEntriesResponse
 		c.commitIndex.Store(newCommit)
 
 		// Collect committed but unapplied entries under a single lock
-		var toApply [][]byte
 		startIdx := c.lastApplied.Load() + 1
+		commitIdx := c.commitIndex.Load()
+		toApply := make([][]byte, 0, commitIdx-c.lastApplied.Load())
 		c.logMu.RLock()
-		for i := startIdx; i <= c.commitIndex.Load() && i <= uint64(len(c.log)); i++ {
+		for i := startIdx; i <= commitIdx && i <= uint64(len(c.log)); i++ {
 			toApply = append(toApply, c.log[i-1].Command)
 		}
 		c.logMu.RUnlock()

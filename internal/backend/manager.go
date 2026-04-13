@@ -177,7 +177,7 @@ func (pm *PoolManager) GetBackendByAddress(addr string) *Backend {
 	defer pm.mu.RUnlock()
 
 	for _, pool := range pm.pools {
-		for _, b := range pool.Backends {
+		for _, b := range pool.GetAllBackends() {
 			if b.Address == addr {
 				return b
 			}

@@ -73,6 +73,10 @@ type sseClient struct {
 
 // NewSSETransport creates a new SSE-capable MCP transport.
 func NewSSETransport(server *Server, config SSETransportConfig) *SSETransport {
+	// Default MaxClients to 100 if not set to prevent unbounded goroutine/connection growth.
+	if config.MaxClients <= 0 {
+		config.MaxClients = 100
+	}
 	return &SSETransport{
 		server:  server,
 		config:  config,

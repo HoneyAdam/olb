@@ -423,7 +423,9 @@ func (wh *WebSocketHandler) copyWithIdleTimeout(dst, src net.Conn, timeout time.
 		if nr > 0 {
 
 			src.SetReadDeadline(time.Time{})
+			dst.SetWriteDeadline(time.Now().Add(timeout))
 			nw, writeErr := dst.Write(buf[:nr])
+			dst.SetWriteDeadline(time.Time{})
 			if writeErr != nil {
 				return writeErr
 			}
