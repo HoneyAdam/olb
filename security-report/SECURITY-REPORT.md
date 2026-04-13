@@ -56,6 +56,15 @@ Resolved remaining P1 race conditions, goroutine leaks, and resource exhaustion:
 | Compression unbounded response buffer | internal/middleware/compression.go | MaxBufferSize (default 8MB) with passthrough | FIXED |
 | PROXY protocol ignored Atoi error for ports | internal/proxy/l4/proxyproto.go | Validate parse + range (0-65535) | FIXED |
 
+### Round 6 — P2 Batch (latest commit)
+| HTTP/2 bare net.Dial without timeout (3 sites) | internal/proxy/l7/http2.go | net.Dialer with 10s timeout | FIXED |
+| Coalesce unbounded inflight map | internal/middleware/coalesce/coalesce.go | Default MaxRequests=5000 | FIXED |
+| Retry unbounded response body buffering | internal/middleware/retry.go | MaxResponseSize default 5MB | FIXED |
+| Config watcher untracked goroutine | internal/config/watcher.go | WaitGroup + Stop() waits | FIXED |
+| CI golangci-lint@latest unpinned | .github/workflows/ci.yml | Pinned to v1.64.8 | FIXED |
+| CI staticcheck@latest unpinned | .github/workflows/ci.yml | Pinned to v0.6.1 | FIXED |
+| CI benchstat@latest unpinned | .github/workflows/ci.yml | Pinned to commit hash | FIXED |
+
 ## Critical Findings
 
 ### CRIT-1: MCP Server Fully Open When BearerToken Is Empty
@@ -143,9 +152,9 @@ Resolved remaining P1 race conditions, goroutine leaks, and resource exhaustion:
 2. nancy@latest unpinned in CI → FIXED (pinned to v1.0.106)
 3. Missing go mod verify in CI → FIXED
 4. Dockerfile base images not pinned by digest
-5. golangci-lint@latest unpinned
-6. staticcheck@latest unpinned
-7. benchstat@latest unpinned
+5. golangci-lint@latest unpinned (FIXED: pinned to v1.64.8)
+6. staticcheck@latest unpinned (FIXED: pinned to v0.6.1)
+7. benchstat@latest unpinned (FIXED: pinned to commit hash)
 8. No dependency pinning verification in CI
 9. No SBOM generation in release pipeline
 10. No cosign/signature verification for Docker images
@@ -192,5 +201,5 @@ CRIT-1, HIGH-1 through HIGH-12
 | Resource Exhaustion | DoS analysis | 14 (2 fixed) |
 | Error Handling | Anti-pattern scan | 27 (1 fixed) |
 | Integer Overflow | Bounds analysis | 16 (0 fixed) |
-| Supply Chain | CI/CD audit | 10 (3 fixed) |
+| Supply Chain | CI/CD audit | 10 (6 fixed) |
 | Goroutine Leaks | Lifecycle analysis | 14 (1 fixed) |
