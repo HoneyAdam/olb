@@ -402,13 +402,31 @@ func parseSNIList(data []byte) (string, error) {
 		sniData := data[3 : 3+sniLen]
 
 		if sniType == 0x00 { // Host name
-			return string(sniData), nil
+			host := string(sniData)
+			if err := validateSNIHostname(host); err != nil {
+				return "", err
+			}
+			return host, nil
 		}
 
 		data = data[3+sniLen:]
 	}
 
 	return "", errors.New("no host name SNI found")
+}
+
+// validateSNIHostname checks that an SNI hostname conforms to RFC 5280 rules.
+func validateSNIHostname(host string) error {
+	if len(host) == 0 || len(host) > 253 {
+		return fmt.Errorf("invalid SNI hostname length: %d", len(host))
+	}
+	for i := 0; i < len(host); i++ {
+		c := host[i]
+		if c < 0x20 || c == 0x7f {
+			return fmt.Errorf("invalid SNI hostname: control character at position %d", i)
+		}
+	}
+	return nil
 }
 
 // SNIBasedProxy is a TCP proxy that routes based on SNI.

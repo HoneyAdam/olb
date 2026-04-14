@@ -193,30 +193,57 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 		maxLineSize = 1024 * 1024 // 1MB default
 	}
 	reader := bufio.NewReader(io.LimitReader(resp.Body, maxLineSize))
-	for {
-		// Read line with timeout handling
-		lineCh := make(chan readLineResult, 1)
-		go func() {
-			line, err := sh.readLineWithTimeout(ctx, reader, sh.config.IdleTimeout, func() { resp.Body.Close() })
+	// Single reader goroutine — reuses one goroutine for all reads instead of
+	// spawning a new one per line, preventing unbounded goroutine growth.
+	lineCh := make(chan readLineResult, 1)
+	go func() {
+		for {
+			line, err := reader.ReadBytes('\n')
 			lineCh <- readLineResult{line: line, err: err}
-		}()
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	// Ensure reader goroutine is cleaned up on return
+	defer func() {
+		resp.Body.Close()
+		select {
+		case <-lineCh:
+		case <-ctx.Done():
+		default:
+		}
+	}()
+
+	idleTimeout := sh.config.IdleTimeout
+	for {
+		var timerCh <-chan time.Time
+		var timer *time.Timer
+		if idleTimeout > 0 {
+			timer = time.NewTimer(idleTimeout)
+			timerCh = timer.C
+		}
 
 		select {
 		case <-ctx.Done():
-			// Client disconnected, stop streaming
+			if timer != nil {
+				timer.Stop()
+			}
 			return ctx.Err()
+		case <-timerCh:
+			// Idle timeout — send keepalive and stop
+			if _, writeErr := w.Write([]byte(":keepalive\n")); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+			return nil
 		case res := <-lineCh:
+			if timer != nil {
+				timer.Stop()
+			}
 			if res.err != nil {
 				if res.err == io.EOF {
-					return nil
-				}
-				// Check if it's a timeout (normal for SSE idle connections)
-				if netErr, ok := res.err.(net.Error); ok && netErr.Timeout() {
-					// Send a keepalive comment and continue
-					if _, writeErr := w.Write([]byte(":keepalive\n")); writeErr != nil {
-						return writeErr
-					}
-					flusher.Flush()
 					return nil
 				}
 				return res.err
@@ -232,6 +259,7 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 		}
 	}
 }
+
 
 // readLineResult holds the result of an async line read.
 type readLineResult struct {

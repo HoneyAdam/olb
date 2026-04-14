@@ -165,6 +165,20 @@ func NewChecker() *Checker {
 	}
 }
 
+// SetGRPCTLSSkipVerify configures whether the gRPC health check client
+// skips TLS certificate verification. Default is true for backward compatibility
+// with self-signed internal certificates. Set to false in production environments
+// where backends use trusted certificates.
+func (c *Checker) SetGRPCTLSSkipVerify(skip bool) {
+	c.grpcClient = &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:   &tls.Config{InsecureSkipVerify: skip}, //nolint:gosec
+			ForceAttemptHTTP2: true,
+		},
+	}
+}
+
 // Register registers a backend for health checking.
 func (c *Checker) Register(b *backend.Backend, config *Check) error {
 	if b == nil {

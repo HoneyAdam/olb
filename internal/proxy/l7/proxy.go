@@ -725,7 +725,7 @@ func defaultErrorHandler(w http.ResponseWriter, r *http.Request, err error) {
 			code = http.StatusGatewayTimeout
 			message = "Gateway Timeout"
 		default:
-			message = olbErr.Message
+			message = "Internal Server Error"
 		}
 	}
 

@@ -50,6 +50,14 @@ type StickyConfig struct {
 
 	// ParamName is the URL parameter name for param-based affinity (default: "backend").
 	ParamName string
+
+	// MaxSessions limits the number of concurrent session mappings (default: 100000).
+	// When exceeded, the oldest sessions are evicted.
+	MaxSessions int
+
+	// SessionTTL is the time-to-live for session entries (default: 1h).
+	// Sessions older than this are automatically evicted.
+	SessionTTL time.Duration
 }
 
 // DefaultStickyConfig returns a default sticky session configuration.
@@ -64,7 +72,15 @@ func DefaultStickyConfig() *StickyConfig {
 		CookieSameSite: http.SameSiteLaxMode,
 		HeaderName:     "X-Backend-ID",
 		ParamName:      "backend",
+		MaxSessions:    100000,
+		SessionTTL:     time.Hour,
 	}
+}
+
+// stickyEntry holds a session mapping with its creation time.
+type stickyEntry struct {
+	backendID string
+	createdAt time.Time
 }
 
 // Sticky wraps a base balancer with session affinity.
@@ -72,7 +88,7 @@ func DefaultStickyConfig() *StickyConfig {
 type Sticky struct {
 	base     Balancer
 	config   *StickyConfig
-	sessions map[string]string // sessionID -> backendID
+	sessions map[string]stickyEntry // sessionID -> entry
 	mu       sync.RWMutex
 }
 
@@ -84,7 +100,7 @@ func NewSticky(base Balancer, config *StickyConfig) *Sticky {
 	return &Sticky{
 		base:     base,
 		config:   config,
-		sessions: make(map[string]string),
+		sessions: make(map[string]stickyEntry),
 	}
 }
 
@@ -109,23 +125,33 @@ func (s *Sticky) Next(ctx *RequestContext, backends []*backend.Backend) *backend
 
 	if sessionID != "" {
 		s.mu.RLock()
-		backendID, exists := s.sessions[sessionID]
+		entry, exists := s.sessions[sessionID]
 		s.mu.RUnlock()
 
 		if exists {
-			// Find the backend in the list
-			for _, b := range backends {
-				if b.ID == backendID && b.IsAvailable() {
-					return b
+			// Check if session has expired
+			if s.config.SessionTTL > 0 && time.Since(entry.createdAt) > s.config.SessionTTL {
+				s.mu.Lock()
+				// Double-check under write lock
+				if e, ok := s.sessions[sessionID]; ok && e.createdAt.Equal(entry.createdAt) {
+					delete(s.sessions, sessionID)
 				}
+				s.mu.Unlock()
+			} else {
+				// Find the backend in the list
+				for _, b := range backends {
+					if b.ID == entry.backendID && b.IsAvailable() {
+						return b
+					}
+				}
+				// Backend not available — reselect under write lock to avoid TOCTOU race
+				s.mu.Lock()
+				// Double-check: another goroutine may have already reassigned
+				if existing, ok := s.sessions[sessionID]; ok && existing.backendID == entry.backendID {
+					delete(s.sessions, sessionID)
+				}
+				s.mu.Unlock()
 			}
-			// Backend not available — reselect under write lock to avoid TOCTOU race
-			s.mu.Lock()
-			// Double-check: another goroutine may have already reassigned
-			if existing, ok := s.sessions[sessionID]; ok && existing == backendID {
-				delete(s.sessions, sessionID)
-			}
-			s.mu.Unlock()
 		}
 	}
 
@@ -135,7 +161,12 @@ func (s *Sticky) Next(ctx *RequestContext, backends []*backend.Backend) *backend
 	// Store session mapping if we have a session ID
 	if selected != nil && sessionID != "" {
 		s.mu.Lock()
-		s.sessions[sessionID] = selected.ID
+		// Evict oldest sessions if at capacity
+		s.evictIfNeeded()
+		s.sessions[sessionID] = stickyEntry{
+			backendID: selected.ID,
+			createdAt: time.Now(),
+		}
 		s.mu.Unlock()
 	}
 
@@ -163,22 +194,31 @@ func (s *Sticky) SelectAndStick(backends []*backend.Backend, r *http.Request) (*
 
 	if sessionID != "" {
 		s.mu.RLock()
-		backendID, exists := s.sessions[sessionID]
+		entry, exists := s.sessions[sessionID]
 		s.mu.RUnlock()
 
 		if exists {
-			// Find the backend in the list
-			for _, b := range backends {
-				if b.ID == backendID && b.IsAvailable() {
-					return b, sessionID
+			// Check if session has expired
+			if s.config.SessionTTL > 0 && time.Since(entry.createdAt) > s.config.SessionTTL {
+				s.mu.Lock()
+				if e, ok := s.sessions[sessionID]; ok && e.createdAt.Equal(entry.createdAt) {
+					delete(s.sessions, sessionID)
 				}
+				s.mu.Unlock()
+			} else {
+				// Find the backend in the list
+				for _, b := range backends {
+					if b.ID == entry.backendID && b.IsAvailable() {
+						return b, sessionID
+					}
+				}
+				// Backend not available — reselect under write lock to avoid TOCTOU race
+				s.mu.Lock()
+				if existing, ok := s.sessions[sessionID]; ok && existing.backendID == entry.backendID {
+					delete(s.sessions, sessionID)
+				}
+				s.mu.Unlock()
 			}
-			// Backend not available — reselect under write lock to avoid TOCTOU race
-			s.mu.Lock()
-			if existing, ok := s.sessions[sessionID]; ok && existing == backendID {
-				delete(s.sessions, sessionID)
-			}
-			s.mu.Unlock()
 		}
 	}
 
@@ -192,7 +232,11 @@ func (s *Sticky) SelectAndStick(backends []*backend.Backend, r *http.Request) (*
 
 	if selected != nil {
 		s.mu.Lock()
-		s.sessions[sessionID] = selected.ID
+		s.evictIfNeeded()
+		s.sessions[sessionID] = stickyEntry{
+			backendID: selected.ID,
+			createdAt: time.Now(),
+		}
 		s.mu.Unlock()
 	}
 
@@ -279,8 +323,8 @@ func (s *Sticky) Remove(id string) {
 
 	// Clear sessions pointing to this backend
 	s.mu.Lock()
-	for sessionID, backendID := range s.sessions {
-		if backendID == id {
+	for sessionID, entry := range s.sessions {
+		if entry.backendID == id {
 			delete(s.sessions, sessionID)
 		}
 	}
@@ -296,8 +340,8 @@ func (s *Sticky) Update(backend *backend.Backend) {
 func (s *Sticky) GetSessionBackend(sessionID string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	backendID, exists := s.sessions[sessionID]
-	return backendID, exists
+	entry, exists := s.sessions[sessionID]
+	return entry.backendID, exists
 }
 
 // ClearSession removes a session mapping.
@@ -314,14 +358,55 @@ func (s *Sticky) SessionCount() int {
 	return len(s.sessions)
 }
 
-// CleanupSessions removes sessions that reference unavailable backends.
+// CleanupSessions removes sessions that reference unavailable backends
+// or have exceeded their TTL.
 func (s *Sticky) CleanupSessions(availableBackends map[string]bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for sessionID, backendID := range s.sessions {
-		if !availableBackends[backendID] {
+	now := time.Now()
+	for sessionID, entry := range s.sessions {
+		if !availableBackends[entry.backendID] {
 			delete(s.sessions, sessionID)
+		} else if s.config.SessionTTL > 0 && now.Sub(entry.createdAt) > s.config.SessionTTL {
+			delete(s.sessions, sessionID)
+		}
+	}
+}
+
+// evictIfNeeded removes expired and oldest sessions when at capacity.
+// Must be called with s.mu held for writing.
+func (s *Sticky) evictIfNeeded() {
+	maxSessions := s.config.MaxSessions
+	if maxSessions <= 0 {
+		maxSessions = 100000
+	}
+
+	// First pass: evict TTL-expired sessions
+	if s.config.SessionTTL > 0 {
+		now := time.Now()
+		for sessionID, entry := range s.sessions {
+			if now.Sub(entry.createdAt) > s.config.SessionTTL {
+				delete(s.sessions, sessionID)
+			}
+		}
+	}
+
+	// Second pass: if still over capacity, evict oldest entries
+	if len(s.sessions) >= maxSessions {
+		// Find the oldest entry
+		var oldestID string
+		var oldestTime time.Time
+		first := true
+		for id, entry := range s.sessions {
+			if first || entry.createdAt.Before(oldestTime) {
+				oldestID = id
+				oldestTime = entry.createdAt
+				first = false
+			}
+		}
+		if oldestID != "" {
+			delete(s.sessions, oldestID)
 		}
 	}
 }

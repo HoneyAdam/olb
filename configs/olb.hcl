@@ -40,8 +40,9 @@ admin {
   auth {
     type     = "basic"
     username = "admin"
-    # Password is "admin123" hashed with bcrypt
-    password = "$2a$10$N9qo8uLOickgx2ZMRZoMy.Mqrq3L3eA9XTO7ZlJ9ZPxQN0LBW4sXK"
+    # IMPORTANT: Change this password before deploying!
+    # Generate a bcrypt hash: go run -mod=mod github.com/tyler-smith/go-bcrypt-cli <password>
+    password = "$2a$10$CHANGEME_REPLACE_WITH_YOUR_OWN_BCRYPT_HASH"
   }
 }
 

@@ -9,6 +9,7 @@ import (
 	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"hash"
 	"io"
 	"net/http"
@@ -46,15 +47,21 @@ func DefaultConfig() Config {
 
 // Middleware provides HMAC signature verification.
 type Middleware struct {
-	config Config
-	hasher func() hash.Hash
-	mu     sync.RWMutex
+	config   Config
+	hasher   func() hash.Hash
+	maxAge   time.Duration // Parsed MaxAge, resolved once at construction
+	mu       sync.RWMutex
 }
 
 // New creates a new HMAC middleware.
 func New(config Config) (*Middleware, error) {
 	if !config.Enabled {
 		return &Middleware{config: config}, nil
+	}
+
+	// Validate secret is not empty
+	if config.Secret == "" {
+		return nil, errorf("hmac: secret must not be empty when enabled")
 	}
 
 	m := &Middleware{
@@ -69,6 +76,15 @@ func New(config Config) (*Middleware, error) {
 		m.hasher = sha512.New
 	default:
 		m.hasher = sha256.New
+	}
+
+	// Parse MaxAge once at construction time
+	if config.MaxAge != "" {
+		maxAge, err := time.ParseDuration(config.MaxAge)
+		if err != nil {
+			return nil, errorf("hmac: invalid max_age duration: " + config.MaxAge)
+		}
+		m.maxAge = maxAge
 	}
 
 	return m, nil
@@ -107,12 +123,7 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 		}
 
 		// Replay protection via timestamp validation
-		if m.config.TimestampHeader != "" && m.config.MaxAge != "" {
-			maxAge, parseErr := time.ParseDuration(m.config.MaxAge)
-			if parseErr != nil {
-				m.unauthorized(w, "invalid max_age configuration")
-				return
-			}
+		if m.config.TimestampHeader != "" && m.maxAge > 0 {
 			tsStr := r.Header.Get(m.config.TimestampHeader)
 			if tsStr == "" {
 				m.unauthorized(w, "missing timestamp")
@@ -133,7 +144,7 @@ func (m *Middleware) Wrap(next http.Handler) http.Handler {
 			if diff < 0 {
 				diff = -diff
 			}
-			if time.Duration(diff)*time.Second > maxAge {
+			if time.Duration(diff)*time.Second > m.maxAge {
 				m.unauthorized(w, "request timestamp expired")
 				return
 			}
@@ -188,12 +199,21 @@ func (m *Middleware) computeSignature(r *http.Request) (string, error) {
 		message.WriteString("\n")
 	}
 
+	// Add timestamp if replay protection is configured
+	if m.config.TimestampHeader != "" {
+		message.WriteString(r.Header.Get(m.config.TimestampHeader))
+		message.WriteString("\n")
+	}
+
 	// Add body if configured
 	if m.config.UseBody && r.Body != nil {
 		const maxBodySize = 10 << 20 // 10 MB
-		body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize))
+		body, err := io.ReadAll(io.LimitReader(r.Body, maxBodySize+1))
 		if err != nil {
 			return "", err
+		}
+		if len(body) > maxBodySize {
+			return "", errorf("request body exceeds maximum allowed size")
 		}
 		// Restore body for downstream handlers
 		r.Body = io.NopCloser(bytes.NewReader(body))
@@ -218,7 +238,12 @@ func (m *Middleware) computeSignature(r *http.Request) (string, error) {
 
 // unauthorized writes unauthorized response.
 func (m *Middleware) unauthorized(w http.ResponseWriter, message string) {
-	http.Error(w, `{"error":"unauthorized","message":"`+message+`"}`, http.StatusUnauthorized)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error":   "unauthorized",
+		"message": message,
+	})
 }
 
 // GenerateSignature generates an HMAC signature for a message.
@@ -259,4 +284,14 @@ type simpleError struct {
 
 func (e *simpleError) Error() string {
 	return e.msg
+}
+
+// ZeroSecrets clears the HMAC secret from memory.
+// Note: Go strings are immutable and their backing memory cannot be reliably zeroed.
+// This sets the reference to empty to prevent further use; the GC will reclaim the old value.
+func (m *Middleware) ZeroSecrets() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config.Secret = ""
+	m.config.Enabled = false
 }

@@ -2629,7 +2629,7 @@ func TestCov_PrepareOutboundRequest_ConnectionValueStripping(t *testing.T) {
 	}
 }
 
-// --- proxy.go: defaultErrorHandler - default case with olbErr.Message (line 555-556) ---
+// --- proxy.go: defaultErrorHandler - default case returns generic message (line 727-728) ---
 
 func TestCov_DefaultErrorHandler_UnknownErrorCode(t *testing.T) {
 	err := olbErrors.New(olbErrors.Code(999), "custom error message")
@@ -2647,8 +2647,9 @@ func TestCov_DefaultErrorHandler_UnknownErrorCode(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if resp.Message != "custom error message" {
-		t.Errorf("expected message 'custom error message', got %q", resp.Message)
+	// Internal error details must NOT be exposed to clients
+	if resp.Message != "Internal Server Error" {
+		t.Errorf("expected generic 'Internal Server Error', got %q", resp.Message)
 	}
 }
 

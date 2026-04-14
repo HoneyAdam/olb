@@ -42,6 +42,7 @@ type RateLimitMiddleware struct {
 	bucketCount atomic.Int64
 	trustedNets []*net.IPNet
 	stopCh      chan struct{}
+	wg          sync.WaitGroup // tracks cleanup goroutine for clean shutdown
 	// Pre-computed header values to avoid per-request allocations.
 	limitStr      string
 	burstStr      string
@@ -161,6 +162,7 @@ func NewRateLimitMiddleware(config RateLimitConfig) (*RateLimitMiddleware, error
 	}
 
 	// Start cleanup goroutine
+	m.wg.Add(1)
 	go m.cleanupLoop()
 
 	return m, nil
@@ -224,9 +226,10 @@ func (m *RateLimitMiddleware) Wrap(next http.Handler) http.Handler {
 	})
 }
 
-// Stop stops the cleanup goroutine.
+// Stop stops the cleanup goroutine and waits for it to exit.
 func (m *RateLimitMiddleware) Stop() {
 	close(m.stopCh)
+	m.wg.Wait()
 }
 
 // allow checks if the request is allowed and returns the retry-after duration.
@@ -236,6 +239,16 @@ func (m *RateLimitMiddleware) allow(key string) (bool, time.Duration) {
 	// Load or create bucket
 	bucketIface, loaded := m.buckets.Load(key)
 	if !loaded {
+		// Check bucket count limit before creating a new one
+		maxBuckets := m.config.MaxBuckets
+		if maxBuckets <= 0 {
+			maxBuckets = 100000
+		}
+		if m.bucketCount.Load() >= int64(maxBuckets) {
+			// Too many unique keys — reject to prevent memory exhaustion
+			return false, time.Duration(1e9 / float64(m.config.RequestsPerSecond))
+		}
+
 		newBucket := &tokenBucket{
 			tokens:    float64(m.config.BurstSize),
 			lastCheck: now,
@@ -250,7 +263,8 @@ func (m *RateLimitMiddleware) allow(key string) (bool, time.Duration) {
 			bucket.mu.Unlock()
 			return ok, retry
 		}
-		// We created the bucket, consume one token
+		// We created the bucket, track it
+		m.bucketCount.Add(1)
 		bucket.tokens--
 		bucket.mu.Unlock()
 		return true, 0
@@ -294,6 +308,7 @@ func (m *RateLimitMiddleware) checkAndConsume(bucket *tokenBucket, now time.Time
 
 // cleanupLoop periodically removes stale buckets.
 func (m *RateLimitMiddleware) cleanupLoop() {
+	defer m.wg.Done()
 	ticker := time.NewTicker(m.config.CleanupInterval)
 	defer ticker.Stop()
 
