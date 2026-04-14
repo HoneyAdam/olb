@@ -47,10 +47,10 @@ func DefaultConfig() Config {
 
 // Middleware provides HMAC signature verification.
 type Middleware struct {
-	config   Config
-	hasher   func() hash.Hash
-	maxAge   time.Duration // Parsed MaxAge, resolved once at construction
-	mu       sync.RWMutex
+	config Config
+	hasher func() hash.Hash
+	maxAge time.Duration // Parsed MaxAge, resolved once at construction
+	mu     sync.RWMutex
 }
 
 // New creates a new HMAC middleware.

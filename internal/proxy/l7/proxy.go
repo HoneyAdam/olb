@@ -678,6 +678,7 @@ func trustedClientIP(r *http.Request, trustedNets []*net.IPNet) string {
 
 	return host
 }
+
 // Uses canonical lookup for normal http.Header keys (no allocation) and falls back
 // to lowercase lookup for raw map keys that bypass http.Header normalization.
 func copyHeaders(dst, src http.Header) {

@@ -266,7 +266,6 @@ func (sh *SSEHandler) streamSSEResponseWithContext(w http.ResponseWriter, r *htt
 	}
 }
 
-
 // readLineResult holds the result of an async line read.
 type readLineResult struct {
 	line []byte
