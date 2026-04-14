@@ -47,6 +47,9 @@ func DefaultConfig() Config {
 		Header:    "Authorization",
 		Prefix:    "Bearer ",
 		Required:  true,
+		ClaimsValidation: ClaimsValidation{
+			RequireExpiration: true,
+		},
 	}
 }
 

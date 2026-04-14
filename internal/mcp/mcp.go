@@ -535,6 +535,15 @@ func (s *Server) handleInitialize(_ json.RawMessage) (any, *ResponseError) {
 	}, nil
 }
 
+// sanitizeMCPError maps internal errors to safe messages for MCP clients.
+func sanitizeMCPError(err error) string {
+	msg := err.Error()
+	if len(msg) > 150 {
+		msg = msg[:150]
+	}
+	return msg
+}
+
 // handleToolsList handles the "tools/list" method.
 func (s *Server) handleToolsList(_ json.RawMessage) (any, *ResponseError) {
 	s.mu.RLock()
@@ -594,11 +603,8 @@ func (s *Server) handleToolsCall(params json.RawMessage) (any, *ResponseError) {
 
 	result, err := handler(callParams.Arguments)
 	if err != nil {
-		// Sanitize error to avoid leaking internal details to clients
-		errMsg := err.Error()
-		if len(errMsg) > 200 {
-			errMsg = errMsg[:200] + "..."
-		}
+		// Map internal errors to generic messages for MCP clients
+		errMsg := sanitizeMCPError(err)
 		return ToolResult{
 			Content: []ToolContent{{Type: "text", Text: "error: " + errMsg}},
 			IsError: true,

@@ -39,6 +39,7 @@ type Pool struct {
 
 	// Idle eviction
 	stopCh chan struct{}
+	wg     sync.WaitGroup // tracks eviction goroutine for clean shutdown
 
 	// Statistics
 	hits      int64
@@ -84,6 +85,7 @@ func NewPool(config *PoolConfig) *Pool {
 	}
 
 	// Start idle connection eviction goroutine
+	p.wg.Add(1)
 	go p.evictIdle()
 
 	return p
@@ -91,6 +93,7 @@ func NewPool(config *PoolConfig) *Pool {
 
 // evictIdle periodically removes expired idle connections.
 func (p *Pool) evictIdle() {
+	defer p.wg.Done()
 	interval := p.idleTimeout / 2
 	if interval < 10*time.Second {
 		interval = 10 * time.Second

@@ -393,8 +393,8 @@ func readFrame(r io.Reader) (byte, []byte, error) {
 		return msgType, nil, nil
 	}
 
-	// Guard against absurdly large payloads (256 MiB).
-	const maxPayload = 256 << 20
+	// Guard against large payloads (16 MiB).
+	const maxPayload = 16 << 20
 	if length > maxPayload {
 		return 0, nil, fmt.Errorf("payload too large: %d bytes", length)
 	}
