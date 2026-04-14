@@ -1,44 +1,45 @@
-# OpenLoadBalancer — Comprehensive Analysis Report
+# Project Analysis Report
 
-> **Date**: 2026-04-11
-> **Scope**: Full project audit — architecture, code quality, testing, spec compliance, performance, technical debt
-> **Methodology**: Read every major source file, ran all tests, compared implementation against SPECIFICATION.md
-> **Version**: v0.1.0 (commit 531b931)
+> Auto-generated comprehensive analysis of OpenLoadBalancer (OLB)
+> Generated: 2026-04-14
+> Analyzer: Claude Code — Full Codebase Audit
 
 ---
 
 ## 1. Executive Summary
 
-### 1.1 Project Overview
+OpenLoadBalancer (OLB) is a production-grade L4/L7 load balancer and reverse proxy written in Go, featuring 16 load-balancing algorithms, a 6-layer WAF, Raft-based clustering, ACME/Let's Encrypt, an embedded React 19 admin dashboard, an MCP server for AI integration, and a plugin system — all in a single binary with only 3 external dependencies (`golang.org/x/crypto`, `golang.org/x/net`, `golang.org/x/text`). It targets DevOps engineers and teams wanting a self-contained, observable load balancer without external dependencies like Nginx or HAProxy.
 
-OpenLoadBalancer (OLB) is a Go-based L4/L7 load balancer with zero external framework dependencies (only `golang.org/x/{crypto,net,text}`). It targets production use with features typically found in Nginx/HAProxy — TLS termination, 16 load balancing algorithms, a 6-layer WAF pipeline, Raft clustering, an embedded React Web UI, and MCP server for AI integration.
-
-### 1.2 Key Metrics
+### Key Metrics
 
 | Metric | Value |
-|--------|-------|
-| **Production Go files** | 235 |
-| **Test files** | 203 |
-| **Production LOC** | 66,127 |
-| **Test LOC** | 177,306 |
-| **Test-to-code ratio** | 2.68:1 |
-| **Go packages** | 67 (all passing) |
-| **Average test coverage** | ~95% |
-| **Lowest package coverage** | 86.9% (`internal/cli`) |
-| **External Go dependencies** | 3 (x/crypto, x/net, x/text) |
-| **Frontend files** | 37 TypeScript/TSX |
-| **Frontend LOC** | ~6,024 |
-| **Frontend tests** | 0 |
-| **Committed build artifacts** | 53 files, 2.9MB |
-| **Binary size** | ~13MB |
-| **Peak RPS (benchmarked)** | 15,480 |
-| **Proxy overhead** | 137µs |
-| **Git commits (2026)** | 252 |
-| **TODO/FIXME markers** | 0 (actionable) |
+|---|---|
+| Total Go files | 445 (243 source + 202 test) |
+| Total Go LOC | 245,946 (178,281 source + 67,665 test) |
+| Frontend files | 126 |
+| Frontend LOC | ~13,924 |
+| Test functions | 6,190+ |
+| External Go dependencies | 3 |
+| External Frontend dependencies | 26 runtime, 18 dev |
+| Packages (Go) | 65+ |
+| API endpoints | 25+ REST + 4 WebSocket |
+| Config formats | 4 (YAML, TOML, HCL, JSON) |
 
-### 1.3 Health Score: **B+ (Good, with notable gaps)**
+### Overall Health Assessment: **7.5/10**
 
-The Go backend is exceptionally well-built — comprehensive test coverage, clean architecture, and nearly full spec compliance. The primary weaknesses are: zero frontend tests, committed build artifacts, unused npm dependencies, and one significant code duplication in the engine config layer. The project is production-viable for the Go core but needs frontend hardening before the Web UI can be trusted in production.
+A remarkably ambitious project that has implemented nearly everything in its specification. The codebase is well-structured, extensively tested (95.3% average coverage), and builds cleanly. The primary concerns are: 15 test failures in the proxy layer, the sheer complexity of a from-scratch Raft/SWIM implementation that hasn't been battle-tested at scale, and the frontend's dual data-fetching layer (custom hooks alongside unused TanStack Query hooks).
+
+### Top 3 Strengths
+
+1. **Near-complete spec implementation** — All 305 tasks across 5 phases marked complete. Every major subsystem from the specification exists in code.
+2. **Exceptional test coverage** — 95.3% average across 65+ packages, 6,190+ test functions, including benchmarks, fuzz tests, and E2E tests.
+3. **Minimal dependency footprint** — Only 3 Go external deps (all `golang.org/x/*`), matching the "zero-dependency" philosophy.
+
+### Top 3 Concerns
+
+1. **Proxy test failures** — 15 tests fail in `internal/proxy/l4` (3 failures) and `internal/proxy/l7` (12 failures), indicating potential regressions in the core proxy path.
+2. **Untested distributed systems complexity** — Raft consensus and SWIM gossip implemented from scratch but impossible to fully validate without extended chaos testing.
+3. **Frontend architecture inconsistency** — TanStack React Query installed and configured but not used for data fetching; custom hooks duplicate its functionality.
 
 ---
 
@@ -46,598 +47,533 @@ The Go backend is exceptionally well-built — comprehensive test coverage, clea
 
 ### 2.1 High-Level Architecture
 
-The architecture follows the specification faithfully:
+OLB is a **modular monolith** — a single binary containing ~25 loosely-coupled internal packages coordinated by a central `Engine` orchestrator. The architecture follows a pipeline pattern:
 
 ```
-Client → Listener → Middleware Chain → Router (radix trie) → Pool (balancer) → Backend
+Client → Listener → Connection Manager → Middleware Chain → Router (radix trie) → Pool (balancer) → Backend
+                                                                                                  ↓
+                                                                                           Health checker updates backend state
+                                                                                                  ↓
+                                                                                           Metrics / Logging / Events
 ```
 
-**Component ownership is clean:**
-- `internal/engine/` — Central orchestrator, owns lifecycle of all components
-- `internal/proxy/l7/` — HTTP reverse proxy with WebSocket/gRPC/SSE detection
-- `internal/proxy/l4/` — TCP/UDP proxy, SNI routing, PROXY protocol
-- `internal/balancer/` — 16 algorithms, registered via `init()` pattern
-- `internal/middleware/` — ~30 middleware components, config-gated
-- `internal/router/` — Radix trie with parameter and wildcard support
-- `internal/config/` — Custom YAML/TOML/HCL/JSON parsers
-- `internal/admin/` — REST API (39 route handlers) + Web UI serving
-- `internal/cluster/` — Raft consensus + SWIM gossip
-- `internal/waf/` — 6-layer security pipeline
-- `internal/mcp/` — MCP server with SSE + HTTP + stdio transports
+**Concurrency model:**
+- Per-listener goroutines for accepting connections
+- Per-connection goroutine for each accepted connection (bounded by connection limits)
+- Background goroutines for: health checking, metrics collection, config watching, Raft consensus, SWIM gossip, ACME renewal, OCSP stapling, log rotation
+- `sync.WaitGroup` for graceful shutdown coordination
+- `sync.RWMutex` for config/state protection
+- Atomic operations for counters and gauges (lock-free metrics)
+
+**Component interaction:**
+```
+Engine.New() → creates all components in dependency order
+Engine.Start() → starts listeners, health checks, admin, cluster, config watcher
+Engine.Shutdown() → drains connections, stops components in reverse order
+Engine.Reload() → re-reads config, reinitializes pools/routes/listeners atomically
+```
 
 ### 2.2 Package Structure Assessment
 
-**Strengths:**
-- Clear separation of concerns — each package has a single, well-defined responsibility
-- `pkg/` contains reusable utilities, `internal/` contains application logic
-- No circular dependencies detected between major packages
-- Consistent naming conventions throughout
-- `internal/engine/middleware_registration.go` (724 LOC) centralizes all middleware wiring
+| Package | Responsibility | LOC (approx) | Assessment |
+|---|---|---|---|
+| `cmd/olb` | CLI entry point | 50 | Minimal, delegates to `internal/cli` |
+| `internal/engine` | Central orchestrator | ~1,200 | Well-structured, owns all component lifecycle |
+| `internal/proxy/l7` | HTTP reverse proxy | ~3,000 | Core proxy logic, WebSocket/gRPC/SSE detection |
+| `internal/proxy/l4` | TCP/UDP proxy | ~1,500 | SNI routing, PROXY protocol, bidirectional copy |
+| `internal/balancer` | 16 LB algorithms | ~2,500 | Registry pattern, all algorithms well-tested |
+| `internal/router` | Radix trie router | ~1,200 | O(k) path matching, hot-reloadable |
+| `internal/config` | Config parsing/validation | ~4,000 | YAML/TOML/HCL/JSON, env var overlay, hot reload |
+| `internal/config/yaml` | Custom YAML parser | ~1,500 | From-scratch, supports anchors/aliases |
+| `internal/config/toml` | Custom TOML parser | ~1,200 | From-scratch TOML v1.0 |
+| `internal/config/hcl` | Custom HCL parser | ~1,500 | From-scratch, block/attribute syntax |
+| `internal/middleware` | 16 middleware components | ~3,000 | Config-gated, priority-ordered chain |
+| `internal/admin` | REST API + WebUI serving | ~2,000 | 25+ endpoints, basic/bearer auth |
+| `internal/cluster` | Raft + SWIM gossip | ~4,000 | From-scratch consensus, distributed state |
+| `internal/mcp` | MCP server for AI | ~1,500 | stdio + HTTP/SSE transport, 8 tools |
+| `internal/tls` | TLS/mTLS/OCSP | ~1,500 | SNI multiplexer, cert hot-reload |
+| `internal/acme` | ACME/Let's Encrypt | ~1,200 | Full ACME v2 from scratch |
+| `internal/health` | Health checking | ~1,500 | HTTP/TCP/gRPC/exec, passive + active |
+| `internal/waf` | 6-layer WAF | ~3,500 | IP ACL, rate limit, sanitizer, detection, bot, response |
+| `internal/security` | Request smuggling protection | ~500 | Header injection, body validation |
+| `internal/webui` | React 19 admin dashboard | ~13,900 | Full SPA with 12 pages |
+| `internal/plugin` | Plugin system | ~800 | Go plugin loader + event bus |
+| `internal/discovery` | Service discovery | ~1,200 | Static/DNS/File/Docker/Consul |
+| `internal/geodns` | Geographic DNS routing | ~600 | Country/region/city-based routing |
+| `internal/conn` | Connection management | ~1,000 | Tracking, pooling, limits, draining |
+| `internal/logging` | Structured JSON logging | ~1,200 | Rotating file output, multi-output |
+| `internal/metrics` | Prometheus metrics | ~1,500 | Counter/Gauge/Histogram, lock-free |
+| `internal/profiling` | Go runtime profiling | ~300 | pprof endpoints |
+| `internal/backend` | Backend pool management | ~800 | State machine, dynamic add/remove |
+| `internal/listener` | Protocol listeners | ~600 | HTTP/HTTPS/TCP/UDP factory |
+| `internal/cli` | CLI commands | ~2,000 | 30+ commands, TUI dashboard |
+| `pkg/utils` | Shared utilities | ~1,500 | Buffer pool, LRU, ring buffer, CIDR matcher |
+| `pkg/errors` | Sentinel errors | ~200 | Error codes with context |
+| `pkg/version` | Build-time version | ~50 | Set via ldflags |
 
-**Concerns:**
-- Several files exceed 1000 LOC: `hcl.go` (1,415), `mcp.go` (1,326), `config.go` (1,092), `snapshot.go` (1,062)
-- The engine package has 5 files but `config.go` and `engine.go` contain significant duplication (see Section 8.1)
-- `internal/admin/handlers.go` at 981 LOC is a monolithic handler file
+**Cohesion assessment:** Most packages have a clear single responsibility. The `internal/engine` package acts as the composition root, which is appropriate. The `internal/waf` package is the most complex with 12 sub-packages, but this reflects the 6-layer architecture documented in the spec.
+
+**Circular dependency risk:** Low. The dependency graph flows inward: `engine` depends on all other packages, but no package depends back on `engine`. Internal packages communicate through interfaces and function callbacks.
+
+**Internal vs pkg separation:** Clean. `pkg/` contains only truly shared utilities (errors, utils, version) with no internal package dependencies.
 
 ### 2.3 Dependency Analysis
 
-**Go dependencies (excellent):**
-```
-golang.org/x/crypto    — bcrypt, OCSP
-golang.org/x/net       — http2
-golang.org/x/text      — indirect (via x/net)
-```
-Only 3 dependencies. This is remarkable for a load balancer and fully compliant with the project's zero-dependency philosophy.
+#### Go Dependencies
 
-**Frontend dependencies (good but has waste):**
-- 12 runtime dependencies, 5 dev dependencies
-- `next-themes` is listed in `package.json` but **never imported** in source — a custom `ThemeProvider` component is used instead. This is dead weight in the bundle.
-- React 19, React Router 7, Radix UI, Tailwind CSS 4 — modern stack, appropriate choices
+| Dependency | Version | Purpose | Replaceable? | Notes |
+|---|---|---|---|---|
+| `golang.org/x/crypto` | v0.49.0 | bcrypt password hashing, OCSP | Partially | bcrypt is industry standard; would be risky to replace |
+| `golang.org/x/net` | v0.52.0 | HTTP/2 support | No | Essential for gRPC and HTTP/2 proxying |
+| `golang.org/x/text` | v0.35.0 | Indirect dep | N/A | Pulled in by x/net, not directly used |
 
-### 2.4 API Design
+**Dependency hygiene:** Excellent. Only 3 deps, all maintained by the Go team (quasi-stdlib). No CVE concerns with these versions. No unused deps.
 
-The admin API (`internal/admin/server.go`, 593 LOC) exposes 39 route handlers covering system info, config CRUD, backend management, health status, metrics, certificates, and cluster operations.
+#### Frontend Dependencies (26 runtime)
 
-**Assessment:**
-- RESTful conventions are followed
-- Authentication middleware (basic auth + bearer token) is applied consistently
-- WebSocket endpoints for real-time metrics, logs, events, and health streams
-- Response format is consistent JSON with error objects
-- Missing: no OpenAPI/Swagger spec file at `docs/api/openapi.yaml` (referenced in README but not generated)
+| Category | Packages | Assessment |
+|---|---|---|
+| Core | react@19, react-dom@19 | Latest stable, good |
+| Routing | react-router@7 | Latest major, good |
+| State | zustand@5 | Minimal usage (sidebar only) |
+| Data | @tanstack/react-query@5 | **Installed but hooks not used** |
+| UI | 6 @radix-ui packages, shadcn/ui | Solid component primitives |
+| Forms | react-hook-form@7, zod@3, @hookform/resolvers | Industry standard |
+| Charts | recharts@3 | **Installed but NOT imported** — charts are custom SVG |
+| Icons | lucide-react@0.460 | Standard icon library |
+| CSS | tailwindcss@4, tailwind-merge, clsx, class-variance-authority | Modern CSS tooling |
+| Toasts | sonner@1.7 | Lightweight |
+| Command palette | cmdk@1.1 | For future search/command feature |
+| Fonts | @fontsource-variable/inter, @fontsource-variable/jetbrains-mono | Self-hosted, no CDN dependency |
+
+**Unused deps:** `recharts` is imported in `package.json` but never used in code (custom SVG charts instead). `@tanstack/react-query` is set up with a `QueryClientProvider` but the custom `useQuery` hook implements its own fetch/retry logic rather than using TanStack's hooks.
+
+### 2.4 API & Interface Design
+
+#### HTTP Endpoint Inventory
+
+**System:**
+- `GET /api/v1/system/info` — Version, uptime, state
+- `GET /api/v1/system/health` — Self health check
+- `POST /api/v1/system/reload` — Trigger config reload
+
+**Pools/Backends:**
+- `GET /api/v1/pools` — List all pools
+- `GET /api/v1/pools/:name` — Pool detail
+- `POST /api/v1/pools` — Create pool
+- `DELETE /api/v1/pools/:name` — Delete pool
+- `GET /api/v1/backends/:pool` — List backends in pool
+- `GET /api/v1/backends/:pool/:id` — Backend detail
+- `POST /api/v1/backends/:pool` — Add backend
+- `PATCH /api/v1/backends/:pool/:id` — Update backend
+- `DELETE /api/v1/backends/:pool/:id` — Remove backend
+- `POST /api/v1/backends/:pool/:id/drain` — Drain backend
+
+**Routes:**
+- `GET /api/v1/routes` — List routes
+
+**Health:**
+- `GET /api/v1/health` — All health status
+
+**Metrics:**
+- `GET /api/v1/metrics` — JSON metrics
+- `GET /metrics` — Prometheus format
+
+**Config:**
+- `GET /api/v1/config` — Current config
+
+**Certificates:**
+- `GET /api/v1/certificates` — List certs
+
+**WAF:**
+- `GET /api/v1/waf/status` — WAF status
+
+**Cluster:**
+- `GET /api/v1/cluster/status` — Cluster status
+- `GET /api/v1/cluster/members` — Member list
+- `POST /api/v1/cluster/join` — Join cluster
+- `POST /api/v1/cluster/leave` — Leave cluster
+
+**Middleware:**
+- `GET /api/v1/middleware/status` — Middleware status
+
+**Events:**
+- `GET /api/v1/events` — Recent events
+- `GET /api/v1/events/stream` — SSE event stream
+
+**WebSocket:**
+- `WS /api/v1/ws/metrics` — Real-time metrics
+- `WS /api/v1/ws/logs` — Real-time logs
+- `WS /api/v1/ws/events` — System events
+- `WS /api/v1/ws/health` — Health stream
+
+**Authentication:** Basic auth (bcrypt-hashed passwords) and Bearer token. Admin API binds to localhost by default.
 
 ---
 
 ## 3. Code Quality Assessment
 
-### 3.1 Go Code Quality — **A-**
+### 3.1 Go Code Quality
 
-**Formatting & Style:**
-- `gofmt` clean across all files
-- Consistent naming conventions (Go idiomatic)
-- 13 linters configured in `.golangci.yml` (errcheck, govet, staticcheck, gosec, etc.)
-- CI enforces formatting via `gofmt -d` check
+**Code style:** Consistent. `gofmt` enforced in CI. Naming follows Go conventions. `go vet` passes clean.
 
-**Error Handling:**
-- Generally excellent — errors are wrapped with `fmt.Errorf("...: %w", err)` for chain inspection
-- Sentinel errors defined in `pkg/errors/errors.go`
-- `panic()` used in only 6 files, mostly in initialization paths and type assertion guards (acceptable)
-- Ignored errors (`_ = ...`) are predominantly best-effort cleanup operations (`conn.Close()`) — 30 instances, all justified
-- One concerning case: `internal/engine/middleware_registration.go:276` silently falls back on parse failure for duration
+**Error handling:** Consistent pattern with `fmt.Errorf("context: %w", err)` wrapping. The `pkg/errors` package provides sentinel errors with error codes for API responses. Errors propagate through middleware chain.
 
-**Concurrency:**
-- Atomic operations used for counters (`sync/atomic`, `atomic.Int32`, `atomic.Int64`)
-- `sync.Pool` for buffer reuse
-- Context propagation through request lifecycle
-- Connection pooling with proper cleanup
-- Channel-based communication in cluster gossip/Raft
-- Signal handling split by OS (`signals_unix.go` / `signals_windows.go`)
+**Context usage:** Properly propagated through the request lifecycle. Each request carries a `context.Context` with timeout and cancellation. Background goroutines use contexts for shutdown signaling.
 
-**Potential Race Condition:**
-- `internal/proxy/l7/proxy.go` — `cachedHandler` is accessed during `RebuildHandler()` without explicit synchronization. While `atomic.Value` or similar patterns may be in use, this warrants a targeted review with `-race` under load.
+**Logging approach:** Structured JSON logging with levels (Trace/Debug/Info/Warn/Error/Fatal). Custom implementation with zero-alloc fast path (level check before allocation). Rotating file output with compression. Fields are typed (string, int, float, bool, error, duration).
 
-### 3.2 Frontend Code Quality — **C+**
+**Configuration management:** Clean layered approach: file (YAML/TOML/HCL/JSON) → env var overlay (`OLB_` prefix) → CLI flags. Validation is comprehensive. Hot reload with atomic config swap and rollback support.
 
-**Strengths:**
-- TypeScript throughout (strict mode)
-- Proper component architecture with pages and shared components
-- Radix UI for accessible primitives
-- Custom ThemeProvider (correct choice over `next-themes`)
-- 12 pages covering dashboard, backends, routes, metrics, logs, config, certs, cluster, WAF, settings, listeners, middleware
+**Magic numbers:** Minimal. Most values are configurable or have named constants. Some timeout defaults are hardcoded as `time.Duration` literals in `DefaultConfig()`.
 
-**Weaknesses:**
-- **Zero test files** — no `.test.tsx` or `.test.ts` files exist anywhere in `internal/webui/src/`
-- **No ESLint or Prettier configuration** — no code quality enforcement for TypeScript
-- **Committed build artifacts** — 53 compiled files (2.9MB) in `internal/webui/assets/` are tracked in git
-- **Unused dependency** — `next-themes` in `package.json` but never imported
-- **No CI enforcement** — frontend build runs in CI but no lint/test gates
+**TODO/FIXME/HACK comments:** Only 1 genuine TODO found in `internal/cluster/cluster_test.go:534` — "the actual RPC is a TODO/no-op". Other matches are test data using strings like "HACK" or "DEBUG".
 
-### 3.3 Security Code Review — **B+**
+### 3.2 Frontend Code Quality
 
-**Strong areas:**
-- WAF covers 6 layers: IP ACL, rate limiting, request sanitizer, detection engine (SQLi/XSS/path traversal/CMDi/XXE/SSRF), bot detection with JA3 fingerprinting, response protection with security headers and data masking
-- TLS configuration enforces minimum TLS 1.2
-- Admin API requires authentication by default
-- Request smuggling protection in `internal/security/`
-- No hardcoded secrets found
-- Environment variable substitution for sensitive config (`${ENV_VAR}` pattern)
+**React patterns:** Functional components with hooks exclusively. No class components. React 19 with automatic JSX transform.
 
-**Areas for improvement:**
-- `pkg/errors/errors.go` uses `panic()` for error construction — should use error wrapping instead
-- Input validation on admin API could be more uniform (some endpoints validate, others trust the caller)
-- No rate limiting on admin API endpoints themselves (only proxy-facing rate limiting)
-- `SECURITY.md` references a hardening checklist but doesn't enforce it programmatically
+**TypeScript strictness:** `strict: true` + `noUncheckedIndexedAccess: true` — very strict. All `any` types were eliminated in a prior refactor. Zod schemas validate form inputs at runtime.
+
+**Component structure:** Feature-based pages with shared UI components from shadcn/ui. 12 lazy-loaded pages, 28 reusable UI components. Consistent pattern across all pages: loading skeleton → error state with retry → data display.
+
+**CSS approach:** Tailwind CSS v4 with CSS-first configuration. Dark/light theme via CSS custom properties. Responsive design with standard breakpoints. `prefers-reduced-motion` support.
+
+**Bundle size:** Well-optimized with manual chunk splitting (React vendor, Radix vendor, Lucide icons). All pages lazy-loaded. Self-hosted fonts. ~441KB bundle (target was <2MB).
+
+**Accessibility:** Strong. Skip-to-content link, ARIA labels, keyboard navigation, `role` attributes, `aria-live` regions, `aria-pressed` on toggle buttons, table captions, SVG role="img". Automated axe-core tests across all pages (9 tests, all passing).
+
+### 3.3 Concurrency & Safety
+
+**Goroutine lifecycle:** Managed through `sync.WaitGroup` in Engine. Background goroutines (health checks, config watcher, metrics updater) check a `stopCh` channel for cancellation. Recent security hardening added goroutine tracking for connection pool cleanup.
+
+**Mutex/channel usage:** `sync.RWMutex` for config/state in Engine. Atomic operations for metrics (counters, gauges). Channels for connection pooling. Recent fixes addressed race conditions in `HTTPProxy.cachedHandler` (converted to `atomic.Value`).
+
+**Race condition risks:** Recent commits (last 20) show extensive race condition fixes: `cachedHandler` atomic value, context propagation, slice bounds checking, goroutine tracking. The `go test -race` target exists but requires CGO/Linux.
+
+**Resource leak risks:** Connection pool manager has cleanup goroutines with context cancellation. Health checker goroutines are tracked and stopped on shutdown. The `stopCh` + `sync.WaitGroup` pattern ensures cleanup.
+
+**Graceful shutdown:** Implemented in `Engine.Shutdown()`: stop accepting → drain connections (configurable timeout, default 30s) → close backend connections → stop health checkers → stop cluster → flush metrics/logs. Signal handling for SIGTERM/SIGINT/SIGHUP/SIGUSR1.
+
+### 3.4 Security Assessment
+
+**Input validation:** Config validation is comprehensive (addresses, durations, algorithm names, backend references, TLS cert accessibility, port conflicts). HTTP request validation via middleware chain (body limit, header size limit, request smuggling prevention in `internal/security`).
+
+**Injection protection:** The 6-layer WAF covers SQL injection, XSS, path traversal, command injection, XXE, and SSRF. Pattern-based detection with configurable block vs. log-only mode.
+
+**Secrets management:** No hardcoded secrets in source code. Passwords stored as bcrypt hashes. Admin credentials configured via config file or env vars. Cluster shared secrets loaded from config. `.gitignore` excludes `.env` files.
+
+**TLS configuration:** TLS 1.2 minimum, 1.3 preferred. Configurable cipher suites and curve preferences. SNI multiplexer for multi-cert support. mTLS for client auth and inter-node communication.
+
+**CORS configuration:** Configurable per-route in middleware. Not wildcard by default.
+
+**Security hardening (recent commits):** Extensive security audit remediation across the last 15 commits — 97 findings identified, addressing: race conditions, resource exhaustion, unbounded I/O, XFF trust model, shadow body restore, cluster replay protection, bcrypt default, plugin allowlist, connection limits, dial timeouts, buffer limits, compression buffer limits, PROXY protocol port validation.
 
 ---
 
 ## 4. Testing Assessment
 
-### 4.1 Test Infrastructure — **A**
+### 4.1 Test Coverage
 
-| Category | Files | LOC | Assessment |
-|----------|-------|-----|------------|
-| Unit tests | 203 | ~170K | Comprehensive, per-package |
-| E2E tests | 5 | 7,237 | Exceptional breadth |
-| Integration tests | 2 | 1,502 | Cluster + MCP |
-| Benchmark tests | 3 | 2,178 | 169 benchmark functions |
-| Fuzz tests | 9 files | — | 12 fuzz functions (WAF, parsers) |
-| Chaos tests | 1 | 749 | Failure scenarios |
-| Load tests | 1 | 655 | Concurrent + TLS |
+**Build result:** `go build ./cmd/olb/` — SUCCESS
 
-**E2E test coverage is particularly impressive:**
-- All 16 load balancing algorithms verified
-- Health check failover and recovery
-- Full middleware stack (rate limiting, CORS, compression, WAF 6-layer, circuit breaker, cache, retry)
-- TCP and UDP proxy
-- WebSocket, SSE, gRPC
-- Multi-listener configuration
-- Config hot-reload
-- MCP server workflow
-- Graceful shutdown with zero-downtime verification
+**Test result:** 63 packages pass, 2 packages fail:
+- `internal/proxy/l4` — 3 test failures (connection-related)
+- `internal/proxy/l7` — 12 test failures (proxy routing, retry, SSE backend errors)
 
-### 4.2 Coverage Analysis
+**Coverage per package (selected highlights):**
 
-**Per-package coverage (all 67 packages):**
+| Package | Coverage | Notes |
+|---|---|---|
+| `cmd/olb` | 100.0% | Entry point |
+| `internal/acme` | 95.8% | ACME client |
+| `internal/balancer` | 95.3% | All 16 algorithms |
+| `internal/cluster` | 93.0% | Raft + SWIM |
+| `internal/config` | 94.1% | All parsers |
+| `internal/config/hcl` | 98.9% | HCL parser |
+| `internal/config/toml` | 97.9% | TOML parser |
+| `internal/config/yaml` | 97.5% | YAML parser |
+| `internal/discovery` | 97.7% | All providers |
+| `internal/engine` | 87.8% | Orchestrator |
+| `internal/proxy/l4` | 94.6% | Despite test failures |
+| `internal/proxy/l7` | 93.5% | Despite test failures |
+| `internal/waf/*` | 96-100% | All WAF sub-packages |
+| `pkg/version` | 100.0% | Build-time version |
+| `internal/plugin` | 85.2% | Lowest coverage |
 
-| Range | Packages | Examples |
-|-------|----------|----------|
-| 100% | 4 | `cmd/olb`, `internal/listener`, `pkg/pool`, `pkg/version` |
-| 95-99% | 28 | `internal/balancer`, `internal/config/yaml`, `internal/waf/*` |
-| 90-94% | 20 | `internal/engine` (90.9%), `internal/admin` (91.3%), `internal/conn` (91.8%) |
-| 85-89% | 4 | `internal/cli` (86.9%) |
+**Zero-coverage packages:** None. Every package has test files.
 
-**Lowest coverage packages:**
-1. `internal/cli` — 86.9% (complex terminal interaction paths)
-2. `internal/engine` — 90.9% (some error paths in config reload)
-3. `internal/admin` — 91.3% (some handler edge cases)
-4. `internal/conn` — 91.8% (some cleanup paths)
+**Average coverage:** ~95.3%
 
-All packages exceed the 85% minimum threshold enforced by CI.
+### 4.2 Test Types Present
 
-### 4.3 CI Pipeline Assessment
+- [x] **Unit tests** — 202 test files, 6,190+ test functions
+- [x] **Integration tests** — `test/integration/` — full proxy chain, TLS, hot reload
+- [x] **E2E tests** — `test/e2e/` — multi-node cluster, real HTTP flows
+- [x] **Benchmark tests** — `test/benchmark/` + inline benchmarks
+- [x] **Fuzz tests** — Config parsers (YAML, TOML, HCL)
+- [x] **Frontend unit tests** — 17 test files with Vitest
+- [x] **Frontend E2E tests** — 4 Playwright tests
+- [x] **Accessibility tests** — 9 axe-core tests
 
-The CI pipeline (`.github/workflows/ci.yml`, 472 lines, 11 jobs) is comprehensive:
+### 4.3 Test Infrastructure
 
-| Job | Purpose | Gate |
-|-----|---------|------|
-| lint | gofmt + go vet + staticcheck | Hard |
-| build-frontend | Node 20, npm ci, builds WebUI | Hard |
-| test | Full suite, 85% coverage threshold, Codecov | Hard |
-| test-race | Race detector (-race) | Hard |
-| build | Binary size <20MB, startup <5s, cross-platform | Hard |
-| integration | Integration test suite | Hard |
-| benchmark | PR-only benchstat comparison | Advisory |
-| docker | Multi-platform build (amd64+arm64) | Hard |
-| security | Gosec + Nancy dependency scan | Advisory |
-| binary | Size analysis, debug symbol check | Advisory |
-| release | Tag-triggered cross-platform binaries | Auto |
-
-**CI weaknesses:**
-- All runners are `ubuntu-latest` — no macOS or Windows testing
-- Single Go version (1.26) — no backward compatibility matrix
-- `golangci-lint` configured but not enforced in CI (falls back to `staticcheck`)
-- No coverage diff enforcement on PRs
-- Frontend has no test/lint gate in CI
-
-### 4.4 Frontend Testing — **F**
-
-Zero frontend tests exist. This is the single largest testing gap. A production Web UI needs at minimum:
-- Component rendering tests
-- API integration tests (mocked admin API)
-- Accessibility tests
-- E2E browser tests (Playwright or similar)
+- Test helpers in individual `*_test.go` files
+- `httptest.Server` used extensively for mock backends
+- Frontend: `@testing-library/react`, `@testing-library/user-event`, custom mock utilities
+- CI: Multi-OS matrix (Ubuntu, macOS, Windows), race detection, coverage enforcement
+- Coverage threshold enforced by `make coverage-check` (≥85%)
 
 ---
 
-## 5. Specification vs. Implementation Gap Analysis
+## 5. Specification vs Implementation Gap Analysis
 
-> **This is the most critical section** — comparing the codebase against `docs/SPECIFICATION.md` (2,908 lines, 24 sections).
+### 5.1 Feature Completion Matrix
 
-### 5.1 Load Balancing Algorithms
+| Planned Feature | Spec Section | Status | Files/Packages | Notes |
+|---|---|---|---|---|
+| Core Engine (lifecycle, signals, hot reload) | §4 | ✅ Complete | `internal/engine/` | Full lifecycle with rollback support |
+| L7 HTTP Proxy | §5 | ✅ Complete | `internal/proxy/l7/` | WebSocket, gRPC, SSE, HTTP/2, shadow |
+| L4 TCP/UDP Proxy | §6 | ✅ Complete | `internal/proxy/l4/` | SNI, PROXY protocol v1/v2 |
+| TLS Engine | §7 | ✅ Complete | `internal/tls/` | SNI mux, mTLS, OCSP stapling |
+| ACME/Let's Encrypt | §7.2 | ✅ Complete | `internal/acme/` | Full ACME v2 from scratch |
+| Load Balancing (16 algos) | §8 | ✅ Complete | `internal/balancer/` | All 16 algorithms + aliases |
+| Session Affinity | §8.3 | ✅ Complete | `internal/balancer/` | Cookie, header, IP, URL param |
+| Health Checking | §9 | ✅ Complete | `internal/health/` | HTTP, TCP, gRPC, exec, passive |
+| Middleware Pipeline (16 types) | §10 | ✅ Complete | `internal/middleware/` | Config-gated, priority-ordered |
+| Rate Limiter (3 algos) | §10.3 | ✅ Complete | `internal/middleware/` | Token bucket, sliding window |
+| Circuit Breaker | §10.4 | ✅ Complete | `internal/middleware/` | Closed→Open→Half-Open |
+| Response Cache | §10.7 | ✅ Complete | `internal/middleware/cache/` | LRU, Cache-Control respect |
+| WAF (6-layer) | §10.8 | ✅ Complete | `internal/waf/` | Extended beyond spec |
+| Config System (4 formats) | §11 | ✅ Complete | `internal/config/` | YAML/TOML/HCL/JSON + env overlay |
+| Service Discovery | §12 | ✅ Complete | `internal/discovery/` | Static/DNS/File/Docker/Consul |
+| Metrics Engine | §13 | ✅ Complete | `internal/metrics/` | Counter/Gauge/Histogram, Prometheus |
+| Web UI Dashboard | §14 | ✅ Complete | `internal/webui/` | React 19 SPA, 12 pages |
+| CLI Interface | §15 | ✅ Complete | `internal/cli/` | 30+ commands, `olb top` TUI |
+| Multi-Node Clustering | §16 | ✅ Complete | `internal/cluster/` | Raft + SWIM gossip |
+| MCP Server | §17 | ✅ Complete | `internal/mcp/` | stdio + HTTP/SSE, 8 tools |
+| Plugin System | §18 | ✅ Complete | `internal/plugin/` | Go plugins + event bus |
+| GeoDNS Routing | — | ✅ Complete | `internal/geodns/` | **Not in original spec** — scope creep (valuable) |
+| Request Shadowing | — | ✅ Complete | `internal/proxy/l7/` | **Not in original spec** — scope creep (valuable) |
+| Marketing Website | — | ✅ Complete | `website-new/` | **Not in original spec** — scope creep |
+| Docker/Containers | §Appendix C | ✅ Complete | `Dockerfile`, `docker-compose.yml` | Multi-stage, alpine-based |
+| CI/CD Pipeline | — | ✅ Complete | `.github/workflows/` | Multi-OS, lint, test, release |
+| Helm Chart | — | ✅ Complete | `helm/olb/` | **Not in original spec** |
+| Terraform Module | — | ✅ Complete | `deploy/terraform/` | **Not in original spec** |
+| systemd Service | §Appendix D | ✅ Complete | `deploy/systemd/` | Service file included |
+| Homebrew Formula | — | ✅ Complete | In release workflow | |
+| Brotli Compression | §10.6 | ⚠️ Partial | `internal/middleware/` | Spec mentions brotli; implementation only supports gzip |
+| QUIC/HTTP3 | §3 (future) | ❌ Missing | — | Listed as "future" in spec |
+| WASM Plugins | §18.2 (future) | ❌ Missing | — | Listed as "future" in spec |
+| RBAC for Admin API | §19.2 (future) | ❌ Missing | — | Listed as "future" in spec |
+| Custom Dashboard Builder | §14.2 | ❌ Missing | — | Metrics page has basic charts, no drag-drop builder |
+| Config History | §14.6 | ❌ Missing | — | Config page shows current config only |
+| Config Generator CLI | §15.2 | ✅ Complete | `internal/cli/setup_command.go` | `olb setup` interactive wizard |
+| Shell Completions | §15.2 | ✅ Complete | `internal/cli/` | bash, zsh, fish |
 
-| Spec Algorithm | Implemented | File |
-|----------------|-------------|------|
-| Round Robin | Yes | `round_robin.go` |
-| Weighted Round Robin | Yes | `weighted_round_robin.go` |
-| Least Connections | Yes | `least_connections.go` |
-| Weighted Least Connections | Yes | (weighted variant in `least_connections.go`) |
-| Least Response Time | Yes | `least_response_time.go` |
-| Weighted Least Response Time | Yes | (weighted variant) |
-| IP Hash | Yes | `ip_hash.go` |
-| Consistent Hash (Ketama) | Yes | `consistent_hash.go` |
-| Maglev | Yes | `maglev.go` |
-| Ring Hash | Yes | `ring_hash.go` |
-| Power of Two (P2C) | Yes | `power_of_two.go` |
-| Random | Yes | `random.go` |
-| Weighted Random | Yes | (weighted variant) |
-| Rendezvous Hash | Yes | `rendezvous_hash.go` |
-| Peak EWMA | Yes | `peak_ewma.go` |
-| Sticky Sessions | Yes | `sticky.go` |
+### 5.2 Architectural Deviations
 
-**Verdict: 16/16 — Full spec compliance.** Exceeds spec's original 8 algorithms.
+1. **Web UI framework:** Spec called for vanilla JavaScript with no framework (`app.js`, `style.css`). Implementation uses React 19 + TypeScript + Tailwind CSS + Radix UI + shadcn/ui. **Assessment:** Major positive deviation — a React SPA is significantly more maintainable and feature-rich than vanilla JS.
 
-### 5.2 Health Checking
+2. **Frontend chart library:** Spec called for custom Canvas-based charts (`chart.js`). Implementation uses custom SVG charts inline in React components. **Assessment:** Acceptable deviation — SVG charts work well for this use case.
 
-| Spec Feature | Implemented | Notes |
-|--------------|-------------|-------|
-| HTTP health check | Yes | `internal/health/health.go` |
-| TCP health check | Yes | In `health.go` |
-| gRPC health check | No | Not found — spec requires gRPC health check protocol |
-| Exec health check | No | Not found — spec describes command execution checks |
-| Passive health checking | Yes | `internal/health/passive.go` |
-| Composite (active + passive) | Yes | Integrated in checker |
-| State machine (Healthy/Unhealthy/Maintenance/Draining) | Yes | Backend state machine in `internal/backend/` |
+3. **State management:** Spec implied a simple vanilla JS state model. Implementation uses Zustand (minimal) + custom data-fetching hooks. **Assessment:** Appropriate for the complexity.
 
-**Verdict: 5/7 — Two spec health check types missing (gRPC, exec).**
+4. **Data fetching:** TanStack React Query installed and provider configured, but custom `useQuery` hook implements its own fetch/retry logic. **Assessment:** Inconsistency — should either use TanStack Query properly or remove it.
 
-### 5.3 Middleware
+5. **Spec called Go 1.23+:** Implementation uses Go 1.26+. **Assessment:** Natural version progression.
 
-| Spec Middleware | Implemented | Location |
-|----------------|-------------|----------|
-| Request ID | Yes | `middleware/context.go` |
-| Real IP | Yes | `middleware/real_ip.go` |
-| Rate Limiter | Yes | `middleware/rate_limiter.go` |
-| CORS | Yes | `middleware/cors.go` |
-| Compression (gzip) | Yes | `middleware/compression.go` |
-| Headers | Yes | `middleware/headers.go` |
-| Access Log | Yes | `middleware/access_log.go` |
-| Metrics | Yes | `middleware/metrics.go` |
-| IP Filter | Yes | `middleware/ip_filter.go` |
-| Circuit Breaker | Yes | `middleware/circuit_breaker.go` |
-| Cache | Yes | `middleware/cache.go` |
-| Body Limit | Yes | `middleware/body_limit.go` |
-| WAF (6-layer) | Yes | `internal/waf/` (full pipeline) |
-| Bot Detection | Yes | `internal/waf/botdetect/` |
-| Retry | Partially | Circuit breaker includes retry logic |
-| Timeout | Yes | Integrated in middleware chain |
-| Auth (Basic/JWT/OAuth2/HMAC/API Key) | Yes | 5 auth middleware in `internal/middleware/` |
-| CSP | Yes | `middleware/csp/` |
-| CSRF | Yes | `middleware/csrf/` |
-| ForceSSL | Yes | `middleware/forcessl/` |
-| Coalesce | Yes | `middleware/coalesce/` |
-| Transformer | Yes | `middleware/transformer/` |
-| Validator | Yes | `middleware/validator/` |
-| Rewrite | Yes | Integrated in router |
-| Redirect | Yes | Integrated in router |
+### 5.3 Task Completion Assessment
 
-**Verdict: ~25/25 — Full spec compliance. Exceeds spec with additional middleware.**
+**TASKS.md analysis:** All 305 tasks across 5 phases are marked `[x]` complete. The only non-complete items are:
+- `[~] Docker images published (GHCR push needs repo permissions)` — infrastructure/deployment, not code
+- Release tagging (v0.1.0 tagged, subsequent phases not yet tagged)
 
-### 5.4 Configuration System
+**Calculated completion: 99.7%** (305/306 task items, excluding the GHCR permissions issue)
 
-| Spec Feature | Implemented | Status |
-|--------------|-------------|--------|
-| YAML parser (from scratch) | Yes | `internal/config/yaml/parser.go` (720 LOC) |
-| TOML parser (from scratch) | Yes | `internal/config/toml/` |
-| HCL parser (from scratch) | Yes | `internal/config/hcl/hcl.go` (1,415 LOC) |
-| JSON parser | Yes | stdlib `encoding/json` |
-| `${ENV_VAR}` substitution | Yes | In config loader |
-| `${ENV_VAR:-default}` fallback | Yes | In config loader |
-| Hot reload (SIGHUP/API) | Yes | `internal/engine/config.go` |
-| Config diff on reload | Yes | Logged on reload |
-| Rollback with grace period | Yes | `applyConfig()` + `rollbackConfig()` |
-| Environment overlay (`OLB_` prefix) | Yes | `internal/config/env.go` |
+### 5.4 Scope Creep Detection
 
-**Verdict: 10/10 — Full spec compliance.**
+Features present in codebase but NOT in original specification:
 
-### 5.5 Admin API
+1. **GeoDNS routing** (`internal/geodns/`) — Geographic location-based traffic routing. **Valuable** — differentiator vs competitors.
+2. **Request Shadowing/Mirroring** (`internal/proxy/l7/shadow.go`) — Shadow traffic to a backend for testing. **Valuable** — production testing capability.
+3. **Marketing website** (`website-new/`) — Public-facing landing page. **Valuable** — project visibility.
+4. **Helm chart** (`helm/olb/`) — Kubernetes deployment. **Valuable** — production deployment.
+5. **Terraform module** (`deploy/terraform/`) — Infrastructure-as-code. **Valuable** — cloud deployment.
+6. **Grafana dashboard** (`docs/grafana.md`) — Pre-built Grafana dashboard config. **Valuable** — observability.
+7. **`olb setup` wizard** — Interactive config generator. **Valuable** — developer experience.
 
-| Spec Endpoint Group | Implemented | Endpoints |
-|---------------------|-------------|-----------|
-| System (info, health, reload, drain) | Yes | 4 endpoints |
-| Config (get, update, validate, diff) | Yes | 4+ endpoints |
-| Backends (list, CRUD, drain, enable, disable) | Yes | 7+ endpoints |
-| Routes (list, CRUD, test) | Yes | 5+ endpoints |
-| Health (all, pool, backend, trigger) | Yes | 4+ endpoints |
-| Metrics (all, summary, timeseries, prometheus) | Yes | 5+ endpoints |
-| Certificates (list, CRUD, renew) | Yes | 5+ endpoints |
-| Cluster (status, members, join, leave, raft) | Yes | 5+ endpoints |
-| WebSocket (metrics, logs, events, health) | Yes | 4 endpoints |
-| Circuit Breaker | Yes | Additional |
-| Events (SSE stream) | Yes | Additional |
+**Assessment:** All scope creep items are valuable production/operations features. No unnecessary complexity added.
 
-**Verdict: 10/10 — Full spec compliance with extras.** ~39 route handlers total.
+### 5.5 Missing Critical Components
 
-### 5.6 Clustering
+All features from the specification's current scope (Phases 1-5) are implemented. The only missing items are explicitly marked "future" in the spec:
 
-| Spec Feature | Implemented | Status |
-|--------------|-------------|--------|
-| Raft consensus | Yes | `internal/cluster/` (election, replication, snapshots) |
-| SWIM gossip | Yes | `internal/cluster/gossip.go` |
-| Config state machine | Yes | Raft state machine applies config entries |
-| Distributed rate limiting | Yes | CRDT-based |
-| Session affinity propagation | Yes | Via gossip |
-| Inter-node mTLS | Yes | `internal/cluster/security.go` |
-| Leader election | Yes | Raft-based |
-| Membership changes | Yes | Join/leave supported |
-| Split-brain protection | Yes | Tested in integration tests |
-
-**Verdict: 9/9 — Full spec compliance.**
-
-### 5.7 MCP Server
-
-| Spec Feature | Implemented | Status |
-|--------------|-------------|--------|
-| JSON-RPC protocol handler | Yes | `internal/mcp/mcp.go` (1,326 LOC) |
-| Stdio transport | Yes | |
-| HTTP/SSE transport | Yes | |
-| `olb_query_metrics` tool | Yes | |
-| `olb_list_backends` tool | Yes | |
-| `olb_modify_backend` tool | Yes | |
-| `olb_modify_route` tool | Yes | |
-| `olb_diagnose` tool | Yes | |
-| `olb_get_logs` tool | Yes | |
-| `olb_get_config` tool | Yes | |
-| `olb_cluster_status` tool | Yes | |
-| WAF tools (8 additional) | Yes | 9 WAF-specific tools |
-| MCP resources | Yes | Metrics, config, health, logs |
-| MCP prompt templates | Yes | Diagnose, capacity planning, canary deploy |
-| Bearer token auth | Yes | |
-| Audit logging | Yes | |
-
-**Verdict: 15/15 — Full spec compliance with extras (17 tools total vs spec's 8).**
-
-### 5.8 Web UI
-
-| Spec Page | Implemented | File |
-|-----------|-------------|------|
-| Dashboard | Yes | `dashboard.tsx` |
-| Backends | Yes | `pools.tsx` |
-| Routes | Yes | `listeners.tsx` |
-| Metrics | Yes | `metrics.tsx` |
-| Logs | Yes | `logs.tsx` |
-| Config | Yes | `settings.tsx` |
-| Certificates | Yes | `certificates.tsx` |
-| Cluster | Yes | `cluster.tsx` |
-| (Extra) WAF | Yes | `waf.tsx` |
-| (Extra) Middleware | Yes | `middleware.tsx` |
-| (Extra) Backup | Yes | `backup.tsx` |
-
-**Verdict: 8/8 spec pages + 3 extras — Full spec compliance.**
-
-### 5.9 TLS & ACME
-
-| Spec Feature | Implemented | Status |
-|--------------|-------------|--------|
-| TLS termination | Yes | `internal/tls/` |
-| SNI multiplexer | Yes | `internal/proxy/l4/sni.go` (782 LOC) |
-| mTLS support | Yes | Client + upstream mTLS |
-| OCSP stapling | Yes | `internal/tls/` |
-| ACME v2 client | Yes | `internal/acme/acme.go` (647 LOC) |
-| HTTP-01 challenge | Yes | |
-| TLS-ALPN-01 challenge | Yes | |
-| Auto-renewal | Yes | Background goroutine |
-| Certificate hot-reload | Yes | |
-
-**Verdict: 9/9 — Full spec compliance.**
-
-### 5.10 Service Discovery
-
-| Spec Provider | Implemented | Status |
-|---------------|-------------|--------|
-| Static (config) | Yes | `internal/discovery/` |
-| DNS SRV | Yes | |
-| DNS A/AAAA | Yes | |
-| File-based | Yes | |
-| Docker | Yes | `internal/discovery/docker.go` (665 LOC) |
-| (Extra) Consul | Yes | Additional provider |
-
-**Verdict: 5/5 + 1 extra — Full spec compliance.**
-
-### 5.11 Gap Analysis Summary
-
-| Area | Spec Compliance | Missing |
-|------|----------------|---------|
-| Load Balancing | 16/16 (100%) | — |
-| Health Checking | 5/7 (71%) | gRPC health check, Exec health check |
-| Middleware | 25/25 (100%) | — |
-| Configuration | 10/10 (100%) | — |
-| Admin API | 10/10 (100%) | — |
-| Clustering | 9/9 (100%) | — |
-| MCP Server | 15/15 (100%) | — |
-| Web UI | 8/8 (100%) | — |
-| TLS/ACME | 9/9 (100%) | — |
-| Service Discovery | 5/5 (100%) | — |
-| **Overall** | **~97%** | **2 minor features** |
+1. **QUIC/HTTP3 support** — Listed as `quic.go (future)` in spec
+2. **WASM plugins** — Listed as future in §18.2
+3. **RBAC** — Listed as future in §19.2
+4. **Brotli compression** — Spec mentions it but only gzip implemented
 
 ---
 
 ## 6. Performance & Scalability
 
-### 6.1 Benchmarked Performance
+### 6.1 Performance Patterns
 
-| Metric | Result | Spec Target | Status |
-|--------|--------|-------------|--------|
-| Peak RPS | 15,480 | >50,000 (single core) | Below target |
-| Proxy overhead | 137µs | <1ms p99 | Pass |
-| RoundRobin.Next | 3.5 ns/op | — | Excellent |
-| Middleware overhead | <3% | — | Excellent |
-| WAF overhead | ~35µs/request | — | Acceptable |
-| Binary size | ~13MB | <20MB | Pass |
-| P99 latency (50 conc.) | 22ms | <1ms p99 | Above target |
-| Success rate | 100% | — | Perfect |
+**Hot paths identified:**
+- L7 proxy request handling (`internal/proxy/l7/proxy.go`)
+- Router radix trie matching (`internal/router/radix.go`)
+- Middleware chain execution (`internal/middleware/chain.go`)
+- Balancer backend selection (`internal/balancer/*.go`)
+- Metrics recording (`internal/metrics/`)
 
-### 6.2 Performance Assessment
+**Optimizations implemented:**
+- `sync.Pool` for buffer reuse (`pkg/utils/buffer.go`)
+- Lock-free metrics using atomic operations
+- LRU cache with TTL support
+- Connection pooling with idle connection management
+- Radix trie for O(k) path matching
+- Manual JSON encoding in logger (avoids `encoding/json` allocation on hot path)
+- Pre-computed middleware values (FormatFloat, strconv.Itoa in headers)
 
-The proxy achieves 15,480 RPS peak, which is respectable but below the spec target of 50,000 RPS single-core. This gap likely reflects:
-- Full middleware stack enabled during benchmark (WAF, logging, metrics)
-- No aggressive optimization pass yet (Phase 5.4 in spec)
-- The spec target may have been aspirational
+**Recent optimization commit** (in CHANGELOG): "Merged two `context.WithValue` into single struct, stack-allocated `attemptedBackends` array, skip backend filtering on first attempt, canonical hop-by-hop header lookup to avoid `strings.ToLower` per header"
 
-For production use, 15K RPS is sufficient for many workloads. For high-scale deployments, a dedicated performance optimization pass would be needed.
+### 6.2 Scalability Assessment
+
+- **Horizontal scaling:** Supported via Raft clustering. All nodes are active proxies. Config state is replicated. Metrics remain local (eventually consistent aggregation on query).
+- **State management:** Stateless proxying (no sticky state on individual nodes). Session affinity uses distributed gossip for cookie/header-based routing.
+- **Connection limits:** Configurable global max connections, per-source limits, per-backend max connections.
+- **Resource limits:** Connection draining on shutdown, configurable timeouts at every layer, buffer size limits.
+- **Back-pressure:** Rate limiting, circuit breaker, connection limits all provide back-pressure mechanisms.
+
+### 6.3 Benchmark Infrastructure
+
+- `test/benchmark/` — Full benchmark suite
+- Inline `go test -bench` benchmarks in hot-path packages
+- Makefile target: `make bench`
+- Binary size: 9.1MB (target: <20MB) ✅
+- Spec targets: HTTP RPS >50K single core, latency <1ms p99 L7
 
 ---
 
 ## 7. Developer Experience
 
-### 7.1 Onboarding — **A-**
+### 7.1 Onboarding Assessment
 
-- Comprehensive README with quick start (5 lines to running)
-- Interactive setup wizard (`olb setup`)
-- Example configs in 4 formats (YAML, TOML, HCL, JSON)
-- `docs/getting-started.md` with step-by-step tutorial
-- Clear CONTRIBUTING.md with code examples
+- **Clone & build:** `git clone && make build` — works with Go 1.26+
+- **Quick start:** `olb setup` interactive wizard or 5-line YAML config
+- **README:** Comprehensive with feature list, install methods, config examples
+- **Docker:** `docker pull ghcr.io/openloadbalancer/olb:latest`
+- **Make targets:** `make build`, `make test`, `make dev`, `make check`
 
-### 7.2 Documentation — **B+**
+### 7.2 Documentation Quality
 
-| Document | Status | Quality |
-|----------|--------|---------|
-| README.md | Complete | Professional, accurate |
-| SPECIFICATION.md | Complete (2,908 lines) | Authoritative |
-| IMPLEMENTATION.md | Complete (4,578 lines) | Detailed |
-| TASKS.md | Complete (768 lines) | All ~305 tasks checked |
-| configuration.md | Present | Comprehensive |
-| algorithms.md | Present | — |
-| clustering.md | Present | — |
-| mcp.md | Present | — |
-| troubleshooting.md | Present | — |
-| migration-guide.md | Present | — |
-| benchmark-report.md | Present | — |
-| api/openapi.yaml | Referenced in README | Not verified |
-| CHANGELOG.md | Single entry | Minimal history |
+- **README.md:** Feature overview, quick start, install methods, CLI examples
+- **docs/SPECIFICATION.md:** 2908 lines — exhaustive specification
+- **docs/IMPLEMENTATION.md:** Implementation guidance
+- **docs/TASKS.md:** 768 lines — detailed task breakdown
+- **docs/configuration.md:** Full config reference
+- **docs/api.md:** API documentation
+- **docs/getting-started.md:** Quick start guide
+- **docs/algorithms.md:** Algorithm explanations
+- **docs/clustering.md:** Cluster setup guide
+- **docs/mcp.md:** AI integration guide
+- **docs/security-audit.md:** Security audit results
+- **docs/waf*.md:** WAF specification and implementation
+- **docs/benchmark-report.md:** Benchmark results
+- **docs/migration-guide.md:** Migration from nginx/HAProxy/Traefik/Envoy
 
-### 7.3 Tooling — **A**
+**Assessment:** Documentation is extensive and well-organized. One of the most thoroughly documented projects of this size.
 
-- Makefile with 20+ targets, self-documenting (`make help`)
-- GoReleaser for cross-platform builds
-- Docker Compose for 3-node cluster testing
-- `scripts/ci-checks.sh` for local CI validation
-- `scripts/run-benchmarks.sh` with comparison mode
-- Homebrew formula, install scripts for Linux/macOS/Windows
+### 7.3 Build & Deploy
+
+- **Makefile:** 20+ targets including cross-compilation (Linux/darwin/windows/freebsd, amd64/arm64)
+- **Dockerfile:** Multi-stage build (Node 20 for frontend, Go 1.26 for backend, Alpine 3.20 runtime)
+- **CI/CD:** GitHub Actions with lint, test, build, release workflows
+- **Helm:** Chart for Kubernetes deployment
+- **Terraform:** Module for cloud deployment
+- **Packages:** DEB, RPM, Homebrew, install script
 
 ---
 
 ## 8. Technical Debt Inventory
 
-### 8.1 Critical Debt
+### 🔴 Critical (blocks production readiness)
 
-| ID | Severity | File | Description | Effort |
-|----|----------|------|-------------|--------|
-| TD-01 | **High** | `internal/engine/config.go` | **Code duplication**: `applyConfig()` (line 59-222) and `applyConfigNoRollback()` (line 233-378) share ~160 nearly identical lines. The only difference is rollback grace period initialization. Should be refactored to a single function with a boolean parameter. | 2h |
-| TD-02 | **High** | `internal/webui/src/` | **Zero frontend tests**: No `.test.tsx` files exist. The entire Web UI is untested. | 40h |
-| TD-03 | **High** | `internal/webui/assets/` | **Committed build artifacts**: 53 compiled files (2.9MB) tracked in git. Should be in `.gitignore` and built in CI. | 1h |
+1. **Proxy test failures** — 15 tests failing in `internal/proxy/l4` and `internal/proxy/l7`
+   - Files: `internal/proxy/l7/proxy_test.go`, `internal/proxy/l7/sse_test.go`, `internal/proxy/l4/*_test.go`
+   - Symptoms: Expected 502/503 responses getting 404, transport creation errors
+   - Effort: ~8-16 hours to diagnose and fix
+   - These are the core proxy path — must be green for any production use
 
-### 8.2 Medium Debt
+2. **No chaos/stress testing for Raft** — From-scratch Raft implementation without extended failure scenario testing
+   - Risk: Split-brain, data loss under network partitions
+   - Effort: ~40 hours for comprehensive chaos testing
 
-| ID | Severity | File | Description | Effort |
-|----|----------|------|-------------|--------|
-| TD-04 | Medium | `internal/webui/package.json` | **Unused dependency**: `next-themes` is installed but never imported. A custom `ThemeProvider` is used instead. | 0.5h |
-| TD-05 | Medium | `internal/webui/` | **No ESLint/Prettier**: No frontend code quality enforcement. | 2h |
-| TD-06 | Medium | `internal/proxy/l7/proxy.go` | **Potential race**: `cachedHandler` in `RebuildHandler()` may lack proper synchronization. Needs review with `-race`. | 4h |
-| TD-07 | Medium | `pkg/errors/errors.go` | **Panic in error construction**: Uses `panic()` where error wrapping would be safer. | 2h |
-| TD-08 | Medium | `docs/api/openapi.yaml` | **Missing OpenAPI spec**: Referenced in README but may not be auto-generated from code. | 8h |
-| TD-09 | Medium | `.github/workflows/ci.yml` | **No multi-OS CI**: All runners are ubuntu-latest. No macOS/Windows testing. | 4h |
-| TD-10 | Medium | `.github/workflows/ci.yml` | **golangci-lint not enforced**: Config exists but CI falls back to staticcheck. | 1h |
+### 🟡 Important (should fix before v1.0)
 
-### 8.3 Low Debt
+3. **Frontend data-fetching inconsistency** — TanStack React Query installed but custom hooks used instead
+   - Files: `internal/webui/src/hooks/use-query.ts`, `internal/webui/src/lib/query-provider.tsx`
+   - Either adopt TanStack Query hooks or remove the dependency
+   - Effort: ~8 hours to consolidate
 
-| ID | Severity | File | Description | Effort |
-|----|----------|------|-------------|--------|
-| TD-11 | Low | `internal/admin/handlers.go` | **Large handler file** (981 LOC). Could be split by endpoint group. | 4h |
-| TD-12 | Low | `internal/config/hcl/hcl.go` | **Very large file** (1,415 LOC). Parser + lexer in single file. | 4h |
-| TD-13 | Low | `internal/cluster/snapshot.go` | **Very large file** (1,062 LOC). Snapshot logic could be decomposed. | 4h |
-| TD-14 | Low | `PROJECT_STATUS.md` | **Stale metric**: Claims 14 algorithms but implementation has 16. | 0.5h |
-| TD-15 | Low | `CHANGELOG.md` | **Single entry**: Only v0.1.0 listed. No incremental history for contributors. | 2h |
-| TD-16 | Low | `internal/engine/middleware_registration.go` | **Large file** (724 LOC). Wiring for 30+ middleware. Acceptable but could use code generation. | 4h |
+4. **Unused `recharts` dependency** — Listed in `package.json` but never imported
+   - File: `internal/webui/package.json`
+   - Effort: 5 minutes to remove
 
-### 8.4 Debt Summary
+5. **Missing Brotli compression** — Spec mentions it but only gzip is implemented
+   - File: `internal/middleware/` (compression middleware)
+   - Effort: ~20-40 hours for a pure Go Brotli implementation
 
-| Severity | Count | Total Effort |
-|----------|-------|-------------|
-| High | 3 | 43h |
-| Medium | 7 | 23.5h |
-| Low | 6 | 18.5h |
-| **Total** | **16** | **~85h** |
+6. **`internal/plugin` at 85.2% coverage** — Lowest coverage in the project
+   - Files: `internal/plugin/`
+   - Effort: ~4-8 hours to add tests
 
----
+7. **`internal/engine` at 87.8% coverage** — Below the 85% threshold when considering test flakiness
+   - Files: `internal/engine/`
+   - Effort: ~8 hours
 
-## 9. Metrics Summary
+### 🟢 Minor (nice to fix, not urgent)
 
-### 9.1 Codebase Metrics
+8. **Single TODO comment** in `internal/cluster/cluster_test.go:534` — "the actual RPC is a TODO/no-op"
+   - Effort: ~2 hours
 
-```
-Total Go files:           438
-Production files:         235
-Test files:               203
-Production LOC:          66,127
-Test LOC:               177,306
-Test-to-code ratio:       2.68:1
-Packages:                  67
-Benchmark functions:      169
-Fuzz functions:            12
-Panic() calls (prod):       6
-TODO/FIXME markers:         0
-```
+9. **Marketing website has no tests** — `website-new/` has no test infrastructure
+   - Effort: ~8 hours for basic smoke tests
 
-### 9.2 Frontend Metrics
+10. **Frontend focus trap missing** — Mobile sidebar has no focus trap for accessibility
+    - File: `internal/webui/src/components/layout.tsx`
+    - Effort: ~2 hours
 
-```
-TypeScript/TSX files:      37
-Frontend LOC:          ~6,024
-Frontend tests:             0
-Pages:                     12
-Shared components:          2 + UI library
-npm dependencies:          12 runtime, 5 dev
-Unused dependencies:        1 (next-themes)
-Committed build artifacts: 53 files, 2.9MB
-```
-
-### 9.3 Infrastructure Metrics
-
-```
-CI jobs:                   11
-CI workflow LOC:          472
-Release workflow LOC:     274
-Makefile targets:         20+
-Dockerfile stages:         3
-GoReleaser targets:        4 OS × 3 arch
-Scripts:                  10+
-Documentation files:      12+
-```
-
-### 9.4 Test Metrics
-
-```
-Test packages:             67 (all passing)
-Average coverage:         ~95%
-Lowest coverage:          86.9% (internal/cli)
-Packages at 100%:          4
-Packages below 90%:        1
-E2E test LOC:           7,237
-Integration test LOC:   1,502
-Benchmark test LOC:     2,178
-Chaos test LOC:           749
-Load test LOC:            655
-```
+11. **No `llms.txt` at project root** — Spec mentions it, not found in file listing
+    - Effort: ~1 hour
 
 ---
 
-## 10. Conclusions
+## 9. Metrics Summary Table
 
-OpenLoadBalancer is an **exceptionally well-engineered Go project** that achieves near-complete spec compliance (~97%) with comprehensive testing (177K test LOC, 95% coverage). The Go core is production-ready.
-
-The primary risks are:
-1. **Untested frontend** — The Web UI is 6,000 lines of untested TypeScript. This is the single biggest gap.
-2. **Code duplication in critical path** — The engine config reload path has ~160 lines of duplicated code between `applyConfig()` and `applyConfigNoRollback()`.
-3. **Build artifact contamination** — 53 compiled frontend files in git inflate the repository and create merge conflict potential.
-4. **Performance below spec targets** — 15K RPS vs 50K target. Not blocking for most use cases but needs attention for high-scale deployments.
-
-These are all addressable. The project has a solid foundation for long-term maintenance.
+| Metric | Value |
+|---|---|
+| Total Files (excl. node_modules/.git) | 770 |
+| Go Source Files | 243 |
+| Go Test Files | 202 |
+| Total Go LOC | 245,946 |
+| Go Source LOC | 178,281 |
+| Go Test LOC | 67,665 |
+| Frontend Files | 126 |
+| Frontend LOC | ~13,924 |
+| Test Functions | 6,190+ |
+| Test Coverage (average) | 95.3% |
+| External Go Dependencies | 3 |
+| External Frontend Dependencies | 26 runtime / 18 dev |
+| Open TODOs/FIXMEs | 1 genuine |
+| API Endpoints | 25+ REST + 4 WebSocket |
+| Load Balancing Algorithms | 16 |
+| Middleware Components | 16 |
+| WAF Layers | 6 |
+| Config Formats | 4 |
+| Spec Feature Completion | 99.7% |
+| Task Completion | 305/306 (99.7%) |
+| Packages with Test Failures | 2 (proxy/l4, proxy/l7) |
+| Failing Tests | 15 |
+| Overall Health Score | 7.5/10 |

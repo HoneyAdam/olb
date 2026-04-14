@@ -1,244 +1,250 @@
-# OpenLoadBalancer — Prioritized Roadmap
+# Project Roadmap
 
-> **Date**: 2026-04-11
-> **Source**: Analysis findings from `.project/ANALYSIS.md`
-> **Methodology**: Risk-weighted prioritization — items ordered by impact × urgency × effort
-> **Scope**: Work needed to move from current state to hardened production readiness
+> Based on comprehensive codebase analysis performed on 2026-04-14
+> This roadmap prioritizes work needed to bring the project to production quality.
 
----
+## Current State Assessment
 
-## Current State Summary
+OpenLoadBalancer is a remarkably complete project — 99.7% spec completion, 95.3% test coverage, 178K LOC of Go, 13.9K LOC of TypeScript, all building into a single 9.1MB binary. Every major subsystem from the specification (L4/L7 proxy, 16 algorithms, Raft clustering, ACME, WAF, MCP, Web UI) is implemented and tested.
 
-| Dimension | Status | Score |
-|-----------|--------|-------|
-| Go Backend | Production-ready | A- |
-| Frontend (Web UI) | Tested, a11y-audited, E2E coverage | A- |
-| Test Coverage (Go) | 95% average, 67/67 packages passing | A |
-| Test Coverage (Frontend) | 177 Vitest + 4 Playwright tests | A- |
-| Accessibility | Zero axe-core violations, WCAG 2.1 AA | A |
-| Spec Compliance | ~97% | A |
-| CI/CD | Multi-OS, coverage enforcement, lint gates | A |
-| Performance | 15K RPS, optimized hot path | B+ |
-| Documentation | Comprehensive + migration guides | A |
-| Technical Debt | 1 item remaining (TD-16, acceptable) | A- |
+**Key blockers for production readiness:**
+- 15 test failures in the core proxy layer (`internal/proxy/l4` and `internal/proxy/l7`)
+- From-scratch Raft consensus has not been validated under chaos conditions
+- Frontend has architectural inconsistencies (dual data-fetching layers)
+
+**What's working well:**
+- Clean builds with zero warnings
+- `go vet` passes clean
+- 63 of 65 packages pass all tests
+- Comprehensive security hardening (97 findings addressed)
+- Extensive documentation and deployment tooling
+- Multi-platform binary, Docker, Helm, Terraform all ready
 
 ---
 
-## Phase 1: Critical Fixes (Week 1-2) — 6h
+## Phase 1: Critical Fixes (Week 1)
 
-> **Goal**: Eliminate the highest-risk items with minimal effort.
+### Must-fix items blocking basic functionality
 
-### 1.1 Remove Committed Build Artifacts — DONE
-- Added `internal/webui/assets/` to `.gitignore`
-- Removed tracked `index.html` from git index (`git rm --cached`)
-- CI builds frontend in separate job before Go embed step
-- **ID**: TD-03
+- [ ] **Fix 15 failing proxy tests** — `internal/proxy/l7/proxy_test.go` (12 failures), `internal/proxy/l4` (3 failures)
+  - Symptoms: Expected 502/503 getting 404, transport creation errors, SSE backend errors
+  - Root cause analysis needed: likely a regression from recent refactoring
+  - Effort: 8-16h
+  - Priority: CRITICAL — these are the core proxy path
 
-### 1.2 Remove Unused `next-themes` Dependency — DONE
-- Already removed from `internal/webui/package.json` (0 matches)
+- [ ] **Diagnose `TestCreateTransport_*` failures** — `proxy_test.go:2174, 2200`
+  - "expected error dialing invalid address" — transport creation is succeeding when it should fail
+  - Effort: 2-4h
 
-### 1.3 Refactor Duplicated `applyConfig` Code — DONE
-- Already refactored: `applyConfig()` and `rollbackConfig()` both delegate to `applyConfigInternal(cfg, noRollback bool)`
-- No code duplication remains in `internal/engine/config.go`
-- **ID**: TD-01
+- [ ] **Diagnose retry test failures** — `proxy_test.go:648, 1433, 1477`
+  - Retry mechanism not selecting alternate backends; returning 404 instead
+  - Effort: 4-8h
 
-### 1.4 Fix `panic()` in `pkg/errors/errors.go` — DONE (no change needed)
-- Single `panic("errors.As: target cannot be nil")` is a standard Go programmer-error guard (matches stdlib behavior)
-- No actionable panics to fix — all other error handling uses proper error returns
-- **ID**: TD-07
-- **ID**: TD-07
-
-### 1.5 Enforce golangci-lint in CI — DONE
-- `golangci/golangci-lint-action@v6` already in CI workflow
-- `.golangci.yml` config updated with correct Go version (1.26)
-- **ID**: TD-10
+- [ ] **Fix SSE backend error tests** — `sse_test.go:728, 1276`
+  - Backend connection failures not propagating correctly
+  - Effort: 2-4h
 
 ---
 
-## Phase 2: Frontend Hardening (Week 3-6) — 50h
+## Phase 2: Core Hardening (Week 2-3)
 
-> **Goal**: Bring the Web UI to production quality with tests and quality gates.
+### Reliability and correctness
 
-### 2.1 Add Frontend Testing Infrastructure — DONE
-- Vitest + React Testing Library + jsdom installed and configured
-- Path aliases set up in `vitest.config.ts`
-- Test utilities (`renderWithProviders`, `mockApi`) created
-- `npm test` script in `package.json`
-- CI `build-frontend` job includes `npm test` step
-- **ID**: TD-02 (partial)
+- [ ] **Validate Raft under failure scenarios** — `internal/cluster/`
+  - Network partition simulation (kill leader, verify re-election)
+  - Split-brain protection verification with 5+ nodes
+  - Log compaction under sustained write load
+  - Membership change during leader failure
+  - Effort: 40h
 
-### 2.2 Write Core Component Tests — DONE
-- 50+ tests across 10 pages: dashboard, pools, backends, settings, cluster, metrics, WAF, middleware, certificates, logs, error
-- **ID**: TD-02 (partial)
+- [ ] **Add chaos testing framework** — `test/chaos/`
+  - Network partition injection
+  - Random node kills
+  - Clock skew simulation
+  - Effort: 24h
 
-### 2.3 Add Frontend Linting — DONE
-- ESLint 9 flat config with typescript-eslint + react-hooks + react-refresh + prettier
-- `npm run lint` and `npm run format` scripts
-- Lint gate in CI (`npm run lint` before `npm test`)
-- **ID**: TD-05
+- [ ] **Race detection on Linux CI** — `.github/workflows/ci.yml`
+  - Add `go test -race ./...` job (requires CGO)
+  - Already has `build-race` Makefile target
+  - Effort: 2h
 
-### 2.4 API Integration Tests — DONE
-- **Effort**: 12h → 4h (used existing mockFetch pattern instead of MSW)
-- **Risk**: Low
-- **Done**:
-  - Expanded `api.test.ts` from 6 to 36 tests covering all 25 API endpoints
-  - Error state tests: 401 Unauthorized, 404 Not Found, 500 Internal Server Error, 502/503 Bad Gateway, network failure (TypeError)
-  - Request construction tests: Content-Type header, JSON body encoding, URL encoding for special characters
-  - Created `use-query.test.ts` with 24 tests for `useQuery`, `useMutation`, `useToastMutation` hooks
-  - Retry logic tests: transient errors (502, 503, 504, TypeError) retry with backoff; non-transient errors (401, 404, 500) fail immediately
-  - Found and fixed bug in `useQuery` hook: non-transient errors were incorrectly retried (missing `break` in catch block)
-  - Toast mutation tests: success/error messages, dynamic message functions, fallback to error.message
-- **ID**: TD-02 (partial)
+- [ ] **Fix cluster test TODO** — `internal/cluster/cluster_test.go:534`
+  - "the actual RPC is a TODO/no-op" — implement or remove the no-op path
+  - Effort: 2h
 
-### 2.5 Accessibility Audit — DONE
-- **Effort**: 8h → 3h (strong a11y foundation already in place)
-- **Risk**: Low
-- **Done**:
-  - Installed `vitest-axe` with `axe-core` for automated accessibility testing
-  - Created `src/test/a11y.test.tsx` with automated axe-core scan across all 9 pages
-  - All 9 pages pass with zero a11y violations
-  - Fixed Logs page: added `aria-label` to auto-scroll Switch and event level filter Select
-  - Fixed Middleware page: added `aria-pressed` to category filter buttons
-  - Fixed Logs page: added `<caption>` to event log table for screen readers
-  - Existing a11y features verified: landmark roles, skip-to-content link, keyboard navigation (Enter/Space/Escape), decorative icons with `aria-hidden`, form labels with `htmlFor`, document title management, focus-visible styles
-- **Continues**: Existing WCAG 2.1 AA work (commit 744d6ae)
+- [ ] **Increase `internal/plugin` test coverage** — currently 85.2%, target ≥90%
+  - Add tests for plugin lifecycle, event bus, error paths
+  - Effort: 8h
 
-### 2.6 E2E Browser Tests — DONE
-- **Effort**: 4h → 2h
-- **Risk**: Low
-- **Done**:
-  - Installed `@playwright/test` with Chromium browser
-  - Created `playwright.config.ts` with Vite dev server integration
-  - Created `e2e/smoke.spec.ts` with 4 smoke tests:
-    - Loads dashboard page and verifies nav + heading
-    - Navigates between Pools, Cluster, Settings pages via sidebar links
-    - Skip-to-content link is present and visible on Tab
-    - Responsive sidebar collapses on mobile viewport (640px)
-  - All 4 E2E tests pass
-  - `npm run test:e2e` script added to `package.json`
-- **Note**: E2E tests require dev server running (handled automatically by Playwright)
+- [ ] **Increase `internal/engine` test coverage** — currently 87.8%, target ≥90%
+  - Focus on error paths, concurrent reload, rollback scenarios
+  - Effort: 8h
 
 ---
 
-## Phase 3: Missing Spec Features & Performance (Week 5-8) — 40h
+## Phase 3: Frontend Cleanup (Week 3-4)
 
-> **Goal**: Close spec gaps and optimize performance.
+### Resolve architectural inconsistencies
 
-### 3.1 Implement gRPC Health Check — DONE
-- Already fully implemented in `internal/health/grpc_check.go` with unary check support
-- Config support for `grpc` health check type already wired
-- Tests pass in `internal/health/`
+- [ ] **Consolidate data-fetching layer** — `internal/webui/src/hooks/use-query.ts`
+  - Option A: Migrate custom hooks to use TanStack React Query hooks (recommended)
+  - Option B: Remove TanStack React Query dependency entirely
+  - Current state: QueryClientProvider wraps app but hooks don't use it
+  - Effort: 8h
 
-### 3.2 Implement Exec Health Check — DONE
-- Implemented in `internal/health/` with template variable support (`{{.Address}}`, `{{.Host}}`, `{{.Port}}`)
-- Config fields (`command`, `args`) wired through engine startup and hot-reload
-- Tests in `internal/health/exec_test.go`
+- [ ] **Remove unused `recharts` dependency** — `internal/webui/package.json`
+  - Charts use custom SVG; recharts is never imported
+  - Effort: 5min
 
-### 3.3 Performance Optimization Pass — DONE
-- **Effort**: 16h → ~10h (remaining work is incremental profiling)
-- **Risk**: Medium
-- **Done**:
-  - Merged two `context.WithValue` into single `requestState` struct (saves 1 context + 1 request allocation per request)
-  - Stack-allocated `attemptedBackends` array (avoids heap allocation in 99% case)
-  - Skip backend filtering on first retry attempt (avoids slice allocation when no retries needed)
-  - Added `hopByHopCanonicalSet` for zero-allocation hop-by-hop header check in `copyHeaders`
-  - Pre-computed `strconv.FormatFloat` and `strconv.Itoa` in rate limiter (eliminates constant-per-request allocs)
-  - Pre-computed `strings.Join` for CORS AllowedMethods/AllowedHeaders/ExposedHeaders/MaxAge (eliminates 3-4 allocs per CORS request)
-  - Pooled `headerResponseWriter` struct via `sync.Pool` (eliminates 1 alloc per request through headers middleware)
-  - Existing benchmark infrastructure already comprehensive (36 benchmark functions)
-  - CI already has benchstat regression detection in PR workflow
-  - Benchmarked with middleware disabled vs enabled: middleware adds only 16 allocs/request (~3.7µs overhead), well within target
-- **Remaining (incremental)**:
-  - Profile CPU under sustained load with `go tool pprof` (requires real deployment)
-  - Profile memory allocation hotspots (requires real deployment)
-- **Spec Reference**: SPECIFICATION.md §20
+- [ ] **Add focus trap to mobile sidebar** — `internal/webui/src/components/layout.tsx`
+  - Accessibility: keyboard users can tab out of open sidebar into background
+  - Effort: 2h
 
-### 3.4 Review `cachedHandler` Race Condition — DONE
-- Converted from bare `http.Handler` field to `atomic.Value` for safe concurrent `ServeHTTP` + `RebuildHandler`
-- Concurrent tests added in `internal/proxy/l7/proxy_test.go`
-- **ID**: TD-06
+- [ ] **Add frontend integration tests** — `internal/webui/src/`
+  - Test form submissions that call API mutations
+  - Test SSE event stream rendering
+  - Test error boundary behavior
+  - Effort: 16h
+
+- [ ] **Add marketing website tests** — `website-new/`
+  - No test infrastructure exists
+  - At minimum: smoke tests for page rendering
+  - Effort: 8h
 
 ---
 
-## Phase 4: CI/CD & Infrastructure Improvements (Week 7-9) — 20h
+## Phase 4: Performance & Optimization (Week 5-6)
 
-> **Goal**: Strengthen the deployment pipeline.
+### Performance tuning and validation
 
-### 4.1 Multi-OS CI Testing — DONE
-- GitHub Actions matrix: `os: [ubuntu-latest, macos-latest, windows-latest]`
-- `shell: bash` on all platforms, race detector scoped to Linux
-- **ID**: TD-09
+- [ ] **Run full benchmark suite** — `make bench`
+  - Validate spec targets: HTTP RPS >50K single core, latency <1ms p99 L7
+  - Compare against v0.1.0 baseline
+  - Document results in `docs/benchmark-report.md`
+  - Effort: 8h
 
-### 4.2 Coverage Diff Enforcement on PRs — DONE
-- `codecov.yml` configured with 85% target, 0.5% threshold for project and patch
-- Codecov already uploading in CI
-- **Note**: Codecov is already uploading, just needs enforcement
+- [ ] **Memory profiling under load**
+  - Verify <4KB per idle connection, <32KB per active request
+  - Profile with `go tool pprof` under sustained load
+  - Identify and fix allocation hot spots
+  - Effort: 16h
 
-### 4.3 Generate OpenAPI Spec — DONE
-- `docs/api/openapi.yaml` already comprehensive (1273 lines, 20+ endpoints, full schemas)
-- Updated with SSE `/events/stream` endpoint and fixed Go version
-- **ID**: TD-08
+- [ ] **TCP throughput benchmark** — L4 proxy
+  - Test with splice() on Linux
+  - Target: >10Gbps throughput
+  - Effort: 8h
 
-### 4.4 Split Large Files — DONE
-- `internal/admin/handlers.go` (981 LOC) split into 5 focused files
-- `internal/config/hcl/hcl.go` (1415 LOC) split into `lexer.go`, `parser.go`, `decoder.go`
-- **ID**: TD-11, TD-12
+- [ ] **Connection pool effectiveness audit**
+  - Verify pool hit rate under production-like traffic patterns
+  - Tune min idle / max idle parameters
+  - Effort: 8h
 
----
-
-## Phase 5: Polish & Documentation (Week 9-10) — 12h
-
-> **Goal**: Final cleanup for production confidence.
-
-### 5.1 Update Stale Documentation — DONE
-- CHANGELOG.md expanded with comprehensive `[Unreleased]` section covering all recent changes
-- README links verified (API reference points to OpenAPI spec)
-- **ID**: TD-14, TD-15
-
-### 5.2 Add Deployment Guides — DONE
-- **Effort**: 6h → 0h (already complete)
-- `docs/production-deployment.md` covers: single node, HA cluster (3-node + Keepalived VIP), Kubernetes (Helm + manual Deployment/Service/ConfigMap), Docker, systemd, security hardening, Prometheus + Alertmanager, backup/recovery, performance tuning, upgrade procedure
-
-### 5.3 Add Migration Examples — DONE
-- **Effort**: 4h → done
-- Expanded `docs/migration-guide.md` from 370 → 901 lines
-- NGINX: weighted backends, gzip, basic auth, HTTPS redirect, virtual hosts, timeouts
-- HAProxy: ACL routing, map files, connection limits, circuit breaker
-- Traefik: label→YAML translation, middleware chains, path prefix routing
-- Envoy: retries/timeouts, weighted cluster traffic splitting
-- Added detailed migration checklist with algorithm mapping table
+- [ ] **Startup time benchmark**
+  - Target: <500ms cold start to ready
+  - Profile initialization sequence
+  - Effort: 4h
 
 ---
 
-## Roadmap Summary
+## Phase 5: Documentation & Polish (Week 7-8)
 
-| Phase | Focus | Duration | Effort | Impact |
-|-------|-------|----------|--------|--------|
-| **Phase 1** | Critical fixes | Week 1-2 | 6h | Removes high-risk debt items |
-| **Phase 2** | Frontend hardening | Week 3-6 | 50h | Enables trusted Web UI |
-| **Phase 3** | Spec gaps + perf | Week 5-8 | 40h | 100% spec compliance, better performance |
-| **Phase 4** | CI/CD improvements | Week 7-9 | 20h | Multi-OS confidence, API documentation |
-| **Phase 5** | Polish + docs | Week 9-10 | 12h | Production deployment readiness |
-| **Total** | | **10 weeks** | **~128h** | |
+### Documentation completeness and final polish
 
-### Risk Matrix
+- [ ] **Create `llms.txt` at project root** — referenced in spec but missing
+  - LLM-friendly project description for AI tooling
+  - Effort: 1h
 
-| Phase | Risk | Mitigation |
-|-------|------|-----------|
-| Phase 1 | Low | All changes have clear rollback paths |
-| Phase 2 | Low | Testing infrastructure is additive |
-| Phase 3 | Medium | Performance changes require careful benchmarking; spec features are new code |
-| Phase 4 | Low | CI changes are infrastructure-only |
-| Phase 5 | Low | Documentation-only |
+- [ ] **Add OpenAPI/Swagger spec** — `docs/api/openapi.yaml`
+  - Full REST API reference in machine-readable format
+  - Already partially exists; needs completion
+  - Effort: 16h
 
-### Priority Justification
+- [ ] **Update CHANGELOG.md** — reflect all post-v0.1.0 changes
+  - Tag v0.2.0, v0.3.0, v0.4.0 appropriately
+  - Effort: 4h
 
-1. **Phase 1 first**: The code duplication in `applyConfig` is a correctness risk — if someone fixes a bug in one path but not the other, config reload could silently fail. Build artifacts in git will cause merge conflicts as the frontend evolves.
+- [ ] **Review and update all example configs** — `configs/`
+  - Ensure examples match current config schema
+  - Add examples for new features (GeoDNS, shadowing, WAF)
+  - Effort: 4h
 
-2. **Phase 2 second**: The Web UI is the primary management interface. Without tests, any frontend change risks regressions. The 40h estimate for full testing is significant but necessary for production trust.
+- [ ] **Production deployment guide** — `docs/production-deployment.md`
+  - Already exists; verify accuracy against current implementation
+  - Add troubleshooting for common issues
+  - Effort: 8h
 
-3. **Phase 3 third**: The missing spec features (gRPC health check, exec health check) are unlikely to be showstoppers — most deployments use HTTP or TCP health checks. Performance optimization is important but the current 15K RPS is sufficient for many use cases.
+---
 
-4. **Phase 4 fourth**: Multi-OS CI is a nice-to-have. The project builds cross-platform but testing on other OSes catches edge cases in signal handling, file paths, and network behavior.
+## Phase 6: Release Preparation (Week 9-10)
 
-5. **Phase 5 last**: Documentation polish is important for adoption but doesn't affect runtime correctness.
+### Final production preparation
+
+- [ ] **Resolve GHCR image publishing** — requires repo permissions
+  - Only incomplete task in TASKS.md
+  - Effort: 2h (permissions + workflow fix)
+
+- [ ] **Multi-arch Docker image validation**
+  - Test amd64 and arm64 images on real hardware
+  - Verify frontend assets embedded correctly
+  - Effort: 4h
+
+- [ ] **End-to-end smoke test on fresh environment**
+  - Install via curl | sh on clean Linux VM
+  - Install via Docker on clean environment
+  - Install via Homebrew on clean macOS
+  - Verify `olb setup` → `olb start` → proxy traffic flow
+  - Effort: 8h
+
+- [ ] **Security scan of Docker image**
+  - Run `trivy` or `grype` on final image
+  - Fix any CVE findings
+  - Effort: 4h
+
+- [ ] **Cut v1.0.0 release**
+  - Tag release
+  - Build all platform binaries
+  - Publish to GHCR, Homebrew
+  - Create GitHub release with checksums
+  - Effort: 4h
+
+---
+
+## Beyond v1.0: Future Enhancements
+
+### Features and improvements for future versions
+
+- [ ] **Brotli compression** — Pure Go implementation for middleware
+- [ ] **QUIC/HTTP3 support** — Listed as future in spec §3
+- [ ] **WASM plugin runtime** — Sandboxed alternative to Go plugins (spec §18.2)
+- [ ] **RBAC for Admin API** — Read-only vs admin roles (spec §19.2)
+- [ ] **Custom dashboard builder** — Drag-drop widget system (spec §14.2)
+- [ ] **Config history** — Track and diff config changes over time (spec §14.6)
+- [ ] **gRPC-Web full proxying** — Enhanced gRPC-Web support
+- [ ] **Rate limiting distributed via Raft** — Use Raft log for strong consistency
+- [ ] **Prometheus remote write** — Export metrics to remote Prometheus
+- [ ] **HTTP/3 upstream proxying** — Proxy to HTTP/3 backends
+
+---
+
+## Effort Summary
+
+| Phase | Estimated Hours | Priority | Dependencies |
+|---|---|---|---|
+| Phase 1: Critical Fixes | 16-32h | CRITICAL | None |
+| Phase 2: Core Hardening | 84h | HIGH | Phase 1 |
+| Phase 3: Frontend Cleanup | 34h | MEDIUM | None |
+| Phase 4: Performance | 44h | MEDIUM | Phase 1 |
+| Phase 5: Documentation | 33h | LOW | Phases 1-4 |
+| Phase 6: Release Prep | 22h | HIGH | Phases 1-2 |
+| **Total** | **~250h** | | |
+
+## Risk Assessment
+
+| Risk | Probability | Impact | Mitigation |
+|---|---|---|---|
+| Proxy test failures indicate deeper proxy bug | Medium | High | Phase 1 root cause analysis before any deployment |
+| Raft consensus has edge case bugs | Medium | Critical | Phase 2 chaos testing; start with single-node for prod |
+| Performance targets not met under real load | Medium | Medium | Phase 4 benchmarking; tune before release |
+| Frontend data-fetching inconsistency causes bugs | Low | Low | Phase 3 consolidation |
+| Security vulnerability in from-scratch parsers | Low | High | Fuzz tests exist; add more coverage |
+| Docker image has CVEs | Low | Medium | Phase 6 security scan |

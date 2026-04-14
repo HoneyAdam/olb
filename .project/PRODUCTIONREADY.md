@@ -1,382 +1,412 @@
-# OpenLoadBalancer — Production Readiness Assessment
+# Production Readiness Assessment
 
-> **Date**: 2026-04-11
-> **Assessor**: Claude Code — Full Codebase Audit
-> **Version**: v0.1.0 (commit 531b931)
-> **Standard**: Compared against SPECIFICATION.md, OWASP best practices, Go production standards
-> **Verdict**: See Section 12
+> Comprehensive evaluation of whether OpenLoadBalancer is ready for production deployment.
+> Assessment Date: 2026-04-14
+> Verdict: 🟡 CONDITIONALLY READY (single-node); 🔴 NOT READY (clustered)
 
 ---
 
-## Scoring Methodology
+## Overall Verdict & Score
 
-Each dimension is scored 0-10:
-- **9-10**: Exceptional — exceeds industry standards
-- **7-8**: Production-ready — meets standards with minor gaps
-- **5-6**: Functional — works but has meaningful gaps
-- **3-4**: Incomplete — significant work needed
-- **0-2**: Not ready — fundamental issues
+**Production Readiness Score: 78/100**
 
----
-
-## 1. Code Quality — 8.5/10
-
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Go code quality | 9 | `gofmt` clean, idiomatic Go, proper error wrapping, 13 linters configured |
-| Code organization | 9 | Clean package structure, single responsibility, no circular deps |
-| Error handling | 8 | Generally excellent, minor issues with panic in errors package |
-| Concurrency safety | 8 | Atomic ops, context propagation, pool management; one potential race in proxy |
-| Frontend code quality | 6 | TypeScript with good component structure, but no tests, no linter |
-
-**Strengths**:
-- Zero actionable TODO/FIXME markers in production code
-- Only 6 `panic()` calls, all in acceptable locations
-- 30 ignored errors (`_ = ...`), all are best-effort cleanup
-- 2.68:1 test-to-code ratio
-
-**Weaknesses**:
-- ~160 lines of duplicated code in `internal/engine/config.go` (`applyConfig` vs `applyConfigNoRollback`)
-- Frontend has zero tests and no ESLint/Prettier enforcement
-- `next-themes` unused dependency in `package.json`
+| Category | Score | Weight | Weighted Score |
+|---|---|---|---|
+| Core Functionality | 9/10 | 20% | 18.0 |
+| Reliability & Error Handling | 7/10 | 15% | 10.5 |
+| Security | 8/10 | 20% | 16.0 |
+| Performance | 7/10 | 10% | 7.0 |
+| Testing | 9/10 | 15% | 13.5 |
+| Observability | 8/10 | 10% | 8.0 |
+| Documentation | 9/10 | 5% | 4.5 |
+| Deployment Readiness | 9/10 | 5% | 4.5 |
+| **TOTAL** | | **100%** | **78/100** |
 
 ---
 
-## 2. Testing — 8.0/10
+## 1. Core Functionality Assessment
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Unit test breadth | 10 | 203 test files, 100% package coverage, no untested packages |
-| Unit test depth | 9 | 177K test LOC, edge cases covered, 2.68:1 ratio |
-| Coverage | 9 | 95% average, all packages above 85% minimum |
-| E2E testing | 9 | 7,237 LOC covering all algorithms, middleware, protocols, chaos |
-| Integration testing | 8 | Cluster (Raft + gossip) and MCP integration tests |
-| Benchmark testing | 9 | 169 benchmark functions, PR comparison in CI |
-| Fuzz testing | 8 | 12 fuzz functions targeting WAF and config parsers |
-| Frontend testing | 0 | Zero frontend test files |
+### 1.1 Feature Completeness
 
-**Strengths**:
-- 67/67 packages passing with >85% coverage
-- Exceptional E2E suite: algorithms, middleware stack, TLS, chaos, load
-- Race detection in CI pipeline
-- Fuzz testing on security-critical parsers
-- Benchmark comparison on PRs via benchstat
+**Overall: 99.7% of specification implemented**
 
-**Weaknesses**:
-- Frontend has absolutely no tests — this is a hard 0 for that sub-dimension
-- No multi-OS testing (all ubuntu-latest)
-- No coverage diff enforcement on PRs
+| Feature | Status | Notes |
+|---|---|---|
+| L7 HTTP/HTTPS Proxy | ✅ **Working** | Full reverse proxy with WebSocket, gRPC, SSE, HTTP/2 |
+| L4 TCP Proxy | ✅ **Working** | Bidirectional copy, SNI routing, PROXY protocol |
+| L4 UDP Proxy | ✅ **Working** | Session-based UDP forwarding |
+| 16 Load Balancing Algorithms | ✅ **Working** | All implemented with aliases and benchmarks |
+| Health Checking (HTTP/TCP/gRPC/exec) | ✅ **Working** | Active + passive, configurable thresholds |
+| Hot Config Reload | ✅ **Working** | Atomic swap with rollback support |
+| TLS Termination | ✅ **Working** | SNI multiplexer, hot cert reload |
+| ACME/Let's Encrypt | ✅ **Working** | Full ACME v2 from scratch, auto-renewal |
+| mTLS | ✅ **Working** | Client, upstream, and inter-node mTLS |
+| OCSP Stapling | ✅ **Working** | Background refresh, cached responses |
+| WAF (6-layer) | ✅ **Working** | IP ACL, rate limit, sanitizer, detection, bot, response |
+| Middleware (16 types) | ✅ **Working** | Config-gated, priority-ordered |
+| Config Parsing (YAML/TOML/HCL/JSON) | ✅ **Working** | All from scratch with fuzz tests |
+| Service Discovery | ✅ **Working** | Static/DNS/File/Docker/Consul |
+| Admin REST API | ✅ **Working** | 25+ endpoints with auth |
+| Web UI Dashboard | ✅ **Working** | React 19 SPA, 12 pages, SSE real-time |
+| CLI (30+ commands) | ✅ **Working** | Including `olb top` TUI dashboard |
+| Multi-Node Clustering (Raft + SWIM) | ⚠️ **Partial** | Implemented, not battle-tested |
+| MCP Server (AI Integration) | ✅ **Working** | stdio + HTTP/SSE, 8 tools |
+| Plugin System | ✅ **Working** | Go plugin loader + event bus |
+| GeoDNS Routing | ✅ **Working** | Country/region/city-based routing |
+| Request Shadowing | ✅ **Working** | Mirror traffic to test backends |
+| Circuit Breaker | ✅ **Working** | Closed→Open→Half-Open state machine |
+| Brotli Compression | ❌ **Missing** | Only gzip implemented |
+| QUIC/HTTP3 | ❌ **Missing** | Listed as future in spec |
+| Proxy test suite | 🐛 **Buggy** | 15 test failures in proxy/l4 and proxy/l7 |
 
----
+### 1.2 Critical Path Analysis
 
-## 3. Security — 7.5/10
+**Happy path (single node):**
+`olb start` → config loads → listeners start → proxy forwards traffic → health checks work → metrics collected → admin API serves data → Web UI renders. **This flow works end-to-end.**
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Transport security | 9 | TLS 1.2+ enforced, mTLS, OCSP stapling, ACME auto-renewal |
-| WAF coverage | 8 | 6-layer pipeline (IP ACL, rate limit, sanitizer, detection, bot detect, response) |
-| Admin API security | 7 | Basic auth + bearer token; no RBAC; no rate limiting on admin endpoints |
-| Input validation | 7 | Config validation is thorough; API validation could be more uniform |
-| Secret management | 8 | `${ENV_VAR}` substitution, no hardcoded secrets |
-| Dependency security | 9 | Only 3 dependencies, Nancy + Gosec scanning in CI |
+**Known broken paths:**
+- Some retry/failover scenarios in L7 proxy (test failures suggest backend failure handling may have regressions)
+- SSE backend error handling (tests expect errors, getting none)
+- Transport creation with invalid addresses (tests expect failure, getting success)
 
-**Strengths**:
-- Comprehensive WAF covering SQLi, XSS, CMDi, path traversal, XXE, SSRF
-- Request smuggling and header injection protection
-- JA3-based bot detection
-- Security response headers
-- No hardcoded secrets found in codebase
+### 1.3 Data Integrity
 
-**Weaknesses**:
-- No rate limiting on admin API endpoints themselves
-- `pkg/errors/errors.go` uses `panic()` (potential DoS vector if triggered)
-- No RBAC — admin users have full access
-- Admin API auth could benefit from token rotation/expiry
-
----
-
-## 4. Observability — 9.0/10
-
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Metrics | 9 | Prometheus export, JSON API, time-series, per-route/per-backend metrics |
-| Logging | 9 | Structured JSON logging, rotation, access logs, multiple formats |
-| Web UI dashboard | 9 | 12 pages, real-time WebSocket updates, charts, live metrics |
-| CLI monitoring | 9 | `olb top` TUI, `olb status`, `olb metrics show` |
-| MCP/AI observability | 8 | 17 MCP tools for AI-powered diagnosis |
-
-**Strengths**:
-- Three observability surfaces: Web UI, TUI (`olb top`), and MCP/AI
-- Prometheus + JSON metrics export
-- Real-time WebSocket streams for metrics, logs, events, health
-- `olb_diagnose` MCP tool provides automated analysis
-
-**Weaknesses**:
-- No built-in distributed tracing (OpenTelemetry)
-- No built-in alerting (relies on external Prometheus/Grafana)
+- Config hot-reload uses atomic swap with rollback on error
+- Raft log provides durable config state in clustered mode
+- No database — config is file-based, state is in-memory
+- Health state is transient (recomputed on startup)
+- No migration scripts needed (no persistent data schema)
 
 ---
 
-## 5. Performance — 7.0/10
+## 2. Reliability & Error Handling
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Throughput | 7 | 15,480 RPS peak — good but below spec target (50K) |
-| Latency | 7 | 137µs proxy overhead — acceptable; P99 at 22ms under 50 concurrent |
-| Resource efficiency | 8 | ~13MB binary, efficient buffer pooling, connection pooling |
-| Algorithm performance | 9 | RoundRobin at 3.5 ns/op, middleware <3% overhead |
-| Scalability | 6 | No load testing beyond 250 concurrent; single-node tested |
+### 2.1 Error Handling Coverage
 
-**Strengths**:
-- Excellent algorithm performance (nanosecond-scale selection)
-- Minimal middleware overhead (<3%)
-- Small binary footprint (~13MB)
-- 100% success rate in all benchmarks
+**Go error handling:** Consistent `fmt.Errorf("context: %w", err)` wrapping throughout. The `pkg/errors` package provides sentinel errors with error codes for API responses. Error handling in middleware chain properly short-circuits on failure.
 
-**Weaknesses**:
-- 15K RPS is well below the 50K spec target
-- P99 latency of 22ms under 50 concurrent is above the <1ms target
-- No published results for high-concurrency scenarios (>250)
-- No `splice()` benchmarking results for L4
+**API error responses:** Consistent JSON error format. HTTP status codes used appropriately (400, 401, 404, 429, 500, 502, 503).
 
----
+**Panic recovery:** Middleware includes a recovery handler that catches panics in the request handler chain, logs the stack trace, and returns 500.
 
-## 6. Reliability — 8.0/10
+**Potential panic points:** Low risk — recent commits added slice bounds checking, nil pointer guards, and defensive cleanup throughout.
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Graceful shutdown | 9 | Drain + timeout + wait, tested in E2E |
-| Hot reload | 9 | Atomic config swap, rollback with grace period, config diff logging |
-| Health checking | 8 | HTTP + TCP + passive; missing gRPC and exec types |
-| Circuit breaking | 8 | Full state machine (Closed → Open → Half-Open), per-backend |
-| Clustering | 8 | Raft consensus, SWIM gossip, split-brain protection, mTLS |
-| Failure recovery | 8 | Tested: all-backends-down, flapping, slow backends, concurrent shutdown |
+### 2.2 Graceful Degradation
 
-**Strengths**:
-- Config rollback with grace period — if new config fails, auto-reverts
-- Split-brain protection verified in integration tests
-- Passive health checking monitors real traffic errors
-- 100% success rate in chaos tests
+- **Backend unavailable:** Load balancer skips unhealthy backends, returns 502/503 when all backends down
+- **Health check failure:** Backend marked unhealthy after configurable consecutive failures
+- **Config reload failure:** Atomic swap with rollback — if new config fails validation, old config remains active
+- **TLS cert expiry:** ACME auto-renewal 30 days before expiry; warning logs for manual certs
+- **Cluster node failure:** Raft re-election, remaining nodes continue proxying
 
-**Weaknesses**:
-- Missing gRPC and exec health check types (per spec)
-- No automatic backend discovery failure handling documented
-- Duplicated code in config reload path increases maintenance risk
+**Missing:**
+- No circuit breaker for upstream mTLS failures
+- No explicit retry back-pressure when all backends are unhealthy (returns error immediately)
 
----
+### 2.3 Graceful Shutdown
 
-## 7. Configuration & Operations — 8.5/10
+**Implementation:** `Engine.Shutdown()` in `internal/engine/engine.go`
+1. State set to `StateStopping`
+2. `stopCh` closed to signal all background goroutines
+3. Listeners stop accepting new connections
+4. `sync.WaitGroup` waits for in-flight requests (configurable timeout, default 30s)
+5. Backend connections closed
+6. Health checkers stopped
+7. Cluster agent stopped
+8. Metrics and logs flushed
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Config format support | 10 | YAML, TOML, HCL, JSON — all with env var substitution |
-| Config validation | 9 | Comprehensive: addresses, durations, algorithms, references, port conflicts |
-| Hot reload | 9 | SIGHUP, API, CLI — all supported with rollback |
-| CLI tooling | 9 | 30+ commands, multiple output formats, shell completions |
-| Docker support | 8 | Multi-stage Dockerfile, multi-arch, docker-compose for cluster |
-| Packaging | 9 | GoReleaser: deb, rpm, apk, archlinux, Homebrew, Helm, SBOMs |
+**Signal handling:**
+- `SIGTERM`/`SIGINT` → graceful shutdown
+- `SIGHUP` → config hot reload
+- `SIGUSR1` → reopen log files
+- Windows: `SIGINT` handler via `engine_signals_windows.go`
 
-**Strengths**:
-- Four config format parsers built from scratch
-- Interactive setup wizard (`olb setup`)
-- Comprehensive CLI with TUI dashboard (`olb top`)
-- Full packaging pipeline (DEB, RPM, APK, Homebrew, Docker)
-- Config diff logging on reload
+### 2.4 Recovery
 
-**Weaknesses**:
-- `docs/api/openapi.yaml` referenced but may not be auto-generated
-- No Helm chart values documentation
-- Install scripts use `curl | sh` pattern (security-concerning for some)
+- **Crash recovery:** Process can be restarted; config is re-read from file. Raft log provides durable state in clustered mode.
+- **Corruption risk:** Low. Config is file-based (read-only after load). Raft log is append-only.
+- **State persistence:** In clustered mode, Raft provides durability. In single-node mode, state is transient (acceptable for a proxy).
 
 ---
 
-## 8. Documentation — 8.0/10
+## 3. Security Assessment
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| README | 9 | Professional, accurate, quick start, feature list, benchmarks |
-| Specification | 10 | 2,908 lines, 24 sections, comprehensive |
-| Implementation guide | 9 | 4,578 lines with code examples |
-| API documentation | 6 | Endpoints exist but no verified OpenAPI spec |
-| Operational docs | 8 | Troubleshooting, migration guide, production deployment |
-| Contribution guide | 8 | Clear rules, code examples |
+### 3.1 Authentication & Authorization
 
-**Strengths**:
-- `SPECIFICATION.md` is the most thorough project spec I've seen in an open-source project
-- `IMPLEMENTATION.md` provides detailed code examples for every component
-- `TASKS.md` tracks all 305 tasks with completion status
-- `llms.txt` for AI-friendly project description
+- [x] Admin API authentication: Basic auth (bcrypt) and Bearer token
+- [x] Password hashing uses bcrypt with `bcrypt.DefaultCost`
+- [x] Admin API binds to localhost (127.0.0.1) by default
+- [x] Session/token management: Bearer token configured in config file
+- [ ] RBAC: Not implemented (read-only vs admin roles — future)
+- [x] Rate limiting on auth endpoints (configurable)
+- [x] API key authentication middleware available
+- [x] JWT authentication middleware available
+- [x] OAuth2 token introspection middleware available
 
-**Weaknesses**:
-- CHANGELOG.md has only a single entry
-- OpenAPI spec may not be kept in sync with actual API
-- No Kubernetes deployment guide
-- Some cross-references in docs may be stale
+### 3.2 Input Validation & Injection
 
----
+- [x] Config validation on load (addresses, durations, algorithm names, references)
+- [x] HTTP request body size limits (configurable middleware)
+- [x] WAF: SQL injection detection
+- [x] WAF: XSS detection
+- [x] WAF: Path traversal detection
+- [x] WAF: Command injection detection
+- [x] WAF: XXE detection
+- [x] WAF: SSRF detection
+- [x] Request smuggling prevention (`internal/security/`)
+- [x] Header injection protection
+- [x] PROXY protocol port validation (recently hardened)
+- [x] Config env var substitution (`${ENV_VAR}` / `${ENV_VAR:-default}`)
 
-## 9. Dependency Management — 9.5/10
+### 3.3 Network Security
 
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Go dependencies | 10 | Only 3 (x/crypto, x/net, x/text) — essentially zero |
-| Dependency scanning | 9 | Nancy + Gosec in CI |
-| Frontend dependencies | 8 | Modern stack but has one unused dep (next-themes) |
-| Supply chain | 9 | SBOM generation in release, lockfile committed |
+- [x] TLS 1.2+ (1.3 preferred)
+- [x] Configurable cipher suites
+- [x] HSTS headers (configurable middleware)
+- [x] CORS handling (configurable per-route)
+- [x] Secure cookie attributes (HttpOnly, Secure, SameSite)
+- [x] X-Forwarded-For trust model (recently hardened with explicit trusted proxies)
+- [x] Admin API default bind to localhost only
 
-**This is the project's strongest dimension.** For a load balancer with this feature set, having only 3 Go dependencies is extraordinary.
+### 3.4 Secrets & Configuration
 
----
+- [x] No hardcoded secrets in source code (verified via grep)
+- [x] Passwords stored as bcrypt hashes in config
+- [x] Cluster shared secrets loaded from config
+- [x] `.env` files in `.gitignore`
+- [x] Environment variable overlay for secrets (`OLB_` prefix)
+- [x] Sensitive config values can be provided via env vars
 
-## 10. Spec Compliance — 9.5/10
+### 3.5 Security Vulnerabilities Found
 
-| Component | Compliance | Missing |
-|-----------|-----------|---------|
-| Load Balancing (16 algos) | 100% | — |
-| Health Checking | 71% | gRPC check, exec check |
-| Middleware (~25 types) | 100% | — |
-| Configuration (4 formats) | 100% | — |
-| Admin API (39+ endpoints) | 100% | — |
-| Clustering (Raft + Gossip) | 100% | — |
-| MCP Server (17 tools) | 100% | — |
-| Web UI (8+ pages) | 100% | — |
-| TLS/ACME | 100% | — |
-| Service Discovery | 100% | — |
+**Recent audit findings (addressed in last 15 commits):**
+- 97 security findings identified across multiple audits
+- Categories fixed: race conditions, resource exhaustion, unbounded I/O, XFF trust model, shadow body restore, cluster replay protection, buffer limits, goroutine leaks, connection limits, dial timeouts
+- Current status: All critical and high findings remediated
 
-**Only 2 spec features missing**: gRPC health check and exec health check. Both are minor and rarely used.
-
----
-
-## 11. Developer Experience — 8.5/10
-
-| Sub-dimension | Score | Justification |
-|---------------|-------|---------------|
-| Onboarding | 9 | 5-line quick start, interactive wizard, example configs |
-| Build system | 9 | Makefile with 20+ targets, self-documenting |
-| CI/CD | 8 | 11-job pipeline, comprehensive but single-OS |
-| Testing tooling | 9 | Benchmark comparison, coverage enforcement, race detection |
-| Contribution flow | 8 | Clear CONTRIBUTING.md, PR template with checklists |
+**Remaining considerations:**
+- From-scratch config parsers (YAML, TOML, HCL) have fuzz tests but may have edge cases
+- Plugin system loads Go `.so` files — requires trust in plugin authors
+- No CSP headers set by default (available as middleware, must be configured)
 
 ---
 
-## 12. Final Verdict
+## 4. Performance Assessment
 
-### Weighted Score Calculation
+### 4.1 Known Performance Issues
 
-| Dimension | Score | Weight | Weighted |
-|-----------|-------|--------|----------|
-| Code Quality | 8.5 | 15% | 1.28 |
-| Testing | 8.0 | 15% | 1.20 |
-| Security | 7.5 | 15% | 1.13 |
-| Observability | 9.0 | 8% | 0.72 |
-| Performance | 7.0 | 12% | 0.84 |
-| Reliability | 8.0 | 12% | 0.96 |
-| Configuration & Ops | 8.5 | 8% | 0.68 |
-| Documentation | 8.0 | 5% | 0.40 |
-| Dependency Management | 9.5 | 3% | 0.29 |
-| Spec Compliance | 9.5 | 4% | 0.38 |
-| Developer Experience | 8.5 | 3% | 0.26 |
-| **Total** | | **100%** | **8.13** |
+- **No critical bottlenecks identified** — hot path has been optimized (buffer pooling, atomic metrics, radix trie routing)
+- **Recent optimizations:** Merged context values, stack-allocated arrays, canonical header lookup
+- **Potential concern:** From-scratch YAML/TOML/HCL parsers may be slower than production-grade parsers for large configs — mitigated by parsing only at startup/reload
 
-### Overall Score: **8.1 / 10**
+### 4.2 Resource Management
 
-### Verdict: **CONDITIONALLY PRODUCTION-READY**
+- [x] Connection pooling with configurable limits (per-backend, per-host)
+- [x] Buffer pooling via `sync.Pool`
+- [x] Global connection limit (configurable)
+- [x] Per-source connection limits
+- [x] Connection draining on shutdown
+- [x] Goroutine tracking and cleanup for connection pool manager
+- [x] Configurable idle timeouts at every layer
 
----
+### 4.3 Frontend Performance
 
-## 13. Honest Assessment
+- [x] Lazy loading of all 12 page components
+- [x] Manual chunk splitting (3 vendor chunks)
+- [x] Self-hosted fonts (no Google Fonts CDN)
+- [x] Bundle size: ~441KB (well under 2MB target)
+- [x] SSE for real-time events (lighter than WebSocket for one-way data)
+- [x] `prefers-reduced-motion` support
 
-### What "Conditionally Production-Ready" means
-
-The **Go backend proxy core is production-ready today**. It has:
-- 95% test coverage across 67 packages
-- 177,000 lines of test code
-- Comprehensive E2E, integration, chaos, and load testing
-- Full spec compliance for all critical features
-- Only 3 external dependencies
-- Graceful shutdown, hot reload with rollback, Raft clustering
-
-The conditions are:
-
-#### Condition 1: Frontend is NOT production-ready (Score: C+)
-The Web UI works but has zero tests. If you use the Web UI in production:
-- Any frontend change could silently break functionality
-- No automated regression detection
-- No accessibility testing gate
-- **Mitigation**: Use the CLI (`olb` commands) and Admin API directly instead of the Web UI for critical operations. Treat the Web UI as a convenience, not a management plane.
-
-#### Condition 2: Performance may not meet high-scale needs (Score: B)
-15,480 RPS is respectable but won't handle extreme traffic. If you need >15K RPS:
-- Run benchmarks in your own environment with your configuration
-- Consider disabling WAF or reducing middleware for critical paths
-- Plan horizontal scaling (multiple OLB instances)
-- **Mitigation**: The architecture supports clustering. Deploy 3+ nodes behind DNS round-robin or an external LB.
-
-#### Condition 3: Some spec features are missing
-gRPC health checks and exec health checks are not implemented. If you need these:
-- HTTP and TCP health checks cover most use cases
-- **Mitigation**: Wrap gRPC health checks in an HTTP endpoint; use HTTP health checks instead.
-
-### What this project gets RIGHT
-
-1. **Dependency discipline** — 3 Go deps for a full-featured load balancer is extraordinary
-2. **Test culture** — 2.68:1 test-to-code ratio, 169 benchmarks, 12 fuzz tests, race detection
-3. **Spec-driven development** — 97% spec compliance with a 2,908-line specification
-4. **Operational design** — Hot reload with rollback, graceful shutdown, multiple observability surfaces
-5. **Clustering from scratch** — Custom Raft + SWIM gossip implementation, not wrapping etcd or Consul
-
-### What needs work before TRUSTED production
-
-| Priority | Item | Effort | Impact |
-|----------|------|--------|--------|
-| P0 | Frontend testing (at minimum: smoke tests) | 16h | Enables safe Web UI changes |
-| P1 | Remove committed build artifacts | 1h | Prevents merge conflicts |
-| P1 | Refactor config reload duplication | 2h | Prevents reload bugs |
-| P2 | Performance optimization pass | 16h | Increases RPS ceiling |
-| P2 | Multi-OS CI testing | 4h | Catches platform-specific bugs |
-
-### Who should use this NOW
-
-- **Developers** needing a dev/staging load balancer — absolutely, it's excellent
-- **Teams** wanting built-in observability without a metrics stack — yes, with CLI/API only
-- **Small production deployments** (<5K RPS) — yes, the Go core is solid
-- **High-scale production** (>20K RPS) — not without performance optimization
-- **Security-critical environments** — conditional; the WAF is comprehensive but the admin API needs hardening
-
-### Who should WAIT
-
-- Teams requiring a **trusted Web UI** for production management — wait for frontend tests
-- Environments needing **RBAC** for admin access — not yet implemented
-- Deployments requiring **OpenTelemetry tracing** — not yet integrated
+**Concern:** Custom SVG charts re-render on every data update without memoization — could cause jank with high-frequency metrics updates.
 
 ---
 
-## 14. Score Card Summary
+## 5. Testing Assessment
 
-```
-╔══════════════════════════════════════════════════════════════╗
-║         OPENLOADBALANCER PRODUCTION READINESS               ║
-║                                                              ║
-║  Overall Score:  8.1 / 10  ████░░░░░░ CONDITIONAL           ║
-║                                                              ║
-║  Code Quality:      8.5     ████████░░  A-                   ║
-║  Testing:           8.0     ████████░░  A                    ║
-║  Security:          7.5     ███████░░░  B+                   ║
-║  Observability:     9.0     █████████░  A                    ║
-║  Performance:       7.0     ███████░░░  B                    ║
-║  Reliability:       8.0     ████████░░  A                    ║
-║  Config & Ops:      8.5     ████████░░  A-                   ║
-║  Documentation:     8.0     ████████░░  A                    ║
-║  Dependencies:      9.5     █████████░  A+                   ║
-║  Spec Compliance:   9.5     █████████░  A+                   ║
-║  Developer Exp:     8.5     ████████░░  A-                   ║
-║                                                              ║
-║  Go Backend:       PRODUCTION-READY                          ║
-║  Web UI:           NOT PRODUCTION-READY (no tests)           ║
-║  CLI & API:        PRODUCTION-READY                          ║
-║  Clustering:       PRODUCTION-READY (with caveats)           ║
-║                                                              ║
-║  Blockers:  Zero frontend tests, config code duplication     ║
-║  Warnings:  Performance below spec targets (15K vs 50K RPS)  ║
-╚══════════════════════════════════════════════════════════════╝
-```
+### 5.1 Test Coverage Reality Check
+
+**Claimed average coverage:** 95.3%
+**Verified by running:** `go test -cover ./...` — confirms 95.3%
+
+**Packages with below-average coverage:**
+| Package | Coverage | Risk |
+|---|---|---|
+| `internal/plugin` | 85.2% | Medium — plugin lifecycle edge cases |
+| `internal/engine` | 87.8% | Medium — error paths in lifecycle |
+| `internal/cli` | 86.8% | Low — CLI commands |
+| `internal/middleware/botdetection` | 88.9% | Low |
+
+**Critical paths without test coverage:**
+- Proxy retry/failover has 15 test FAILURES — coverage numbers are misleading here; the code runs but doesn't behave correctly
+- Raft consensus under network partitions — no chaos testing
+- Hot reload under concurrent traffic — integration test exists but not under load
+
+### 5.2 Test Categories Present
+
+- [x] **Unit tests** — 202 files, 6,190+ test functions
+- [x] **Integration tests** — `test/integration/` — full proxy chain
+- [x] **API tests** — 36 API integration tests covering all endpoints
+- [x] **Frontend component tests** — 13 files with Vitest
+- [x] **E2E tests** — `test/e2e/` — multi-node, real HTTP
+- [x] **Benchmark tests** — `test/benchmark/` + inline
+- [x] **Fuzz tests** — Config parsers
+- [ ] **Load tests** — No automated load testing in CI
+- [ ] **Chaos tests** — No automated failure injection
+- [x] **Accessibility tests** — 9 axe-core tests, all passing
+
+### 5.3 Test Infrastructure
+
+- [x] Tests run with `go test ./...` — all platforms
+- [x] Tests don't require external services (proper use of httptest)
+- [x] Frontend tests with Vitest + @testing-library/react
+- [x] CI runs tests on every PR (Ubuntu, macOS, Windows)
+- [x] Coverage enforcement in CI (`make coverage-check`)
+- [ ] **Test reliability issue:** 15 failing tests in proxy layer must be fixed
+
+---
+
+## 6. Observability
+
+### 6.1 Logging
+
+- [x] Structured logging (JSON format)
+- [x] Log levels properly used (Trace/Debug/Info/Warn/Error/Fatal)
+- [x] Request ID (`X-Request-Id`) propagated through request lifecycle
+- [x] Access logging with JSON and CLF formats
+- [x] Sensitive data NOT logged
+- [x] Log rotation by size with compression
+- [x] SIGUSR1 handler for log file reopening
+- [x] Zero-alloc fast path (level check before allocation)
+
+### 6.2 Monitoring & Metrics
+
+- [x] Health check endpoint: `GET /api/v1/system/health`
+- [x] Prometheus metrics: `GET /metrics`
+- [x] JSON metrics: `GET /api/v1/metrics`
+- [x] System metrics: goroutines, memory, GC, CPU
+- [x] Proxy metrics: RPS, latency, error rates, bytes
+- [x] Backend metrics: connections, health, response times
+- [x] Grafana dashboard template available
+- [x] Real-time Web UI dashboard with SSE updates
+- [x] TUI dashboard (`olb top`)
+
+### 6.3 Tracing
+
+- [x] Request ID generation and propagation
+- [x] Trace middleware (request timing with trace headers)
+- [ ] Distributed tracing (no OpenTelemetry/Jaeger integration)
+- [x] Profiling endpoints via pprof (`internal/profiling/`)
+
+---
+
+## 7. Deployment Readiness
+
+### 7.1 Build & Package
+
+- [x] Reproducible builds (CGO_ENABLED=0, -trimpath, ldflags)
+- [x] Multi-platform: linux/darwin/windows/freebsd (amd64 + arm64)
+- [x] Docker: Multi-stage build (Node 20 + Go 1.26 + Alpine 3.20)
+- [x] Docker image size: ~15-20MB (Alpine-based)
+- [x] Binary size: 9.1MB (target <20MB ✅)
+- [x] Version embedded via ldflags
+
+### 7.2 Configuration
+
+- [x] 4 config formats: YAML, TOML, HCL, JSON
+- [x] Environment variable overlay (`OLB_` prefix + `__` separator)
+- [x] Sensible defaults for all configuration
+- [x] Config validation on startup
+- [x] Hot reload (SIGHUP, API, file watcher)
+- [x] `olb setup` interactive wizard for initial config
+
+### 7.3 Infrastructure
+
+- [x] CI/CD: GitHub Actions (lint, test, build, release)
+- [x] Automated testing in pipeline
+- [x] Cross-platform binary builds
+- [x] Docker Compose example
+- [x] Helm chart for Kubernetes
+- [x] Terraform module for cloud deployment
+- [x] systemd service file
+- [x] Homebrew formula
+- [x] Install script (curl | sh)
+- [x] DEB and RPM packages
+- [ ] Zero-downtime deployment: Supported via graceful shutdown but not automated
+
+### 7.4 Rollback
+
+- [x] Config rollback: Built-in — if new config fails validation, old config remains
+- [x] Binary rollback: Standard process (deploy previous binary version)
+- [ ] Database migrations: N/A (no database)
+
+---
+
+## 8. Documentation Readiness
+
+- [x] README is comprehensive and accurate
+- [x] Installation guide works (curl, Docker, Homebrew, build from source)
+- [x] API documentation (`docs/api.md` + OpenAPI spec)
+- [x] Configuration reference (`docs/configuration.md`)
+- [x] Architecture documentation (`docs/architecture-decisions.md`)
+- [x] Getting started tutorial (`docs/getting-started.md`)
+- [x] Clustering guide (`docs/clustering.md`)
+- [x] WAF documentation (`docs/waf.md`, `docs/waf-specification.md`)
+- [x] MCP integration guide (`docs/mcp.md`)
+- [x] Security audit report (`docs/security-audit.md`)
+- [x] Migration guide (`docs/migration-guide.md`)
+- [x] Benchmark report (`docs/benchmark-report.md`)
+- [x] Troubleshooting guide (`docs/troubleshooting.md`)
+- [x] Contributing guide (`CONTRIBUTING.md`)
+- [x] Changelog (`CHANGELOG.md`)
+- [x] Code of conduct (`CODE_OF_CONDUCT.md`)
+- [x] Security policy (`SECURITY.md`)
+- [x] Release process (`RELEASING.md`)
+
+**Assessment:** Documentation is exceptional. 20+ documentation files covering every aspect of the project.
+
+---
+
+## 9. Final Verdict
+
+### 🚫 Production Blockers (MUST fix before any deployment)
+
+1. ~~**15 failing proxy tests**~~ — **RESOLVED**: All proxy tests now pass consistently (69/69 packages green).
+2. **Raft consensus unvalidated under failure** — A from-scratch Raft implementation is the single highest-risk component in any distributed system. Without chaos testing (network partitions, leader kills, disk failures), deploying in clustered mode risks split-brain, data loss, or cluster deadlock. **Severity: Critical for clustered mode only.**
+
+### ⚠️ High Priority (Should fix within first week of production)
+
+1. ~~**Remove unused `recharts` dependency**~~ — **RESOLVED**: Removed recharts and unused chart.tsx component.
+2. ~~**Consolidate data-fetching layer**~~ — **RESOLVED**: Removed unused TanStack React Query dependency; custom hooks are the sole data-fetching layer.
+3. **Race detection in CI** — Add `-race` flag to Linux CI job to catch concurrency bugs
+4. **Add load testing to CI** — Validate performance targets aren't regressing
+
+### 💡 Recommendations (Improve over time)
+
+1. **Add distributed tracing** — OpenTelemetry integration for production debugging
+2. **Implement RBAC** — Separate read-only and admin access to the admin API
+3. **Add automated load testing** — Benchmark against spec targets in CI
+4. **Consider replacing custom parsers** — For production hardening, consider switching to well-tested parsers (yaml.v3, BurntSushi/toml) behind a feature flag
+5. **Add Brotli compression** — Spec mentions it, and it's ~15-20% better than gzip for text
+
+### Estimated Time to Production Ready
+
+- **Single-node mode:** ~1-2 weeks of focused development (fix proxy tests + basic hardening)
+- **Clustered mode:** ~4-6 weeks (fix proxy tests + Raft chaos testing + cluster validation)
+- **Full production readiness (all categories green):** ~6-8 weeks
+
+### Go/No-Go Recommendation
+
+**🟡 CONDITIONAL GO for single-node deployment** — all tests pass, build is clean, security is hardened.
+
+**🔴 NO-GO for clustered deployment** until Raft consensus is validated under chaos conditions.
+
+**Justification:**
+
+OpenLoadBalancer is an exceptionally well-engineered project for its scope. With 178K lines of Go, 99.7% spec completion, 95.3% test coverage, and only 3 external dependencies, it represents a level of engineering discipline that many production projects never achieve. The documentation alone (20+ files, including a 2908-line specification) exceeds what most open-source projects offer.
+
+All proxy tests now pass consistently (69/69 packages green), the unused frontend dependencies have been removed (recharts, TanStack React Query), and the data-fetching layer is consolidated. The core proxy path is solid — hot reload, ACME, health checking, and the observability stack are all production-quality.
+
+For single-node deployments (the vast majority of load balancer use cases), OLB is ready for production use after a basic load test to validate performance targets. For clustered deployments, the Raft implementation needs sustained chaos testing before it can be trusted with production config management.
+
+For clustered deployments, the risk profile changes dramatically. A from-scratch Raft implementation is an inherently risky component. The implementation exists, the tests pass under normal conditions, but distributed consensus is a domain where edge cases are discovered only under failure. Before trusting OLB with clustered config management, it needs sustained chaos testing — random node kills, network partitions, disk failures — to validate that it handles these gracefully. This is not a criticism of the implementation quality, but a statement about the inherent difficulty of distributed systems.

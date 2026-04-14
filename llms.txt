@@ -5,18 +5,18 @@
 - Website: https://openloadbalancer.dev
 - Repository: https://github.com/openloadbalancer/olb
 - Module: github.com/openloadbalancer/olb
-- Language: Go 1.25+ (stdlib only, zero external dependencies)
+- Language: Go 1.26+ (stdlib + golang.org/x/{crypto,net,text} only)
 - License: Apache 2.0
 
 ## Purpose
 
-OpenLoadBalancer is a single-binary load balancer that includes an HTTP/TCP/UDP reverse proxy, CLI, Web UI dashboard, admin REST API, Raft-based clustering, and an MCP server for AI integration. Everything is built from scratch using only Go's standard library -- no third-party packages. The YAML/TOML/HCL parsers, Raft consensus, gossip protocol, metrics engine, Web UI, TUI dashboard, ACME client, and WAF are all implemented internally.
+OpenLoadBalancer is a single-binary load balancer that includes an HTTP/TCP/UDP reverse proxy, CLI, Web UI dashboard (React 19 + TypeScript), admin REST API, Raft-based clustering, and an MCP server for AI integration. Only 3 external Go dependencies are used: golang.org/x/crypto (bcrypt, OCSP), golang.org/x/net (HTTP/2), and golang.org/x/text (indirect). The YAML/TOML/HCL parsers, Raft consensus, gossip protocol, metrics engine, TUI dashboard, ACME client, and WAF are all implemented internally.
 
 ## For LLMs / AI Assistants
 
 When working with this codebase, follow these rules:
 
-1. **Zero Dependencies**: Never add external packages. Use only Go stdlib. The go.mod file contains only the module declaration.
+1. **Minimal Dependencies**: Only 3 external Go packages allowed: golang.org/x/crypto, golang.org/x/net, golang.org/x/text. Never add other external packages.
 2. **Hot Reload**: All components must support runtime configuration changes without restart (SIGHUP or admin API).
 3. **Observability**: Every component should expose metrics via the metrics engine and use structured logging.
 4. **Error Handling**: Use wrapped errors with context from `pkg/errors`. Use sentinel errors for well-known conditions.
@@ -38,7 +38,7 @@ When working with this codebase, follow these rules:
 │       │                                                      │
 │  Router (radix trie, host/path/method/header matching)       │
 │       │                                                      │
-│  Load Balancer (14 algorithms) → Backend Pool → Backends     │
+│  Load Balancer (16 algorithms) → Backend Pool → Backends     │
 │                                                              │
 │  Support: TLS/ACME, Clustering, MCP, Web UI, CLI, Metrics   │
 └─────────────────────────────────────────────────────────────┘
@@ -153,10 +153,10 @@ internal/
     handlers.go             Route handlers for all API endpoints
     types.go                Request/response types
 
-  webui/                    Web UI dashboard (embedded)
+  webui/                    Web UI dashboard (embedded SPA)
     webui.go                go:embed handler serving static SPA
-    static/                 HTML, CSS, JavaScript (vanilla, no framework)
-    templates/              HTML templates
+    src/                    React 19 + TypeScript + Tailwind CSS + shadcn/ui
+    assets/                 Built frontend (embedded into Go binary)
 
   cli/                      CLI interface
     cli.go                  CLI application struct, registration
@@ -379,6 +379,9 @@ GET    /api/v1/cluster/members              List cluster members
 | PowerOfTwo | `p2c` | Low-overhead adaptive balancing |
 | Random | `random` | Stateless environments |
 | WeightedRandom | `wrandom` | Stateless with capacity weighting |
+| RendezvousHash | `rendezvous`, `rendezvous_hash` | Minimal disruption, weighted |
+| PeakEWMA | `pewma`, `peak_ewma` | Exponentially weighted latency estimation |
+| StickySessions | `sticky` | Cookie/header/IP-based session affinity |
 
 ## MCP Tools and Resources
 

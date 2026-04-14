@@ -2,7 +2,6 @@ import { StrictMode, lazy, Suspense } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter, Routes, Route } from 'react-router'
 import { ThemeProvider } from '@/components/theme-provider'
-import { QueryProvider } from '@/lib/query-provider'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { Layout } from '@/components/layout'
@@ -49,8 +48,7 @@ function PageLoader() {
 
 createRoot(document.getElementById('root')!).render(
 	<StrictMode>
-		<QueryProvider>
-			<TooltipProvider>
+		<TooltipProvider>
 				<ThemeProvider defaultTheme="system" storageKey="olb-theme">
 				<BrowserRouter>
 					<Layout>
@@ -75,6 +73,5 @@ createRoot(document.getElementById('root')!).render(
 				</BrowserRouter>
 			</ThemeProvider>
 			</TooltipProvider>
-		</QueryProvider>
 	</StrictMode>,
 )

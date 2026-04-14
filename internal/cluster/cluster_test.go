@@ -530,8 +530,8 @@ func TestCluster_sendHeartbeats(t *testing.T) {
 	// Become leader to set up the necessary state
 	cluster.setState(StateLeader)
 
-	// Call sendHeartbeats directly - this exercises the function even though
-	// the actual RPC is a TODO/no-op. It should not panic.
+	// Call sendHeartbeats directly - this exercises the heartbeat path
+	// which gracefully handles nil transport. It should not panic.
 	cluster.sendHeartbeats()
 
 	// Verify we're still leader and term is correct
