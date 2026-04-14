@@ -18,8 +18,8 @@ import (
 
 // TestChaos_AllBackendsDown tests proxy behavior when all backends are unreachable.
 func TestChaos_AllBackendsDown(t *testing.T) {
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	// Use non-existent backend addresses
 	yamlCfg := fmt.Sprintf(`admin:
@@ -42,7 +42,7 @@ pools:
       interval: 1s
       timeout: 500ms
       path: /health
-`, adminPort, proxyPort)
+`, adminPH.Port(), proxyPH.Port())
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -54,7 +54,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -63,7 +63,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 
 	// Send requests - should get 502/503 errors, not crash
@@ -139,8 +139,8 @@ func TestChaos_BackendFlapping(t *testing.T) {
 	go stableServer.Serve(stableListener)
 	t.Cleanup(func() { stableServer.Close() })
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -162,7 +162,7 @@ pools:
       interval: 500ms
       timeout: 500ms
       path: /health
-`, adminPort, proxyPort, backendAddr, stableListener.Addr().String())
+`, adminPH.Port(), proxyPH.Port(), backendAddr, stableListener.Addr().String())
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -174,7 +174,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -183,7 +183,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
@@ -285,8 +285,8 @@ func TestChaos_SlowBackend(t *testing.T) {
 	go fastServer.Serve(fastListener)
 	t.Cleanup(func() { fastServer.Close() })
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -308,7 +308,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, slowListener.Addr().String(), fastListener.Addr().String())
+`, adminPH.Port(), proxyPH.Port(), slowListener.Addr().String(), fastListener.Addr().String())
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -320,7 +320,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -329,7 +329,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
@@ -389,8 +389,8 @@ func TestChaos_ConnectionRefusedDuringTraffic(t *testing.T) {
 		t.Cleanup(func() { server.Close() })
 	}
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -412,7 +412,7 @@ pools:
       interval: 500ms
       timeout: 500ms
       path: /health
-`, adminPort, proxyPort, backendAddrs[0], backendAddrs[1])
+`, adminPH.Port(), proxyPH.Port(), backendAddrs[0], backendAddrs[1])
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -424,7 +424,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -433,7 +433,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
@@ -483,8 +483,8 @@ func TestChaos_LargePayload(t *testing.T) {
 	var hits atomic.Int64
 	backendAddr := startBackend(t, "large-payload-backend", &hits)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -505,7 +505,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, backendAddr)
+`, adminPH.Port(), proxyPH.Port(), backendAddr)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -517,7 +517,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -526,7 +526,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
@@ -561,8 +561,8 @@ func TestChaos_ConcurrentShutdown(t *testing.T) {
 	var hits atomic.Int64
 	backendAddr := startBackend(t, "shutdown-backend", &hits)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -583,7 +583,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, backendAddr)
+`, adminPH.Port(), proxyPH.Port(), backendAddr)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -595,11 +595,11 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
@@ -632,8 +632,10 @@ pools:
 		}()
 	}
 
-	// Let some traffic flow
-	time.Sleep(500 * time.Millisecond)
+	// Wait for at least some traffic to flow
+	waitForCondition(t, "traffic flowing before shutdown", 3*time.Second, 10*time.Millisecond, func() bool {
+		return successCount.Load() > 0
+	})
 
 	// Shutdown while traffic is flowing
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -658,8 +660,8 @@ func TestChaos_InvalidRequests(t *testing.T) {
 	var hits atomic.Int64
 	backendAddr := startBackend(t, "invalid-req-backend", &hits)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -680,7 +682,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, backendAddr)
+`, adminPH.Port(), proxyPH.Port(), backendAddr)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -692,7 +694,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -701,7 +703,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 

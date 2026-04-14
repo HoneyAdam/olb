@@ -159,7 +159,7 @@ func TestE2E_MTLS_Handshake(t *testing.T) {
 	writeCertFiles(t, tmpDir, "client-ca.pem", "", caCertPEM2, nil)
 	clientCertFile, clientKeyFile := writeCertFiles(t, tmpDir, "client-cert.pem", "client-key.pem", clientCertPEM2, clientKeyPEM2)
 
-	proxyPort := getFreePort(t)
+	proxyPH := reservePort(t)
 
 	// Set up TLS manager with server cert
 	mgr := olbTLS.NewManager()
@@ -183,10 +183,7 @@ func TestE2E_MTLS_Handshake(t *testing.T) {
 	}
 
 	// Start a TLS listener with mTLS
-	listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), serverTLSConfig)
-	if err != nil {
-		t.Fatalf("Failed to create TLS listener: %v", err)
-	}
+	listener := listenWithPort(t, serverTLSConfig, proxyPH)
 
 	// Simple proxy to backend
 	backendHTTPClient := &http.Client{Timeout: 5 * time.Second}
@@ -225,7 +222,7 @@ func TestE2E_MTLS_Handshake(t *testing.T) {
 		},
 	}
 
-	resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/", proxyPort))
+	resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/", proxyPH.Port()))
 	if err != nil {
 		t.Fatalf("mTLS request with valid client cert failed: %v", err)
 	}
@@ -249,7 +246,7 @@ func TestE2E_MTLS_Handshake(t *testing.T) {
 		},
 	}
 
-	_, err = noCertClient.Get(fmt.Sprintf("https://127.0.0.1:%d/", proxyPort))
+	_, err = noCertClient.Get(fmt.Sprintf("https://127.0.0.1:%d/", proxyPH.Port()))
 	if err == nil {
 		t.Error("Expected error when connecting without client cert, but succeeded")
 	} else {
@@ -274,7 +271,7 @@ func TestE2E_MTLS_Handshake(t *testing.T) {
 		},
 	}
 
-	_, err = untrustedClient.Get(fmt.Sprintf("https://127.0.0.1:%d/", proxyPort))
+	_, err = untrustedClient.Get(fmt.Sprintf("https://127.0.0.1:%d/", proxyPH.Port()))
 	if err == nil {
 		t.Error("Expected error when connecting with untrusted client cert, but succeeded")
 	} else {
@@ -365,7 +362,7 @@ func TestE2E_SNI_MultiCertificate(t *testing.T) {
 	}
 
 	// Test via real TLS handshake
-	proxyPort := getFreePort(t)
+	proxyPH := reservePort(t)
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp, err := http.Get(fmt.Sprintf("http://%s/", backendAddr))
 		if err != nil {
@@ -381,17 +378,14 @@ func TestE2E_SNI_MultiCertificate(t *testing.T) {
 		MinVersion:     tls.VersionTLS12,
 	}
 
-	listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), tlsConfig)
-	if err != nil {
-		t.Fatalf("Failed to create TLS listener: %v", err)
-	}
+	listener := listenWithPort(t, tlsConfig, proxyPH)
 
 	proxyServer := &http.Server{Handler: proxyHandler}
 	go proxyServer.Serve(listener)
 	t.Cleanup(func() { proxyServer.Close() })
 
 	// Connect with SNI = a.example.com
-	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		ServerName:         "a.example.com",
 		InsecureSkipVerify: true,
 	})
@@ -408,7 +402,7 @@ func TestE2E_SNI_MultiCertificate(t *testing.T) {
 	conn.Close()
 
 	// Connect with SNI = b.example.com
-	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		ServerName:         "b.example.com",
 		InsecureSkipVerify: true,
 	})
@@ -422,7 +416,7 @@ func TestE2E_SNI_MultiCertificate(t *testing.T) {
 	conn.Close()
 
 	// Connect with wildcard SNI
-	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		ServerName:         "test.wildcard.example.com",
 		InsecureSkipVerify: true,
 	})
@@ -436,7 +430,7 @@ func TestE2E_SNI_MultiCertificate(t *testing.T) {
 	conn.Close()
 
 	// Connect with unknown SNI - should fail (no default cert)
-	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		ServerName:         "unknown.example.com",
 		InsecureSkipVerify: true,
 	})
@@ -472,7 +466,7 @@ func TestE2E_CertificateHotReload(t *testing.T) {
 	cert1Serial := getCertSerial(t, cert1PEM)
 
 	// Start TLS server
-	proxyPort := getFreePort(t)
+	proxyPH := reservePort(t)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "OK")
 	})
@@ -482,17 +476,14 @@ func TestE2E_CertificateHotReload(t *testing.T) {
 		MinVersion:     tls.VersionTLS12,
 	}
 
-	listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), tlsConfig)
-	if err != nil {
-		t.Fatalf("Failed to create TLS listener: %v", err)
-	}
+	listener := listenWithPort(t, tlsConfig, proxyPH)
 
 	server := &http.Server{Handler: handler}
 	go server.Serve(listener)
 	t.Cleanup(func() { server.Close() })
 
 	// Verify we get cert v1
-	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		ServerName:         "reload.example.com",
 		InsecureSkipVerify: true,
 	})
@@ -515,7 +506,7 @@ func TestE2E_CertificateHotReload(t *testing.T) {
 	}
 
 	// Verify new connections get cert v2
-	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		ServerName:         "reload.example.com",
 		InsecureSkipVerify: true,
 	})
@@ -560,22 +551,19 @@ func TestE2E_TLS13_Enforcement(t *testing.T) {
 
 	tlsConfig.GetCertificate = mgr.GetCertificateCallback()
 
-	proxyPort := getFreePort(t)
+	proxyPH := reservePort(t)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "TLS 1.3 OK")
 	})
 
-	listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), tlsConfig)
-	if err != nil {
-		t.Fatalf("Failed to create TLS 1.3 listener: %v", err)
-	}
+	listener := listenWithPort(t, tlsConfig, proxyPH)
 
 	server := &http.Server{Handler: handler}
 	go server.Serve(listener)
 	t.Cleanup(func() { server.Close() })
 
 	// Connect with TLS 1.3 - should succeed
-	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		MinVersion:         tls.VersionTLS13,
 		InsecureSkipVerify: true,
 		ServerName:         "localhost",
@@ -590,7 +578,7 @@ func TestE2E_TLS13_Enforcement(t *testing.T) {
 	conn.Close()
 
 	// Connect with max TLS 1.2 - should fail
-	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPort), &tls.Config{
+	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()), &tls.Config{
 		MinVersion:         tls.VersionTLS12,
 		MaxVersion:         tls.VersionTLS12,
 		InsecureSkipVerify: true,
@@ -662,11 +650,8 @@ func TestE2E_MTLS_PolicyVariations(t *testing.T) {
 				t.Fatalf("BuildServerTLSConfig: %v", err)
 			}
 
-			port := getFreePort(t)
-			listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port), serverTLS)
-			if err != nil {
-				t.Fatalf("Listen: %v", err)
-			}
+			ph := reservePort(t)
+			listener := listenWithPort(t, serverTLS, ph)
 
 			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				fmt.Fprint(w, "OK")
@@ -693,7 +678,7 @@ func TestE2E_MTLS_PolicyVariations(t *testing.T) {
 				Transport: &http.Transport{TLSClientConfig: clientTLSConfig},
 			}
 
-			resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/", port))
+			resp, err := client.Get(fmt.Sprintf("https://127.0.0.1:%d/", ph.Port()))
 			if tc.expectOK {
 				if err != nil {
 					t.Errorf("Expected success but got error: %v", err)
@@ -739,22 +724,19 @@ func TestE2E_TLS_CipherSuiteRestriction(t *testing.T) {
 
 	tlsConfig.GetCertificate = mgr.GetCertificateCallback()
 
-	port := getFreePort(t)
+	ph := reservePort(t)
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "OK")
 	})
 
-	listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port), tlsConfig)
-	if err != nil {
-		t.Fatalf("Failed to create TLS listener: %v", err)
-	}
+	listener := listenWithPort(t, tlsConfig, ph)
 
 	server := &http.Server{Handler: handler}
 	go server.Serve(listener)
 	t.Cleanup(func() { server.Close() })
 
 	// Connect and verify the negotiated cipher suite
-	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{
+	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", ph.Port()), &tls.Config{
 		InsecureSkipVerify: true,
 		ServerName:         "localhost",
 	})
@@ -786,8 +768,8 @@ func TestE2E_TLS_EngineIntegration(t *testing.T) {
 	tmpDir := t.TempDir()
 	certFile, keyFile := writeCertFiles(t, tmpDir, "cert.pem", "key.pem", certPEM, keyPEM)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -813,13 +795,48 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, toForwardSlash(certFile), toForwardSlash(keyFile), proxyPort, backendAddr)
+`, adminPH.Port(), toForwardSlash(certFile), toForwardSlash(keyFile), proxyPH.Port(), backendAddr)
 
-	startEngineWithConfig(t, yamlCfg)
+	cfgPath := writeYAML(t, yamlCfg)
+	cfg, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("Failed to load config: %v", err)
+	}
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	eng, err := engine.New(cfg, "")
+	if err != nil {
+		t.Fatalf("Failed to create engine: %v", err)
+	}
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
+		t.Fatalf("Failed to start engine: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		eng.Shutdown(ctx)
+	})
+
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	// Wait for health check to mark backend as healthy
+	waitForCondition(t, "backend healthy for TLS", 10*time.Second, 100*time.Millisecond, func() bool {
+		client := &http.Client{
+			Timeout: 2 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+					ServerName:         "localhost",
+				},
+			},
+		}
+		resp, err := client.Get(fmt.Sprintf("https://%s/", proxyAddr))
+		if err != nil {
+			return false
+		}
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return resp.StatusCode == 200
+	})
 
 	// Make HTTPS request
 	client := &http.Client{
@@ -940,16 +957,13 @@ func TestE2E_TLS_DefaultCertificate(t *testing.T) {
 	}
 
 	// Start server with default cert
-	port := getFreePort(t)
+	ph := reservePort(t)
 	tlsConfig := &tls.Config{
 		GetCertificate: mgr.GetCertificateCallback(),
 		MinVersion:     tls.VersionTLS12,
 	}
 
-	listener, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port), tlsConfig)
-	if err != nil {
-		t.Fatalf("Failed to create listener: %v", err)
-	}
+	listener := listenWithPort(t, tlsConfig, ph)
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "OK")
@@ -959,7 +973,7 @@ func TestE2E_TLS_DefaultCertificate(t *testing.T) {
 	t.Cleanup(func() { server.Close() })
 
 	// Connect with no SNI at all - should get default cert
-	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{
+	conn, err := tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", ph.Port()), &tls.Config{
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
@@ -975,7 +989,7 @@ func TestE2E_TLS_DefaultCertificate(t *testing.T) {
 	conn.Close()
 
 	// Connect with random SNI - should also get default cert
-	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port), &tls.Config{
+	conn, err = tls.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", ph.Port()), &tls.Config{
 		ServerName:         "random.test.example.com",
 		InsecureSkipVerify: true,
 	})

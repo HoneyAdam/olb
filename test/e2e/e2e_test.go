@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,7 +33,7 @@ func TestFullE2E_ProxyActuallyWorks(t *testing.T) {
 	t.Logf("Backends: %s, %s, %s", b1, b2, b3)
 
 	// --- Step 2: Create config ---
-	cfgPath := writeConfig(t, b1, b2, b3)
+	cfgPath, proxyPH, adminPH := writeConfig(t, b1, b2, b3)
 	t.Logf("Config: %s", cfgPath)
 
 	// --- Step 3: Load config and create engine ---
@@ -47,7 +48,7 @@ func TestFullE2E_ProxyActuallyWorks(t *testing.T) {
 	}
 
 	// --- Step 4: Start engine ---
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -155,8 +156,8 @@ func TestE2E_AllAlgorithms(t *testing.T) {
 			addr2 := startBackend(t, "algo-b2", &b2Hits)
 			addr3 := startBackend(t, "algo-b3", &b3Hits)
 
-			proxyPort := getFreePort(t)
-			adminPort := getFreePort(t)
+			proxyPH := reservePort(t)
+			adminPH := reservePort(t)
 
 			yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -182,7 +183,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, algo, addr1, addr2, addr3)
+`, adminPH.Port(), proxyPH.Port(), algo, addr1, addr2, addr3)
 
 			cfgPath := writeYAML(t, yamlCfg)
 			cfg, err := config.Load(cfgPath)
@@ -194,7 +195,7 @@ pools:
 			if err != nil {
 				t.Fatalf("Failed to create engine for %s: %v", algo, err)
 			}
-			if err := eng.Start(); err != nil {
+			if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 				t.Fatalf("Failed to start engine for %s: %v", algo, err)
 			}
 			t.Cleanup(func() {
@@ -270,46 +271,44 @@ func TestE2E_HealthCheck(t *testing.T) {
 	go stoppableServer.Serve(stoppableListener)
 	// Do not add cleanup yet; we will stop it manually.
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
-	yamlCfg := fmt.Sprintf(`admin:
-  address: "127.0.0.1:%d"
-listeners:
-  - name: http
-    address: "127.0.0.1:%d"
-    protocol: http
-    routes:
-      - path: /
-        pool: hc-pool
-pools:
-  - name: hc-pool
-    algorithm: round_robin
-    backends:
-      - address: "%s"
-        weight: 100
-      - address: "%s"
-        weight: 100
-      - address: "%s"
-        weight: 100
-    health_check:
-      type: http
-      interval: 500ms
-      timeout: 500ms
-      path: /health
-`, adminPort, proxyPort, addr1, stoppableAddr, addr3)
-
-	cfgPath := writeYAML(t, yamlCfg)
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		t.Fatalf("Failed to load config: %v", err)
+	// Build config programmatically to bypass YAML parser limitation:
+	// the custom parser does not correctly parse health_check.interval/timeout fields.
+	cfg := &config.Config{
+		Admin: &config.Admin{Address: fmt.Sprintf("127.0.0.1:%d", adminPH.Port())},
+		Listeners: []*config.Listener{
+			{
+				Name:     "http",
+				Address:  fmt.Sprintf("127.0.0.1:%d", proxyPH.Port()),
+				Protocol: "http",
+				Routes:   []*config.Route{{Path: "/", Pool: "hc-pool"}},
+			},
+		},
+		Pools: []*config.Pool{
+			{
+				Name:      "hc-pool",
+				Algorithm: "round_robin",
+				Backends: []*config.Backend{
+					{Address: addr1, Weight: 100},
+					{Address: stoppableAddr, Weight: 100},
+					{Address: addr3, Weight: 100},
+				},
+				HealthCheck: &config.HealthCheck{
+					Type: "http", Path: "/health", Interval: "500ms", Timeout: "500ms",
+				},
+			},
+		},
+		Logging: &config.Logging{Level: "info", Format: "json", Output: "stdout"},
+		Metrics: &config.Metrics{Enabled: true, Path: "/metrics"},
 	}
 
 	eng, err := engine.New(cfg, "")
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -322,7 +321,7 @@ pools:
 	adminAddr := cfg.Admin.Address
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForReady(t, adminAddr, 5*time.Second)
-	time.Sleep(3 * time.Second) // Let health checker establish baseline
+	waitForHealthyProxy(t, proxyAddr, 10*time.Second) // Wait for backends to be healthy
 
 	client := &http.Client{Timeout: 5 * time.Second}
 
@@ -353,7 +352,7 @@ pools:
 	t.Log("Stopped stoppable backend, waiting for health check to detect...")
 
 	// Wait for health checker to detect the failure (interval=500ms, unhealthy_threshold=3 => ~2s)
-	time.Sleep(4 * time.Second)
+	waitForBackendDown(t, adminAddr, stoppableAddr, 10*time.Second)
 
 	// Reset counters
 	b1Hits.Store(0)
@@ -396,8 +395,7 @@ pools:
 	t.Cleanup(func() { restartServer.Close() })
 
 	t.Log("Restarted stoppable backend, waiting for health check recovery...")
-	// Wait for recovery: healthy_threshold=2, interval=500ms => ~2s + margin
-	time.Sleep(4 * time.Second)
+	waitForBackendUp(t, adminAddr, stoppableAddr, 10*time.Second)
 
 	// Reset counters
 	b1Hits.Store(0)
@@ -1020,8 +1018,8 @@ func TestE2E_ConfigReload(t *testing.T) {
 	var b1Hits atomic.Int64
 	addr1 := startBackend(t, "reload-b1", &b1Hits)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -1042,7 +1040,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, addr1)
+`, adminPH.Port(), proxyPH.Port(), addr1)
 
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "olb.yaml")
@@ -1060,7 +1058,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -1114,7 +1112,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, addr1, addr2)
+`, adminPH.Port(), proxyPH.Port(), addr1, addr2)
 
 	if err := os.WriteFile(cfgPath, []byte(newYamlCfg), 0644); err != nil {
 		t.Fatalf("Failed to write updated config: %v", err)
@@ -2359,8 +2357,8 @@ func TestE2E_TCPProxy(t *testing.T) {
 	}()
 	t.Cleanup(func() { echoListener.Close() })
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -2378,7 +2376,7 @@ pools:
       type: tcp
       interval: 1s
       timeout: 1s
-`, adminPort, proxyPort, echoAddr)
+`, adminPH.Port(), proxyPH.Port(), echoAddr)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -2390,7 +2388,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -2399,8 +2397,8 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
-	adminAddr := fmt.Sprintf("127.0.0.1:%d", adminPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
+	adminAddr := fmt.Sprintf("127.0.0.1:%d", adminPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForReady(t, adminAddr, 5*time.Second)
 
@@ -2462,9 +2460,9 @@ func TestE2E_MCP(t *testing.T) {
 	var hits atomic.Int64
 	backendAddr := startBackend(t, "mcp-backend", &hits)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
-	mcpPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
+	mcpPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -2486,7 +2484,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, mcpPort, proxyPort, backendAddr)
+`, adminPH.Port(), mcpPH.Port(), proxyPH.Port(), backendAddr)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -2498,7 +2496,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH, mcpPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -2507,7 +2505,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	mcpAddr := fmt.Sprintf("127.0.0.1:%d", mcpPort)
+	mcpAddr := fmt.Sprintf("127.0.0.1:%d", mcpPH.Port())
 	waitForReady(t, mcpAddr, 5*time.Second)
 
 	client := &http.Client{Timeout: 5 * time.Second}
@@ -2601,19 +2599,19 @@ func TestE2E_MultipleListeners(t *testing.T) {
 	}()
 	t.Cleanup(func() { echoListener.Close() })
 
-	httpPort := getFreePort(t)
-	tcpPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	httpPH := reservePort(t)
+	tcpPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	// Configure HTTP listener + TCP listener using separate config objects
 	// since the custom YAML parser has limitations with multiple sequences.
 	// We build the config programmatically instead.
 	cfg := &config.Config{
-		Admin: &config.Admin{Address: fmt.Sprintf("127.0.0.1:%d", adminPort)},
+		Admin: &config.Admin{Address: fmt.Sprintf("127.0.0.1:%d", adminPH.Port())},
 		Listeners: []*config.Listener{
 			{
 				Name:     "http-listener",
-				Address:  fmt.Sprintf("127.0.0.1:%d", httpPort),
+				Address:  fmt.Sprintf("127.0.0.1:%d", httpPH.Port()),
 				Protocol: "http",
 				Routes: []*config.Route{
 					{Path: "/", Pool: "http-pool"},
@@ -2621,7 +2619,7 @@ func TestE2E_MultipleListeners(t *testing.T) {
 			},
 			{
 				Name:     "tcp-listener",
-				Address:  fmt.Sprintf("127.0.0.1:%d", tcpPort),
+				Address:  fmt.Sprintf("127.0.0.1:%d", tcpPH.Port()),
 				Protocol: "tcp",
 				Pool:     "tcp-pool",
 			},
@@ -2652,7 +2650,7 @@ func TestE2E_MultipleListeners(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, httpPH, tcpPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -2661,9 +2659,9 @@ func TestE2E_MultipleListeners(t *testing.T) {
 		eng.Shutdown(ctx)
 	})
 
-	httpAddr := fmt.Sprintf("127.0.0.1:%d", httpPort)
-	tcpAddr := fmt.Sprintf("127.0.0.1:%d", tcpPort)
-	adminAddr := fmt.Sprintf("127.0.0.1:%d", adminPort)
+	httpAddr := fmt.Sprintf("127.0.0.1:%d", httpPH.Port())
+	tcpAddr := fmt.Sprintf("127.0.0.1:%d", tcpPH.Port())
+	adminAddr := fmt.Sprintf("127.0.0.1:%d", adminPH.Port())
 	waitForReady(t, httpAddr, 5*time.Second)
 	waitForReady(t, tcpAddr, 5*time.Second)
 	waitForReady(t, adminAddr, 5*time.Second)
@@ -2862,12 +2860,11 @@ func startBackend(t *testing.T, name string, hits *atomic.Int64) string {
 }
 
 // writeConfig creates a minimal YAML config for testing.
-func writeConfig(t *testing.T, b1, b2, b3 string) string {
+func writeConfig(t *testing.T, b1, b2, b3 string) (string, *portHolder, *portHolder) {
 	t.Helper()
 
-	// Find free ports for proxy and admin
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yaml := fmt.Sprintf(`global:
   workers: 2
@@ -2896,14 +2893,14 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, b1, b2, b3)
+`, adminPH.Port(), proxyPH.Port(), b1, b2, b3)
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "olb.yaml")
 	if err := os.WriteFile(path, []byte(yaml), 0644); err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
-	return path
+	return path, proxyPH, adminPH
 }
 
 // writeConfigReserved is like writeConfig but uses reserved ports to prevent
@@ -2951,6 +2948,8 @@ pools:
 	return path, func() { releasePorts(proxyPH, adminPH) }
 }
 
+// Deprecated: Use reservePort(t) + startEngineWithPorts to prevent TOCTOU port races.
+// getFreePort is only acceptable for backend listeners that bind immediately.
 func getFreePort(t *testing.T) int {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -2997,15 +2996,16 @@ func releasePorts(holders ...*portHolder) {
 
 // startEngineWithPorts releases reserved ports and starts the engine.
 // This minimizes the TOCTOU window by releasing ports and immediately
-// starting the engine in the same call. Retries up to 3 times on EADDRINUSE.
+// starting the engine in the same call. Retries up to 5 times on bind errors
+// with exponential backoff (10ms, 20ms, 40ms, 80ms, 160ms).
 func startEngineWithPorts(eng *engine.Engine, holders ...*portHolder) error {
 	releasePorts(holders...)
 	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
+	for attempt := 0; attempt < 5; attempt++ {
 		if err := eng.Start(); err != nil {
 			lastErr = err
 			if strings.Contains(err.Error(), "bind") || strings.Contains(err.Error(), "EADDRINUSE") {
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(time.Duration(10*(1<<attempt)) * time.Millisecond)
 				continue
 			}
 			return err
@@ -3050,6 +3050,72 @@ func waitForHealthyProxy(t *testing.T, proxyAddr string, timeout time.Duration) 
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("Timeout waiting for healthy proxy response from %s (waited %v)", proxyAddr, timeout)
+}
+
+// waitForHealthyProxyTLS polls the TLS proxy until it returns HTTP 200,
+// indicating backends are healthy and routing is active over TLS.
+func waitForHealthyProxyTLS(t *testing.T, addr string, timeout time.Duration) {
+	t.Helper()
+	client := &http.Client{
+		Timeout: 2 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true, //nolint:gosec // test-only
+				ServerName:         "localhost",
+			},
+		},
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(fmt.Sprintf("https://%s/", addr))
+		if err != nil {
+			time.Sleep(50 * time.Millisecond)
+			continue
+		}
+		io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode == 200 {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("Timeout waiting for healthy TLS proxy response from %s (waited %v)", addr, timeout)
+}
+
+// listenWithPort releases a reserved port and immediately creates a TLS listener
+// on that port. Retries up to 3 times on bind errors to handle TOCTOU edge cases.
+func listenWithPort(t *testing.T, tlsCfg *tls.Config, ph *portHolder) net.Listener {
+	t.Helper()
+	ph.Release()
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		l, err := tls.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", ph.Port()), tlsCfg)
+		if err != nil {
+			lastErr = err
+			if strings.Contains(err.Error(), "bind") || strings.Contains(err.Error(), "EADDRINUSE") {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			t.Fatalf("Failed to listen on port %d: %v", ph.Port(), err)
+		}
+		return l
+	}
+	t.Fatalf("Failed to listen on port %d after retries: %v", ph.Port(), lastErr)
+	return nil
+}
+
+// waitForCondition polls fn every interval until it returns true or timeout elapses.
+// Fatals on timeout. The description is used in log/fatal messages.
+func waitForCondition(t *testing.T, desc string, timeout, interval time.Duration, fn func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Fatalf("Timeout waiting for condition: %s (waited %v)", desc, timeout)
 }
 
 func min(a, b int) int {

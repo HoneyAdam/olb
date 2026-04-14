@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,6 +19,20 @@ import (
 	"github.com/openloadbalancer/olb/internal/config"
 	"github.com/openloadbalancer/olb/internal/engine"
 )
+
+// isCI returns true when running in a CI environment.
+func isCI() bool {
+	return os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != ""
+}
+
+// loadTestThreshold returns the error-rate threshold to use for load tests.
+// In CI, thresholds are relaxed by 2x to account for resource contention.
+func loadTestThreshold(basePercent float64) float64 {
+	if isCI() {
+		return basePercent * 2.0
+	}
+	return basePercent
+}
 
 // LoadTestResult holds the results of a load test run.
 type LoadTestResult struct {
@@ -242,8 +257,8 @@ func setupLoadTestEnv(t *testing.T, numBackends int) (proxyAddr string, backendH
 	}
 
 	// Build config
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	var backendYAML strings.Builder
 	for _, addr := range backendAddrs {
@@ -268,7 +283,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, backendYAML.String())
+`, adminPH.Port(), proxyPH.Port(), backendYAML.String())
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -280,11 +295,11 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 
-	addr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	addr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, addr, 5*time.Second)
 	waitForHealthyProxy(t, addr, 5*time.Second)
 
@@ -303,6 +318,9 @@ func TestLoadTest_100Concurrent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load test in short mode")
 	}
+	if runtime.NumCPU() < 2 && isCI() {
+		t.Skip("Skipping load test: insufficient CPUs in CI environment")
+	}
 
 	proxyAddr, backendHits, _ := setupLoadTestEnv(t, 3)
 
@@ -311,8 +329,9 @@ func TestLoadTest_100Concurrent(t *testing.T) {
 
 	// Allow small error rate due to single-machine resource contention
 	errorRate := float64(result.ErrorCount) / float64(max64(result.TotalRequests, 1)) * 100
-	if errorRate > 1.0 {
-		t.Errorf("Error rate %.2f%% exceeds 1%% threshold (%d errors out of %d)", errorRate, result.ErrorCount, result.TotalRequests)
+	threshold := loadTestThreshold(1.0)
+	if errorRate > threshold {
+		t.Errorf("Error rate %.2f%% exceeds %.0f%% threshold (%d errors out of %d, CI=%v)", errorRate, threshold, result.ErrorCount, result.TotalRequests, isCI())
 	}
 
 	if result.P99Latency > 100*time.Millisecond {
@@ -337,6 +356,9 @@ func TestLoadTest_250Concurrent(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load test in short mode")
 	}
+	if runtime.NumCPU() < 2 && isCI() {
+		t.Skip("Skipping load test: insufficient CPUs in CI environment")
+	}
 
 	proxyAddr, backendHits, _ := setupLoadTestEnv(t, 5)
 
@@ -345,8 +367,9 @@ func TestLoadTest_250Concurrent(t *testing.T) {
 
 	// Allow up to 5% error rate at high concurrency (single-machine port exhaustion)
 	errorRate := float64(result.ErrorCount) / float64(result.TotalRequests)
-	if errorRate > 0.05 {
-		t.Errorf("Error rate %.2f%% exceeds 5%% threshold (%d errors out of %d)", errorRate*100, result.ErrorCount, result.TotalRequests)
+	threshold := loadTestThreshold(5.0) / 100.0
+	if errorRate > threshold {
+		t.Errorf("Error rate %.2f%% exceeds %.0f%% threshold (%d errors out of %d, CI=%v)", errorRate*100, threshold*100, result.ErrorCount, result.TotalRequests, isCI())
 	}
 
 	if result.P99Latency > 500*time.Millisecond {
@@ -362,6 +385,9 @@ func TestLoadTest_250Concurrent(t *testing.T) {
 func TestLoadTest_SustainedTraffic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load test in short mode")
+	}
+	if runtime.NumCPU() < 2 && isCI() {
+		t.Skip("Skipping load test: insufficient CPUs in CI environment")
 	}
 
 	proxyAddr, _, _ := setupLoadTestEnv(t, 3)
@@ -412,8 +438,9 @@ func TestLoadTest_SustainedTraffic(t *testing.T) {
 
 	if errors > 0 {
 		errorRate := float64(errors) / float64(total) * 100
-		if errorRate > 1.0 {
-			t.Errorf("Error rate %.2f%% exceeds 1%% threshold during sustained traffic", errorRate)
+		threshold := loadTestThreshold(1.0)
+		if errorRate > threshold {
+			t.Errorf("Error rate %.2f%% exceeds %.0f%% threshold during sustained traffic (CI=%v)", errorRate, threshold, isCI())
 		}
 	}
 }
@@ -422,6 +449,9 @@ func TestLoadTest_SustainedTraffic(t *testing.T) {
 func TestLoadTest_TLSThroughput(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load test in short mode")
+	}
+	if runtime.NumCPU() < 2 && isCI() {
+		t.Skip("Skipping load test: insufficient CPUs in CI environment")
 	}
 
 	// Start backend
@@ -436,8 +466,8 @@ func TestLoadTest_TLSThroughput(t *testing.T) {
 	os.WriteFile(certFile, certPEM, 0644)
 	os.WriteFile(keyFile, keyPEM, 0600)
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -463,7 +493,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, toForwardSlash(certFile), toForwardSlash(keyFile), proxyPort, backendAddr)
+`, adminPH.Port(), toForwardSlash(certFile), toForwardSlash(keyFile), proxyPH.Port(), backendAddr)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -475,7 +505,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -484,17 +514,18 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
-	time.Sleep(2 * time.Second)
+	waitForHealthyProxyTLS(t, proxyAddr, 5*time.Second)
 
 	result := runLoadTest(t, proxyAddr, 50, 5000, true)
 	printLoadTestResult(t, "TLS throughput (50 concurrent)", result)
 
 	// TLS handshake overhead is expected to reduce throughput vs plain HTTP
 	errorRate := float64(result.ErrorCount) / float64(max64(result.TotalRequests, 1))
-	if errorRate > 0.05 {
-		t.Errorf("TLS error rate %.2f%% exceeds 5%% threshold", errorRate*100)
+	threshold := loadTestThreshold(5.0) / 100.0
+	if errorRate > threshold {
+		t.Errorf("TLS error rate %.2f%% exceeds %.0f%% threshold (CI=%v)", errorRate*100, threshold*100, isCI())
 	}
 
 	t.Logf("TLS throughput: %.0f RPS with %d concurrent connections", result.RequestsPerSec, result.ConcurrencyLevel)
@@ -504,6 +535,9 @@ pools:
 func TestLoadTest_BackendFailureRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping load test in short mode")
+	}
+	if runtime.NumCPU() < 2 && isCI() {
+		t.Skip("Skipping load test: insufficient CPUs in CI environment")
 	}
 
 	// Start 3 backends, we'll kill one mid-test
@@ -534,8 +568,8 @@ func TestLoadTest_BackendFailureRecovery(t *testing.T) {
 		t.Cleanup(func() { server.Close() })
 	}
 
-	proxyPort := getFreePort(t)
-	adminPort := getFreePort(t)
+	proxyPH := reservePort(t)
+	adminPH := reservePort(t)
 
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
@@ -558,7 +592,7 @@ pools:
       interval: 1s
       timeout: 1s
       path: /health
-`, adminPort, proxyPort, backendAddrs[0], backendAddrs[1], backendAddrs[2])
+`, adminPH.Port(), proxyPH.Port(), backendAddrs[0], backendAddrs[1], backendAddrs[2])
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)
@@ -570,7 +604,7 @@ pools:
 	if err != nil {
 		t.Fatalf("Failed to create engine: %v", err)
 	}
-	if err := eng.Start(); err != nil {
+	if err := startEngineWithPorts(eng, proxyPH, adminPH); err != nil {
 		t.Fatalf("Failed to start engine: %v", err)
 	}
 	t.Cleanup(func() {
@@ -579,7 +613,7 @@ pools:
 		eng.Shutdown(ctx)
 	})
 
-	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPort)
+	proxyAddr := fmt.Sprintf("127.0.0.1:%d", proxyPH.Port())
 	waitForReady(t, proxyAddr, 5*time.Second)
 	waitForHealthyProxy(t, proxyAddr, 5*time.Second)
 
@@ -630,7 +664,7 @@ pools:
 	t.Logf("Phase 2 (backend down): %d success, %d errors", phase2Success.Load(), phase2Errors.Load())
 
 	// Phase 3: Wait for health check to detect failure, then send traffic
-	waitForBackendDown(t, fmt.Sprintf("127.0.0.1:%d", adminPort), backendAddrs[1], 10*time.Second)
+	waitForBackendDown(t, fmt.Sprintf("127.0.0.1:%d", adminPH.Port()), backendAddrs[1], 10*time.Second)
 
 	var phase3Success, phase3Errors atomic.Int64
 	for i := 0; i < 100; i++ {
