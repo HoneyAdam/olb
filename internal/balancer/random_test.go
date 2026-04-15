@@ -129,7 +129,7 @@ func TestRandomUpdate(t *testing.T) {
 	backends := []*backend.Backend{b1}
 	result := r.Next(nil, backends)
 	if result == nil {
-		t.Error("Next() returned nil after Update")
+		t.Fatal("Next() returned nil after Update")
 	}
 	if result.ID != "backend-1" {
 		t.Errorf("Next() = %s, want backend-1", result.ID)
@@ -374,7 +374,7 @@ func TestWeightedRandomSingleBackend(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		result := wr.Next(nil, backends)
 		if result == nil {
-			t.Error("expected backend, got nil")
+			t.Fatal("expected backend, got nil")
 		}
 		if result.ID != "backend-1" {
 			t.Errorf("expected backend-1, got %s", result.ID)

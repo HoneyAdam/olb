@@ -568,7 +568,7 @@ func TestFindNextAvailable(t *testing.T) {
 	b1.SetState(backend.StateDown)
 	result = ch.findNextAvailable(0, []*backend.Backend{b1, b2, b3})
 	if result == nil {
-		t.Error("findNextAvailable() returned nil when b1 is down")
+		t.Fatal("findNextAvailable() returned nil when b1 is down")
 	}
 	if result.ID == "backend1" {
 		t.Error("findNextAvailable() should not return downed backend1")

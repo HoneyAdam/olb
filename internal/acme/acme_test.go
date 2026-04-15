@@ -249,7 +249,7 @@ func TestGeneratePrivateKey(t *testing.T) {
 	}
 
 	if key == nil {
-		t.Error("Key should not be nil")
+		t.Fatal("Key should not be nil")
 	}
 
 	if key.Curve != elliptic.P256() {

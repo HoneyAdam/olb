@@ -86,7 +86,7 @@ func TestIPHash_EmptyIP(t *testing.T) {
 	ctx := &RequestContext{ClientIP: ""}
 	result := ih.Next(ctx, backends)
 	if result == nil {
-		t.Error("Next with empty IP should return a backend")
+		t.Fatal("Next with empty IP should return a backend")
 	}
 	// Should always return the first backend (index 0)
 	if result.ID != "b1" {

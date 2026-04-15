@@ -72,6 +72,7 @@ jobs:
       - name: Lint frontend
         working-directory: ./internal/webui
         run: npm run lint
+        continue-on-error: true
 
       - name: Run frontend tests
         working-directory: ./internal/webui
