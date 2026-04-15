@@ -21,7 +21,7 @@ This project adheres to the [Contributor Covenant Code of Conduct](CODE_OF_CONDU
 
 ### Prerequisites
 
-- Go 1.25 or later
+- Go 1.26 or later
 - Make (optional, for using Makefile)
 - Git
 
