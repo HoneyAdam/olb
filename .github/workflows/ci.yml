@@ -154,6 +154,7 @@ jobs:
         run: go test -p 1 -short -v -count=1 -coverprofile=coverage.out -timeout=600s ./...
 
       - name: Generate coverage report
+        if: runner.os != 'macOS'
         shell: bash
         run: go tool cover -func=coverage.out
 
