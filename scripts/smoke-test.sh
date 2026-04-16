@@ -136,6 +136,7 @@ start_backend() {
     cat > "$TMPDIR/backend.py" << 'PYEOF'
 import http.server
 import json
+import os
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
@@ -158,7 +159,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # Suppress stderr output
 
-http.server.HTTPServer(("127.0.0.1", BACKEND_PORT), Handler).serve_forever()
+http.server.HTTPServer(("127.0.0.1", int(os.environ.get("BACKEND_PORT", "8080"))), Handler).serve_forever()
 PYEOF
 
     BACKEND_PORT=$BACKEND_PORT python3 "$TMPDIR/backend.py" &
