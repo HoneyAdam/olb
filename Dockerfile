@@ -3,7 +3,7 @@ FROM node:20-alpine@sha256:f598378b5240225e6beab68fa9f356db1fb8efe55173e6d4d8153
 
 WORKDIR /build/webui
 COPY internal/webui/package.json internal/webui/package-lock.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY internal/webui/ ./
 RUN npm run build
 

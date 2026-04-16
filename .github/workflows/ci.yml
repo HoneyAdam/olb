@@ -352,6 +352,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-assets
+          path: internal/webui/
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
