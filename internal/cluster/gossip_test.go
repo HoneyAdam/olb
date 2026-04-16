@@ -1301,6 +1301,9 @@ func TestTCPFallbackLargeMessage(t *testing.T) {
 // ---- Integration test: indirect probe (PING_REQ) ----
 
 func TestIndirectProbe(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping race-prone indirect probe test in short mode")
+	}
 	port1, port2, port3 := getFreePort(t), getFreePort(t), getFreePort(t)
 
 	makeConfig := func(port int, id string) *GossipConfig {
