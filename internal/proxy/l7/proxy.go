@@ -328,6 +328,7 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if v := p.cachedHandler.Load(); v != nil {
 		if h, ok := v.(http.Handler); ok {
 			h.ServeHTTP(w, r)
+			router.PutRouteMatch(routeMatch)
 			return
 		}
 	}

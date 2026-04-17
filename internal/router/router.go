@@ -85,6 +85,17 @@ func NewRouter() *Router {
 	}
 }
 
+// PutRouteMatch returns a RouteMatch's params map to the pool for reuse.
+// Call this after processing the match to reduce allocations.
+func PutRouteMatch(rm *RouteMatch) {
+	if rm != nil && rm.Params != nil {
+		for k := range rm.Params {
+			delete(rm.Params, k)
+		}
+		paramsPool.Put(rm.Params)
+	}
+}
+
 // AddRoute adds a route to the router.
 // Returns an error if the route is invalid or a route with the same name already exists.
 func (r *Router) AddRoute(route *Route) error {

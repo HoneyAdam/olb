@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/openloadbalancer/olb/internal/backend"
+	"github.com/openloadbalancer/olb/internal/router"
 )
 
 // WebSocket handshake magic GUID per RFC 6455
@@ -510,6 +511,7 @@ func (wp *WebSocketProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := wp.wsHandler.HandleWebSocket(w, r, selected); err != nil {
 			wp.httpProxy.getErrorHandler()(w, r, err)
 		}
+		router.PutRouteMatch(routeMatch)
 		return
 	}
 

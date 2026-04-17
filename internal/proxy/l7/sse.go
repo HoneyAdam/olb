@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/openloadbalancer/olb/internal/backend"
+	"github.com/openloadbalancer/olb/internal/router"
 )
 
 // SSEConfig configures Server-Sent Events proxy behavior.
@@ -504,6 +505,7 @@ func (sp *SSEProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := sp.sseHandler.HandleSSE(w, r, selected); err != nil {
 			sp.httpProxy.getErrorHandler()(w, r, err)
 		}
+		router.PutRouteMatch(routeMatch)
 		return
 	}
 

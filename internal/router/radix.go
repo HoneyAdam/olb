@@ -6,6 +6,12 @@ import (
 	"sync"
 )
 
+var paramsPool = sync.Pool{
+	New: func() any {
+		return make(map[string]string, 8)
+	},
+}
+
 // radixNode represents a node in the path trie.
 // This is a segment-based trie where each node represents a path segment.
 type radixNode struct {
@@ -155,10 +161,14 @@ func (t *RadixTrie) Match(path string) (*MatchResult, bool) {
 	defer t.mu.RUnlock()
 
 	segments := splitPath(path)
-	params := make(map[string]string)
+	params := paramsPool.Get().(map[string]string)
 
 	node := t.matchSegments(t.root, segments, 0, params)
 	if node == nil || !node.isEndpoint {
+		for k := range params {
+			delete(params, k)
+		}
+		paramsPool.Put(params)
 		return nil, false
 	}
 
