@@ -110,9 +110,10 @@ type Client struct {
 	accountKey   crypto.Signer
 	account      *Account
 
-	httpClient *http.Client
-	nonce      string
-	nonceMu    sync.Mutex
+	httpClient  *http.Client
+	nonce       string
+	nonceMu     sync.Mutex
+	rateTracker *RateTracker
 }
 
 // Config contains ACME client configuration.
@@ -120,6 +121,7 @@ type Config struct {
 	DirectoryURL string
 	Contact      []string
 	AccountKey   crypto.Signer
+	RateLimits   *RateLimitConfig
 }
 
 // DefaultConfig returns a default ACME configuration.
@@ -139,6 +141,7 @@ func New(config *Config) (*Client, error) {
 	client := &Client{
 		directoryURL: config.DirectoryURL,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		rateTracker:  NewRateTracker(config.RateLimits),
 	}
 
 	// Generate account key if not provided
@@ -222,6 +225,13 @@ func (c *Client) CreateOrder(domains []string) (*Order, error) {
 		return nil, errors.New("account not registered")
 	}
 
+	// Check rate limits before submitting order
+	if c.rateTracker != nil {
+		if ok, reason := c.rateTracker.CanOrder(domains); !ok {
+			return nil, fmt.Errorf("rate limit exceeded: %s", reason)
+		}
+	}
+
 	identifiers := make([]Identifier, len(domains))
 	for i, domain := range domains {
 		identifiers[i] = Identifier{Type: "dns", Value: domain}
@@ -249,6 +259,12 @@ func (c *Client) CreateOrder(domains []string) (*Order, error) {
 	}
 
 	order.URL = resp.Header.Get("Location")
+
+	// Record successful order for rate tracking
+	if c.rateTracker != nil {
+		c.rateTracker.RecordOrder(domains)
+	}
+
 	return &order, nil
 }
 
@@ -312,6 +328,9 @@ func (c *Client) PollAuthorization(authzURL string, timeout time.Duration) (*Aut
 		case "valid":
 			return authz, nil
 		case "invalid":
+			if c.rateTracker != nil {
+				c.rateTracker.RecordFailedValidation(authz.Identifier.Value)
+			}
 			return nil, errors.New("authorization failed")
 		case "expired":
 			return nil, errors.New("authorization expired")
@@ -653,4 +672,18 @@ func (c *Client) GetDirectory() *Directory {
 // IsStaging returns true if using Let's Encrypt staging.
 func (c *Client) IsStaging() bool {
 	return strings.Contains(c.directoryURL, "staging")
+}
+
+// GetRateTracker returns the rate limit tracker for this client.
+func (c *Client) GetRateTracker() *RateTracker {
+	return c.rateTracker
+}
+
+// RateLimitStats returns current rate limit usage statistics.
+// Returns nil if rate tracking is disabled.
+func (c *Client) RateLimitStats() *RateLimitStats {
+	if c.rateTracker == nil {
+		return nil
+	}
+	return c.rateTracker.Stats()
 }
