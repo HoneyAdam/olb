@@ -200,33 +200,33 @@ func (rt *RateTracker) Stats() *RateLimitStats {
 	rt.failedValidations = failEvents
 
 	return &RateLimitStats{
-		AccountOrders:         len(accountEvents),
-		AccountOrdersLimit:    rt.config.OrdersPerAccountLimit,
-		AccountOrdersWindow:   rt.config.OrdersPerAccountWindow,
-		DomainOrders:          maxDomainCount,
-		DomainOrdersLimit:     rt.config.CertsPerDomainLimit,
-		DomainOrdersWindow:    rt.config.CertsPerDomainWindow,
-		DomainOrdersName:      maxDomainName,
-		FailedValidations:     len(failEvents),
-		FailedValidationsLimit: rt.config.FailedValidationsLimit,
+		AccountOrders:           len(accountEvents),
+		AccountOrdersLimit:      rt.config.OrdersPerAccountLimit,
+		AccountOrdersWindow:     rt.config.OrdersPerAccountWindow,
+		DomainOrders:            maxDomainCount,
+		DomainOrdersLimit:       rt.config.CertsPerDomainLimit,
+		DomainOrdersWindow:      rt.config.CertsPerDomainWindow,
+		DomainOrdersName:        maxDomainName,
+		FailedValidations:       len(failEvents),
+		FailedValidationsLimit:  rt.config.FailedValidationsLimit,
 		FailedValidationsWindow: rt.config.FailedValidationsWindow,
-		CheckedAt:             time.Now(),
+		CheckedAt:               time.Now(),
 	}
 }
 
 // RateLimitStats holds current rate limit usage statistics.
 type RateLimitStats struct {
-	AccountOrders         int
-	AccountOrdersLimit    int
-	AccountOrdersWindow   time.Duration
-	DomainOrders          int
-	DomainOrdersLimit     int
-	DomainOrdersWindow    time.Duration
-	DomainOrdersName      string
-	FailedValidations     int
+	AccountOrders           int
+	AccountOrdersLimit      int
+	AccountOrdersWindow     time.Duration
+	DomainOrders            int
+	DomainOrdersLimit       int
+	DomainOrdersWindow      time.Duration
+	DomainOrdersName        string
+	FailedValidations       int
 	FailedValidationsLimit  int
 	FailedValidationsWindow time.Duration
-	CheckedAt             time.Time
+	CheckedAt               time.Time
 }
 
 // countInWindow counts events within the given duration from now.

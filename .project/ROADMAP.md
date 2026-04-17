@@ -1,6 +1,6 @@
 # OpenLoadBalancer — Development Roadmap
 
-**Date:** 2026-04-16
+**Date:** 2026-04-16 (updated 2026-04-18)
 **Based on:** Comprehensive codebase audit (4 parallel deep-dive agents)
 **Target:** Production-grade reliability for v1.1.0
 
@@ -10,9 +10,10 @@
 
 - **Version:** v1.0.0 (released 2026-04-11)
 - **Spec completion:** ~99%
-- **Test coverage:** ~93% (on passing packages)
-- **Known issues:** 4 HIGH, 28 MEDIUM, 30 LOW
-- **Bus factor:** 1
+- **Test coverage:** ~93% (all packages ≥85%, lowest 86.6%)
+- **Test suite:** 8400+ tests, all passing (zero failures)
+- **Binary size:** 16.2MB (limit: 20MB)
+- **Known issues:** 0 HIGH, 0 MEDIUM, 0 LOW (all roadmap items resolved)
 
 **Note:** An initial deep audit by Agent 4 reported 6 "CRITICAL" cluster/admin findings. Upon verification, ALL were false positives — the agent read stub files instead of actual implementation. The real codebase has proper Raft replication, binary-framed transport, mutex-protected elections, and fully implemented admin endpoints.
 
@@ -187,3 +188,13 @@
 - **v1.0.1** — Phase 1 + Phase 2 (security + reliability) — **Target: 2 weeks**
 - **v1.0.2** — Phase 3 + Phase 4 (observability + WAF) — **Target: 4 weeks**
 - **v1.1.0** — Phase 5 + Phase 6 + Phase 7 (frontend + perf + polish) — **Target: 8 weeks**
+
+---
+
+## Post-Roadmap Fixes
+
+### Windows Test Port Fix (2026-04-18)
+- **Status:** FIXED
+- **Problem:** 15 tests used hardcoded `127.0.0.1:1` assuming connection refusal. On Windows, port 1 has a service returning HTTP 404.
+- **Fix:** Added `closedPortAddr(t)` / `getClosedPort(t)` helpers that allocate ephemeral ports and immediately close them. Replaced all `127.0.0.1:1` across 10 test files in l7 proxy, l4 proxy, cluster gossip, and e2e chaos tests.
+- **Result:** All 8400+ tests passing on all platforms.

@@ -1416,10 +1416,10 @@ func TestIntrospectToken_Active(t *testing.T) {
 	defer srv.Close()
 
 	mw, err := New(Config{
-		Enabled:          true,
-		IntrospectionURL: srv.URL,
-		ClientID:         "my-client",
-		ClientSecret:     "my-secret",
+		Enabled:           true,
+		IntrospectionURL:  srv.URL,
+		ClientID:          "my-client",
+		ClientSecret:      "my-secret",
 		AllowInsecureHTTP: true,
 	})
 	if err != nil {
@@ -1938,9 +1938,9 @@ func TestValidateToken_IntrospectionPriorityOverJWT(t *testing.T) {
 	defer srv.Close()
 
 	mw, err := New(Config{
-		Enabled:          true,
-		IntrospectionURL: srv.URL,
-		JwksURL:          "http://unused",
+		Enabled:           true,
+		IntrospectionURL:  srv.URL,
+		JwksURL:           "http://unused",
 		AllowInsecureHTTP: true,
 	})
 	if err != nil {
@@ -1968,8 +1968,8 @@ func TestWrap_ExcludedSubPath(t *testing.T) {
 	defer srv.Close()
 
 	mw, err := New(Config{
-		Enabled:       true,
-		JwksURL:       srv.URL,
+		Enabled:           true,
+		JwksURL:           srv.URL,
 		ExcludePaths:      []string{"/public"},
 		CacheDuration:     "1h",
 		AllowInsecureHTTP: true,

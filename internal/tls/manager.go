@@ -39,8 +39,8 @@ type Manager struct {
 	defaultCert *Certificate
 
 	// expiry monitoring
-	expiryStop chan struct{}
-	expiryWg   sync.WaitGroup
+	expiryStop  chan struct{}
+	expiryWg    sync.WaitGroup
 	expiryAlert ExpiryAlertFunc
 }
 

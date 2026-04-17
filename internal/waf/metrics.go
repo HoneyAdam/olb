@@ -6,11 +6,11 @@ import (
 
 // WAFMetrics holds Prometheus-compatible metrics for the WAF.
 type WAFMetrics struct {
-	RequestsTotal      *metrics.CounterVec
-	BlockedTotal       *metrics.CounterVec
-	DetectorHits       *metrics.CounterVec
+	RequestsTotal       *metrics.CounterVec
+	BlockedTotal        *metrics.CounterVec
+	DetectorHits        *metrics.CounterVec
 	SecurityEventsTotal *metrics.CounterVec
-	LatencySeconds     *metrics.HistogramVec
+	LatencySeconds      *metrics.HistogramVec
 }
 
 // RegisterWAFMetrics creates and registers WAF metrics with the registry.

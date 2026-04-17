@@ -2795,19 +2795,19 @@ func TestProbe_StopChInterruptsIndirectWait(t *testing.T) {
 // getFreePort returns a port on localhost that is free for both TCP and UDP.
 // It binds both protocols simultaneously to verify availability, which avoids
 // flaky failures on Windows where TCP and UDP port availability can differ.
-	// getClosedPort returns a port number that is guaranteed to refuse connections.
+// getClosedPort returns a port number that is guaranteed to refuse connections.
 func getClosedPort(t *testing.T) int {
-		t.Helper()
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("getClosedPort: %v", err)
-		}
-		port := ln.Addr().(*net.TCPAddr).Port
-		ln.Close()
-		return port
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("getClosedPort: %v", err)
 	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port
+}
 
-	func getFreePort(t *testing.T) int {
+func getFreePort(t *testing.T) int {
 	t.Helper()
 	for attempt := 0; attempt < 200; attempt++ {
 		// Bind UDP first (more restrictive on Windows)

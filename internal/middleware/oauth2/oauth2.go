@@ -23,16 +23,16 @@ import (
 
 // Config configures OAuth2/OIDC authentication.
 type Config struct {
-	Enabled          bool     // Enable OAuth2
-	IssuerURL        string   // OIDC issuer URL (e.g., "https://accounts.google.com")
-	ClientID         string   // OAuth2 client ID
-	ClientSecret     string   // OAuth2 client secret (for token introspection)
-	JwksURL          string   // JWKS endpoint URL (optional, discovered from issuer)
-	Audience         string   // Expected audience
-	Scopes           []string // Required scopes
-	Header           string   // Authorization header name (default: "Authorization")
-	Prefix           string   // Token prefix (default: "Bearer ")
-	ExcludePaths     []string // Paths to exclude
+	Enabled           bool     // Enable OAuth2
+	IssuerURL         string   // OIDC issuer URL (e.g., "https://accounts.google.com")
+	ClientID          string   // OAuth2 client ID
+	ClientSecret      string   // OAuth2 client secret (for token introspection)
+	JwksURL           string   // JWKS endpoint URL (optional, discovered from issuer)
+	Audience          string   // Expected audience
+	Scopes            []string // Required scopes
+	Header            string   // Authorization header name (default: "Authorization")
+	Prefix            string   // Token prefix (default: "Bearer ")
+	ExcludePaths      []string // Paths to exclude
 	IntrospectionURL  string   // Token introspection endpoint (optional)
 	CacheDuration     string   // JWKS cache duration (default: "1h")
 	AllowInsecureHTTP bool     // Allow http:// URLs (development only, NOT for production)

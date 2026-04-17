@@ -394,7 +394,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 			if err == nil && result != nil && result.IsBlocked() {
 				evt := &WAFEvent{
 					Timestamp:  time.Now(),
-					RequestID: requestID,
+					RequestID:  requestID,
 					RemoteIP:   remoteIP,
 					Method:     r.Method,
 					Path:       r.URL.Path,
@@ -429,7 +429,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 			if detResult.Blocked {
 				evt := &WAFEvent{
 					Timestamp:  time.Now(),
-					RequestID: requestID,
+					RequestID:  requestID,
 					RemoteIP:   remoteIP,
 					Method:     r.Method,
 					Path:       r.URL.Path,
@@ -456,7 +456,7 @@ func (mw *WAFMiddleware) Wrap(next http.Handler) http.Handler {
 			if botResult.Blocked {
 				evt := &WAFEvent{
 					Timestamp:  time.Now(),
-					RequestID: requestID,
+					RequestID:  requestID,
 					RemoteIP:   remoteIP,
 					Method:     r.Method,
 					Path:       r.URL.Path,
