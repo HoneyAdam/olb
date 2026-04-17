@@ -1742,12 +1742,11 @@ func TestClient_FetchCertificate_NoPEMBlocks(t *testing.T) {
 	client := createTestClient(t, server)
 
 	certs, err := client.FetchCertificate(server.URL + "/cert/no-pem")
-	if err != nil {
-		t.Fatalf("FetchCertificate error: %v", err)
+	if err == nil {
+		t.Fatal("expected error for non-PEM response, got nil")
 	}
-	// No PEM blocks means empty certs slice
-	if len(certs) != 0 {
-		t.Errorf("expected 0 certs for non-PEM response, got %d", len(certs))
+	if certs != nil {
+		t.Errorf("expected nil certs for non-PEM response, got %d", len(certs))
 	}
 }
 

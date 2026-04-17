@@ -172,7 +172,7 @@ func (c *Client) fetchDirectory() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+		return fmt.Errorf("unexpected status: %d fetching directory", resp.StatusCode)
 	}
 
 	var dir Directory
@@ -421,6 +421,9 @@ func (c *Client) FetchCertificate(certURL string) ([][]byte, error) {
 		data = rest
 	}
 
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("certificate response contains no valid PEM blocks")
+	}
 	return certs, nil
 }
 

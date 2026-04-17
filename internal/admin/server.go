@@ -446,22 +446,26 @@ func (m *defaultMetrics) GetAllMetrics() map[string]any {
 
 	var buf bytes.Buffer
 	handler := metrics.NewJSONHandler(m.registry)
-	if err := handler.WriteMetrics(&buf); err == nil {
-		// Parse the JSON output
-		var metrics map[string]any
-		if err := json.Unmarshal(buf.Bytes(), &metrics); err == nil {
-			return metrics
-		}
+	if err := handler.WriteMetrics(&buf); err != nil {
+		log.Printf("admin: failed to write metrics: %v", err)
+		return result
+	}
+	var metrics map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &metrics); err != nil {
+		log.Printf("admin: failed to unmarshal metrics: %v", err)
+		return result
 	}
 
-	return result
+	return metrics
 }
 
 // PrometheusFormat returns metrics in Prometheus exposition format.
 func (m *defaultMetrics) PrometheusFormat() string {
 	var buf bytes.Buffer
 	handler := metrics.NewPrometheusHandler(m.registry)
-	handler.WriteMetrics(&buf)
+	if err := handler.WriteMetrics(&buf); err != nil {
+		log.Printf("admin: failed to format Prometheus metrics: %v", err)
+	}
 	return buf.String()
 }
 
@@ -486,7 +490,10 @@ func newRateLimiter(maxReqs int, windowStr string) *rateLimiter {
 	}
 	window := time.Minute
 	if windowStr != "" {
-		if d, err := time.ParseDuration(windowStr); err == nil && d > 0 {
+		d, err := time.ParseDuration(windowStr)
+		if err != nil {
+			log.Printf("admin: invalid rate limit window %q, using default 1m: %v", windowStr, err)
+		} else if d > 0 {
 			window = d
 		}
 	}

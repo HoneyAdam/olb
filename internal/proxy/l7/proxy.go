@@ -530,6 +530,7 @@ func (p *HTTPProxy) proxyRequest(w http.ResponseWriter, r *http.Request, reqCtx 
 	defer utils.Put(buf)
 	bytesOut, err := io.CopyBuffer(w, resp.Body, buf)
 	if err != nil {
+		io.Copy(io.Discard, resp.Body)
 		return err
 	}
 
