@@ -426,7 +426,9 @@ func (gwh *GRPCWebHandler) HandleGRPCWeb(w http.ResponseWriter, r *http.Request,
 	// Remove Content-Length since we modified the body
 	w.Header().Del("Content-Length")
 	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(finalBody)
+	if _, err := w.Write(finalBody); err != nil {
+		return fmt.Errorf("grpc-web write: %w", err)
+	}
 
 	return nil
 }
