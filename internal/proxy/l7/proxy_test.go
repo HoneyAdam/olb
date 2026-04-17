@@ -30,6 +30,21 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
+// closedPortAddr returns a "127.0.0.1:port" address that is guaranteed to
+// refuse connections. It allocates an OS-assigned port and immediately closes
+// the listener. On some systems (notably Windows), well-known low ports like
+// :1 may have services listening, so this is the reliable approach.
+func closedPortAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("failed to allocate ephemeral port: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return addr
+}
+
 // setupTestProxy creates a proxy with test dependencies.
 func setupTestProxy(t *testing.T) (*HTTPProxy, *backend.PoolManager, *router.Router) {
 	t.Helper()
@@ -176,7 +191,7 @@ func TestHTTPProxy_ServeHTTP_NoHealthyBackends(t *testing.T) {
 	// Create pool with unhealthy backend
 	pool := backend.NewPool("test-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("backend-1", "127.0.0.1:1")
+	b := backend.NewBackend("backend-1", closedPortAddr(t))
 	b.SetState(backend.StateDown)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -283,7 +298,7 @@ func TestHTTPProxy_ServeHTTP_ConnectionRefused(t *testing.T) {
 	// Create pool with backend on closed port
 	pool := backend.NewPool("test-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("backend-1", "127.0.0.1:1")
+	b := backend.NewBackend("backend-1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -599,8 +614,7 @@ func TestHTTPProxy_RetryOnFailure(t *testing.T) {
 	proxy := NewHTTPProxy(config)
 
 	// Create a backend that is closed (simulates connection refused)
-	// Use a port that's very unlikely to be used
-	closedBackendAddr := "127.0.0.1:1"
+	closedBackendAddr := closedPortAddr(t)
 
 	backend2 := createTestBackend(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1335,7 +1349,7 @@ func TestProxyRequest_WithBackendFailure(t *testing.T) {
 	pool.SetBalancer(balancer.NewRoundRobin())
 
 	// Use a port that's definitely closed
-	b := backend.NewBackend("backend-1", "127.0.0.1:1")
+	b := backend.NewBackend("backend-1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -1385,7 +1399,7 @@ func TestProxyRequest_WithRetrySuccess(t *testing.T) {
 	proxy := NewHTTPProxy(config)
 
 	// Create backends - first one is closed, second one works
-	closedBackendAddr := "127.0.0.1:1"
+	closedBackendAddr := closedPortAddr(t)
 
 	workingBackend := createTestBackend(t, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -1447,7 +1461,7 @@ func TestProxyRequest_AllRetriesFail(t *testing.T) {
 
 	// Add multiple closed backends
 	for i := 0; i < 3; i++ {
-		b := backend.NewBackend(fmt.Sprintf("backend-%d", i), fmt.Sprintf("127.0.0.1:%d", i+1))
+		b := backend.NewBackend(fmt.Sprintf("backend-%d", i), closedPortAddr(t))
 		b.SetState(backend.StateUp)
 		if err := pool.AddBackend(b); err != nil {
 			t.Fatalf("failed to add backend: %v", err)
@@ -1610,7 +1624,7 @@ func TestHTTPProxy_BackendConnectionRefused(t *testing.T) {
 	pool := backend.NewPool("test-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
 
-	b := backend.NewBackend("backend-1", "127.0.0.1:1")
+	b := backend.NewBackend("backend-1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -2168,8 +2182,8 @@ func TestCreateTransport_WithConnPoolManager(t *testing.T) {
 	// Test the DialContext function with backendIDKey in context
 	// This exercises the connPoolManager.GetPool path
 	ctx := context.WithValue(context.Background(), backendIDKey, "test-backend-id")
-	_, err := transport.DialContext(ctx, "tcp", "127.0.0.1:1")
-	// The connection should fail (no server on port 1), but the pool path is exercised
+	_, err := transport.DialContext(ctx, "tcp", closedPortAddr(t))
+	// The connection should fail (no server on that port), but the pool path is exercised
 	if err == nil {
 		t.Error("expected error dialing invalid address")
 	}
@@ -2195,7 +2209,7 @@ func TestCreateTransport_WithoutConnPoolManager(t *testing.T) {
 
 	// Test direct dial fallback (no backendIDKey in context, no connPoolManager)
 	ctx := context.Background()
-	_, err := transport.DialContext(ctx, "tcp", "127.0.0.1:1")
+	_, err := transport.DialContext(ctx, "tcp", closedPortAddr(t))
 	if err == nil {
 		t.Error("expected error dialing invalid address")
 	}
@@ -2376,7 +2390,7 @@ func TestProxyHandler_GRPCRequest_NoBackends(t *testing.T) {
 	// Create pool with no healthy backends
 	pool := backend.NewPool("grpc-nobackend-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("grpc-backend-down", "127.0.0.1:1")
+	b := backend.NewBackend("grpc-backend-down", closedPortAddr(t))
 	b.SetState(backend.StateDown)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -2412,7 +2426,7 @@ func TestProxyHandler_SSERequest_NoBackends(t *testing.T) {
 	// Create pool with no healthy backends
 	pool := backend.NewPool("sse-nobackend-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("sse-backend-down", "127.0.0.1:1")
+	b := backend.NewBackend("sse-backend-down", closedPortAddr(t))
 	b.SetState(backend.StateDown)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -2465,7 +2479,7 @@ func TestProxyHandler_AllBackendsAttempted(t *testing.T) {
 	pool.SetBalancer(balancer.NewRoundRobin())
 
 	// Add only one backend that is unreachable
-	b := backend.NewBackend("retry-backend-1", "127.0.0.1:1")
+	b := backend.NewBackend("retry-backend-1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -2713,7 +2727,7 @@ func TestCov_ProxyHandler_AllBackendsAttempted_ErrorPath(t *testing.T) {
 	pool := backend.NewPool("attempt-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
 
-	b := backend.NewBackend("attempt-b1", "127.0.0.1:1")
+	b := backend.NewBackend("attempt-b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	pool.AddBackend(b)
 	poolManager.AddPool(pool)

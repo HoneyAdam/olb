@@ -716,7 +716,7 @@ func TestSSEHandler_HandleSSE_BackendError(t *testing.T) {
 	handler := NewSSEHandler(nil)
 
 	// Use an address that refuses connections
-	be := backend.NewBackend("sse-backend-bad", "127.0.0.1:1")
+	be := backend.NewBackend("sse-backend-bad", closedPortAddr(t))
 	be.SetState(backend.StateUp)
 
 	req := httptest.NewRequest("GET", "/events", nil)
@@ -1078,7 +1078,7 @@ func TestSSEProxy_ServeHTTP_SSE_NoHealthyBackends(t *testing.T) {
 
 	pool := backend.NewPool("sse-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("sse-backend-down", "127.0.0.1:1")
+	b := backend.NewBackend("sse-backend-down", closedPortAddr(t))
 	b.SetState(backend.StateDown)
 	if err := pool.AddBackend(b); err != nil {
 		t.Fatalf("failed to add backend: %v", err)
@@ -1264,7 +1264,7 @@ func TestSSEHandler_prepareSSERequest_WithExistingXFF(t *testing.T) {
 func TestSSEHandler_HandleSSE_BackendRequestFailure(t *testing.T) {
 	handler := NewSSEHandler(nil)
 
-	be := backend.NewBackend("backend-1", "127.0.0.1:1") // Will fail
+	be := backend.NewBackend("backend-1", closedPortAddr(t)) // Will fail
 	be.SetState(backend.StateUp)
 
 	req := httptest.NewRequest("GET", "/events", nil)

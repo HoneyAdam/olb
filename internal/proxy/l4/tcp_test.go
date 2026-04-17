@@ -12,6 +12,18 @@ import (
 	"github.com/openloadbalancer/olb/internal/backend"
 )
 
+// closedPortAddr returns a "127.0.0.1:port" address guaranteed to refuse connections.
+func closedPortAddr(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("closedPortAddr: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return addr
+}
+
 // --- TCP Proxy Tests ---
 
 func TestNewTCPProxy(t *testing.T) {
@@ -195,7 +207,7 @@ func TestTCPProxy_HandleConnection_CancelledContext(t *testing.T) {
 func TestTCPProxy_HandleConnection_DialFailure(t *testing.T) {
 	pool := backend.NewPool("test", "round_robin")
 	// Backend points to a port with no listener
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	pool.AddBackend(b)
 
@@ -523,7 +535,7 @@ func TestParseTCPAddress_ColonOnly(t *testing.T) {
 
 func TestIsTCPConn(t *testing.T) {
 	// TCP connection
-	conn, err := net.DialTimeout("tcp", "127.0.0.1:1", 10*time.Millisecond)
+	conn, err := net.DialTimeout("tcp", closedPortAddr(t), 10*time.Millisecond)
 	if conn != nil {
 		if !IsTCPConn(conn) {
 			t.Error("expected IsTCPConn to return true for TCP connection")
@@ -1265,7 +1277,7 @@ func TestUDPProxy_MultipleDatagrams(t *testing.T) {
 func TestUDPProxy_DroppedPackets_NoHealthyBackends(t *testing.T) {
 	pool := backend.NewPool("test", "round_robin")
 	// Add a backend but mark it as down
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateDown)
 	pool.AddBackend(b)
 

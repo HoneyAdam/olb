@@ -16,12 +16,26 @@ import (
 	"github.com/openloadbalancer/olb/internal/engine"
 )
 
+// closedPort returns a port number that is guaranteed to refuse connections.
+func closedPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("closedPort: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	return port
+}
+
 // TestChaos_AllBackendsDown tests proxy behavior when all backends are unreachable.
 func TestChaos_AllBackendsDown(t *testing.T) {
 	proxyPH := reservePort(t)
 	adminPH := reservePort(t)
 
-	// Use non-existent backend addresses
+	// Use non-existent backend addresses (closed ports)
+	be1 := closedPort(t)
+	be2 := closedPort(t)
 	yamlCfg := fmt.Sprintf(`admin:
   address: "127.0.0.1:%d"
 listeners:
@@ -35,14 +49,14 @@ pools:
   - name: dead-pool
     algorithm: round_robin
     backends:
-      - address: "127.0.0.1:1"
-      - address: "127.0.0.1:2"
+      - address: "127.0.0.1:%d"
+      - address: "127.0.0.1:%d"
     health_check:
       type: http
       interval: 1s
       timeout: 500ms
       path: /health
-`, adminPH.Port(), proxyPH.Port())
+`, adminPH.Port(), proxyPH.Port(), be1, be2)
 
 	cfgPath := writeYAML(t, yamlCfg)
 	cfg, err := config.Load(cfgPath)

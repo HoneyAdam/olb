@@ -620,7 +620,7 @@ func TestHandleWebSocket_ConnectionRefused(t *testing.T) {
 		IdleTimeout:     1 * time.Second,
 	})
 	// Backend that doesn't exist
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 
 	req := httptest.NewRequest("GET", "/ws", nil)
@@ -714,7 +714,7 @@ func TestDialBackend_TLSAddress(t *testing.T) {
 	wh := NewWebSocketHandler(nil)
 	req := httptest.NewRequest("GET", "/ws", nil)
 
-	b := backend.NewBackend("b1", "wss://127.0.0.1:1")
+	b := backend.NewBackend("b1", "wss://"+closedPortAddr(t))
 	b.SetState(backend.StateUp)
 
 	// Should attempt TLS dial (will fail because no server, but tests the TLS path)
@@ -728,7 +728,7 @@ func TestDialBackend_HTTPSPrefix(t *testing.T) {
 	wh := NewWebSocketHandler(nil)
 	req := httptest.NewRequest("GET", "/ws", nil)
 
-	b := backend.NewBackend("b1", "https://127.0.0.1:1")
+	b := backend.NewBackend("b1", "https://"+closedPortAddr(t))
 	b.SetState(backend.StateUp)
 
 	_, err := wh.dialBackend(req, b)
@@ -744,7 +744,7 @@ func TestDialBackend_WithTLSRequest(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws", nil)
 	req.TLS = &tls.ConnectionState{} // Simulate TLS request
 
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 
 	// Should attempt TLS dial because r.TLS is set
@@ -1103,7 +1103,7 @@ func TestWebSocketProxy_ServeHTTP_NoHealthyBackends(t *testing.T) {
 
 	pool := backend.NewPool("ws-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateDown)
 	pool.AddBackend(b)
 	poolManager.AddPool(pool)
@@ -1130,7 +1130,7 @@ func TestWebSocketProxy_ServeHTTP_BackendConnRefused(t *testing.T) {
 
 	pool := backend.NewPool("ws-pool", "round_robin")
 	pool.SetBalancer(balancer.NewRoundRobin())
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	pool.AddBackend(b)
 	poolManager.AddPool(pool)

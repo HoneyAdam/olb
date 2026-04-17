@@ -315,12 +315,12 @@ func TestShadowManager_sendShadow(t *testing.T) {
 		// Send to a closed port
 		target := ShadowTarget{
 			Balancer:   balancer.NewRoundRobin(),
-			Backends:   []*backend.Backend{backend.NewBackend("test", "127.0.0.1:1")},
+			Backends:   []*backend.Backend{backend.NewBackend("test", closedPortAddr(t))},
 			Percentage: 100.0,
 		}
 
 		// Should not panic or block, just return
-		sm.sendShadow(req, "127.0.0.1:1", target, nil)
+		sm.sendShadow(req, closedPortAddr(t), target, nil)
 	})
 
 	t.Run("send shadow with body copying", func(t *testing.T) {
@@ -342,12 +342,12 @@ func TestShadowManager_sendShadow(t *testing.T) {
 
 		target := ShadowTarget{
 			Balancer:   balancer.NewRoundRobin(),
-			Backends:   []*backend.Backend{backend.NewBackend("test", "127.0.0.1:1")},
+			Backends:   []*backend.Backend{backend.NewBackend("test", closedPortAddr(t))},
 			Percentage: 100.0,
 		}
 
 		// Should not panic with nil body
-		sm.sendShadow(req, "127.0.0.1:1", target, nil)
+		sm.sendShadow(req, closedPortAddr(t), target, nil)
 	})
 
 	t.Run("send shadow without headers", func(t *testing.T) {
@@ -366,12 +366,12 @@ func TestShadowManager_sendShadow(t *testing.T) {
 
 		target := ShadowTarget{
 			Balancer:   balancer.NewRoundRobin(),
-			Backends:   []*backend.Backend{backend.NewBackend("test", "127.0.0.1:1")},
+			Backends:   []*backend.Backend{backend.NewBackend("test", closedPortAddr(t))},
 			Percentage: 100.0,
 		}
 
 		// Should not panic
-		sm.sendShadow(req, "127.0.0.1:1", target, nil)
+		sm.sendShadow(req, closedPortAddr(t), target, nil)
 	})
 }
 

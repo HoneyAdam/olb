@@ -130,7 +130,7 @@ func TestUDPProxy_ForwardToBackend_WriteErrorWithBackend(t *testing.T) {
 	backendConn.Close()
 
 	// Session with a backend object -- tests the RecordError path
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	session := newUDPSession(clientAddr, backendAddr, backendConn, b)
 	errorsBefore := b.TotalErrors()
@@ -2026,7 +2026,7 @@ func TestTCPProxy_HandleConnection_AcquireConnFails(t *testing.T) {
 func TestTCPProxy_HandleConnection_DialBackendFails(t *testing.T) {
 	pool := backend.NewPool("test", "round_robin")
 	// Backend with unreachable address
-	b := backend.NewBackend("b1", "127.0.0.1:1")
+	b := backend.NewBackend("b1", closedPortAddr(t))
 	b.SetState(backend.StateUp)
 	pool.AddBackend(b)
 	cfg := &TCPProxyConfig{
@@ -2468,7 +2468,7 @@ func TestSNIRouter_RouteConnection_NoRouteNoDefault_Cov3(t *testing.T) {
 
 func TestSNIRouter_RouteConnection_WithDefaultBackend_Cov3(t *testing.T) {
 	router := NewSNIRouter(&SNIRouterConfig{
-		DefaultBackend: "127.0.0.1:1", // unreachable
+		DefaultBackend: closedPortAddr(t),
 		ReadTimeout:    2 * time.Second,
 	})
 

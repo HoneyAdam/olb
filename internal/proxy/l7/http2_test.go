@@ -932,7 +932,7 @@ func TestHandleHTTP2Proxy_FullRoundTrip(t *testing.T) {
 
 func TestHandleHTTP2Proxy_BackendConnectionError(t *testing.T) {
 	// Use an address that refuses connections
-	be := backend.NewBackend("h2-backend-bad", "127.0.0.1:1")
+	be := backend.NewBackend("h2-backend-bad", closedPortAddr(t))
 	be.SetState(backend.StateUp)
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -1497,7 +1497,7 @@ func TestHandleHTTP2Proxy_WithFlusher(t *testing.T) {
 // ============================================================================
 
 func TestHandleHTTP2Proxy_BackendRefused(t *testing.T) {
-	be := backend.NewBackend("h2-refused", "127.0.0.1:1")
+	be := backend.NewBackend("h2-refused", closedPortAddr(t))
 	be.SetState(backend.StateUp)
 
 	req := httptest.NewRequest("GET", "/", nil)
@@ -1675,7 +1675,7 @@ func TestHTTP2Listener_StartWithCustomConfig(t *testing.T) {
 func TestHTTP2BackendTransport_RoundTrip_Unreachable(t *testing.T) {
 	transport := NewHTTP2BackendTransport(DefaultHTTP2Config())
 
-	req, _ := http.NewRequest("GET", "http://127.0.0.1:1/", nil)
+	req, _ := http.NewRequest("GET", "http://"+closedPortAddr(t)+"/", nil)
 	_, err := transport.RoundTrip(req)
 	if err == nil {
 		t.Error("Expected error for unreachable backend")
