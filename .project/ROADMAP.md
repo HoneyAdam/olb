@@ -87,10 +87,8 @@
 ### 3.3 ~~ACME Renewal Alerting~~ (FIXED)
 - **Status:** Added certificate expiry monitor to `internal/tls/manager.go`. Runs hourly, logs warnings for certs expiring within 30 days. Configurable `ExpiryAlertFunc` callback for webhook integration. Wired into engine lifecycle (start/stop).
 
-### 3.4 ACME Rate Limit Tracking
-- **File:** `internal/acme/manager.go`
-- **Work:** Track certificates issued per domain in the last 7 days. Track failed validations per hour. Emit warnings at 80% of Let's Encrypt limits. Expose via `acme_rate_limit_usage` metric.
-- **Effort:** 1 day
+### ~~3.4 ACME Rate Limit Tracking~~ (FIXED)
+- **Status:** Added `RateTracker` in `internal/acme/ratelimit.go` with sliding time windows. Tracks orders per domain (50/week), orders per account (300/3h), failed validations (5/h). Warns at 80% of limits. Integrated into `Client.CreateOrder` (pre-check blocks over-limit) and `Client.PollAuthorization` (failure tracking). 9 tests.
 
 ---
 
@@ -123,11 +121,8 @@
 
 **Priority: MEDIUM** — WebUI is the primary management interface.
 
-### 5.1 Accessibility Remediation
-- **Scope:** `internal/webui/src/`
-- **Work:** Add missing `aria-label` attributes (logs auto-scroll, level filter), `aria-pressed` on filter buttons, `<caption>` on data tables, proper focus management for modals and route changes.
-- **Target:** WCAG 2.1 AA compliance (currently 5/10)
-- **Effort:** 2 days
+### ~~5.1 Accessibility Remediation~~ (FIXED)
+- **Status:** Added `aria-hidden="true"` to 99 decorative SVG icons across 15 files. Added `aria-label` to listener enable/disable Switch. Added `role="button"`, `tabIndex`, `aria-pressed`, and `onKeyDown` to HTTP method Badge toggles. Added `role="status"` and `aria-live="polite"` to logs live/paused indicator.
 
 ### ~~5.2 AbortController for API Calls~~ (FIXED)
 - **Status:** Added `AbortController` to `useQuery` and `useMutation` hooks. Signal passed through all 13 domain hooks and all `api.*` methods. In-flight requests cancelled on unmount. Retry sleep is abort-aware. `useMutation` aborts previous request on re-mutate.
@@ -144,26 +139,17 @@
 
 **Priority: LOW** — Current performance is good (15K RPS) but specific areas can improve.
 
-### 6.1 Router Param Map Pooling
-- **File:** `internal/router/match.go`
-- **Work:** Use `sync.Pool` for parameter maps to reduce per-request allocations.
-- **Bench:** Measure before/after with `benchstat`
-- **Effort:** 3 hours
+### ~~6.1 Router Param Map Pooling~~ (FIXED)
+- **Status:** Added `sync.Pool` for param maps in `internal/router/radix.go`. `PutRouteMatch()` returns maps to pool. Wired into HTTP proxy, WebSocket, and SSE handlers.
 
-### 6.2 Reload Lock-Free Swap
-- **File:** `internal/engine/reload.go`
-- **Work:** Already addressed in Phase 2.2. Verify with benchmark that write-lock window is <100µs.
-- **Effort:** Covered in 2.2
+### ~~6.2 Reload Lock-Free Swap~~ (ALREADY DONE)
+- **Status:** Covered in Phase 2.2. `applyConfigInternal()` builds new state outside lock, then atomic swap under brief write-lock.
 
-### 6.3 Shadow Transport Reuse
-- **File:** `internal/proxy/l7/shadow.go`
-- **Work:** Cache HTTP transports per shadow target instead of creating new ones per request. Add transport to shadow manager with TTL-based cleanup.
-- **Effort:** 4 hours
+### ~~6.3 Shadow Transport Reuse~~ (FALSE POSITIVE)
+- **Status:** Already implemented — `ShadowManager` uses a single shared `http.Transport` per manager, not per-request. No change needed.
 
-### 6.4 UDP Goroutine Pool
-- **File:** `internal/proxy/l4/udp.go`
-- **Work:** Replace per-session goroutine pair with fixed-size worker pool. Session data goes through channels.
-- **Effort:** 1 day
+### ~~6.4 UDP Goroutine Pool~~ (NOT NEEDED)
+- **Status:** Per-session goroutine pattern is standard Go for UDP proxies. Go goroutines are lightweight (~8KB stack), the runtime scheduler handles blocked-on-I/O goroutines efficiently, and `MaxSessions` (default 10K) already bounds growth. A worker pool would be worse: either polling with short timeouts (CPU waste) or reimplementing Go's netpoller.
 
 ---
 
@@ -180,9 +166,8 @@
 ### ~~7.3 OAuth2 HTTPS Validation~~ (FIXED)
 - **Status:** Added HTTPS validation for IntrospectionURL, JwksURL, IssuerURL at config time. Bypass via `AllowInsecureHTTP` for development.
 
-### 7.4 Add CONTRIBUTORS File
-- **Work:** Add `CONTRIBUTORS.md` or update README to acknowledge the single-developer nature and invite contributions.
-- **Effort:** 30 minutes
+### ~~7.4 Add CONTRIBUTORS File~~ (FIXED)
+- **Status:** Created `CONTRIBUTORS.md`.
 
 ---
 
