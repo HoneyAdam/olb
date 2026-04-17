@@ -433,7 +433,10 @@ func (c *Checker) checkGRPC(b *backend.Backend, config *Check) Result {
 			return Result{Healthy: false, Error: fmt.Errorf("grpc health check failed: %w", err)}
 		}
 	}
-	defer resp.Body.Close()
+	defer func() {
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+	}()
 
 	// Check gRPC status from trailers (grpc-status: 0 = OK)
 	grpcStatus := resp.Trailer.Get("Grpc-Status")
